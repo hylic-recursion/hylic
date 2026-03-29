@@ -1,0 +1,18 @@
+[package]
+name = "hylic"
+version = "0.1.0"
+edition = "2024"
+description = "Composable tree computation framework: monoidal catamorphisms with parallel execution"
+
+[dependencies]
+either = "1.15.0"
+derive_more = { version = "2.0.1", features = ["full"] }
+rayon = "1.10"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+rand = "0.8"
+
+[[bench]]
+name = "par_bench"
+harness = false
