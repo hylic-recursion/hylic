@@ -53,8 +53,8 @@ where
     }
 
     /// Build the UIO computation plan without evaluating.
-    /// The returned UIO<R> is a tree of deferred computations
-    /// linked by join_par. Calling .eval() triggers parallel execution.
+    /// The returned `UIO<R>` is a tree of deferred computations
+    /// linked by `join_par`. Calling `.eval()` triggers parallel execution.
     pub fn build(&self, graph: &Treeish<N>, root: &N) -> UIO<R> {
         let plan = build_uio(&self.fold, graph, root);
         (self.plan_transform)(plan)

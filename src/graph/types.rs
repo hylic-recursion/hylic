@@ -118,7 +118,7 @@ pub fn treeish<NodeT>(
 }
 
 /// Construct a Treeish from a slice-returning accessor.
-/// For types where children are stored as a field (Vec, Arc<[T]>, slice).
+/// For types where children are stored as a field (`Vec`, `Arc<[T]>`, slice).
 pub fn treeish_from<N>(
     accessor: impl Fn(&N) -> &[N] + Send + Sync + 'static,
 ) -> Treeish<N> where N: 'static {
