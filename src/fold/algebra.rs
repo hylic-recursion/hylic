@@ -2,11 +2,11 @@ use std::sync::Arc;
 use super::{InitFn, AccumulateFn, FinalizeFn};
 
 pub struct Fold<N, H, R> {
-    // Function to create the initial heap value for a node
     pub(crate) impl_init: Arc<dyn Fn(&N) -> H + Send + Sync>,
     pub(crate) impl_accumulate: Arc<dyn Fn(&mut H, &R) + Send + Sync>,
     pub(crate) impl_finalize: Arc<dyn Fn(&H) -> R + Send + Sync>,
 }
+
 impl<N, H, R> Clone for Fold<N, H, R> {
     fn clone(&self) -> Self {
         Fold {
@@ -18,14 +18,9 @@ impl<N, H, R> Clone for Fold<N, H, R> {
 }
 
 impl<N, H, R> Fold<N, H, R>
-where
-    N: 'static,
+where N: 'static, H: 'static, R: 'static,
 {
-    pub fn new<F1, F2, F3>(
-        init: F1,
-        accumulate: F2,
-        finalize: F3,
-    ) -> Self
+    pub fn new<F1, F2, F3>(init: F1, accumulate: F2, finalize: F3) -> Self
     where
         F1: Fn(&N) -> H + Send + Sync + 'static,
         F2: Fn(&mut H, &R) + Send + Sync + 'static,
@@ -37,24 +32,13 @@ where
             impl_finalize: Arc::from(Box::new(finalize) as FinalizeFn<H, R>),
         }
     }
-    
-    pub fn init(&self, node: &N) -> H {
-        (self.impl_init)(node)
-    }
-    
-    pub fn accumulate(&self, heap: &mut H, result: &R) {
-        (self.impl_accumulate)(heap, result)
-    }
-    
-    pub fn finalize(&self, heap: &H) -> R {
-        (self.impl_finalize)(heap)
-    }
-    
+
+    pub fn init(&self, node: &N) -> H { (self.impl_init)(node) }
+    pub fn accumulate(&self, heap: &mut H, result: &R) { (self.impl_accumulate)(heap, result) }
+    pub fn finalize(&self, heap: &H) -> R { (self.impl_finalize)(heap) }
+
     pub fn map_init<F>(&self, mapper: F) -> Self
-    where
-        H: 'static,
-        R: 'static,
-        F: FnOnce(InitFn<N, H>) -> InitFn<N, H> + 'static,
+    where F: FnOnce(InitFn<N, H>) -> InitFn<N, H> + 'static,
     {
         let orig = self.impl_init.clone();
         Fold {
@@ -65,10 +49,7 @@ where
     }
 
     pub fn map_accumulate<F>(&self, mapper: F) -> Self
-    where
-        H: 'static,
-        R: 'static,
-        F: FnOnce(AccumulateFn<H, R>) -> AccumulateFn<H, R> + 'static,
+    where F: FnOnce(AccumulateFn<H, R>) -> AccumulateFn<H, R> + 'static,
     {
         let orig = self.impl_accumulate.clone();
         Fold {
@@ -79,10 +60,7 @@ where
     }
 
     pub fn map_finalize<F>(&self, mapper: F) -> Self
-    where
-        H: 'static,
-        R: 'static,
-        F: FnOnce(FinalizeFn<H, R>) -> FinalizeFn<H, R> + 'static,
+    where F: FnOnce(FinalizeFn<H, R>) -> FinalizeFn<H, R> + 'static,
     {
         let orig = self.impl_finalize.clone();
         Fold {
@@ -91,50 +69,32 @@ where
             impl_finalize: Arc::from(mapper(Box::new(move |h: &H| orig(h)))),
         }
     }
-    
+
     pub fn map<RNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> Fold<N, H, RNew>
     where
-        H: 'static,
-        R: 'static,
         RNew: 'static,
         MapF: Fn(&R) -> RNew + Send + Sync + 'static,
         BackF: Fn(&RNew) -> R + Send + Sync + 'static,
     {
-        let impl_init = self.impl_init.clone();
-        let impl_accumulate = self.impl_accumulate.clone();
-        let impl_finalize = self.impl_finalize.clone();
-
-        let cloned_init = impl_init.clone();
-        let cloned_accumulate = impl_accumulate.clone();
-        let cloned_finalize = impl_finalize.clone();
-
+        let init = self.impl_init.clone();
+        let acc = self.impl_accumulate.clone();
+        let fin = self.impl_finalize.clone();
         Fold::new(
-            move |node| {
-                cloned_init(node)
-            },
-            move |heap, result| {
-                let result_old = backmapper(result);
-                cloned_accumulate(heap, &result_old);
-            },
-            move |heap| {
-                let result_old = cloned_finalize(heap);
-                mapper(&result_old)
-            },
+            move |node| init(node),
+            move |heap, result| { acc(heap, &backmapper(result)); },
+            move |heap| mapper(&fin(heap)),
         )
     }
-    
+
     pub fn zipmap<RZip, MapF>(&self, mapper: MapF) -> Fold<N, H, (R, RZip)>
     where
-        H: 'static,
-        R: Clone + 'static,
+        R: Clone,
         RZip: 'static,
         MapF: Fn(&R) -> RZip + Send + Sync + 'static,
     {
-        let backmap = |x: &(R, RZip)| x.0.clone();
-
         self.map(
             move |x| (x.clone(), mapper(x)),
-            backmap,
+            |x: &(R, RZip)| x.0.clone(),
         )
     }
 
@@ -143,9 +103,7 @@ where
     pub fn contramap<NewN: 'static>(
         &self,
         f: impl Fn(&NewN) -> N + Send + Sync + 'static,
-    ) -> Fold<NewN, H, R>
-    where H: 'static, R: 'static,
-    {
+    ) -> Fold<NewN, H, R> {
         let init = self.impl_init.clone();
         let acc = self.impl_accumulate.clone();
         let fin = self.impl_finalize.clone();
@@ -159,12 +117,10 @@ where
     /// Run two folds in one tree traversal. The categorical product:
     /// each fold maintains its own heap, sees its own child results,
     /// produces its own output. One pass, two results.
-    pub fn product<H2, R2>(
+    pub fn product<H2: 'static, R2: 'static>(
         &self,
         other: &Fold<N, H2, R2>,
-    ) -> Fold<N, (H, H2), (R, R2)>
-    where H: 'static, H2: 'static, R: 'static, R2: 'static,
-    {
+    ) -> Fold<N, (H, H2), (R, R2)> {
         let init1 = self.impl_init.clone();
         let init2 = other.impl_init.clone();
         let acc1 = self.impl_accumulate.clone();
@@ -181,7 +137,3 @@ where
         )
     }
 }
-
-
-
-

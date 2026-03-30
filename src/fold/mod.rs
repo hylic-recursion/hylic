@@ -12,7 +12,7 @@ pub fn fold<N, H, R>(
     init: impl Fn(&N) -> H + Send + Sync + 'static,
     accumulate: impl Fn(&mut H, &R) + Send + Sync + 'static,
     finalize: impl Fn(&H) -> R + Send + Sync + 'static,
-) -> Fold<N, H, R> where N: 'static {
+) -> Fold<N, H, R> where N: 'static, H: 'static, R: 'static {
     Fold::new(init, accumulate, finalize)
 }
 
