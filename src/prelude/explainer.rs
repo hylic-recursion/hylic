@@ -1,46 +1,29 @@
 use crate::graph::{treeish, Treeish};
-
-use crate::fold::{
-    Fold,
-};
+use crate::fold::Fold;
 
 #[derive(Clone)]
-pub struct ExplainerNode<N> where
-N: Clone,
-{
-    pub node: N,
-}
-impl <N> ExplainerNode<N> where N: Clone {
-    pub fn new(node: N) -> Self {
-        ExplainerNode { node }
-    }
-}
-
-#[derive(Clone)]
-pub struct ExplainerStep<N, H, R> where
-N: Clone, H: Clone, R: Clone,
+pub struct ExplainerStep<N, H, R>
+where N: Clone, H: Clone, R: Clone,
 {
     pub incoming_result: ExplainerResult<N, H, R>,
     pub resulting_heap: H,
 }
 
 #[derive(Clone)]
-pub struct ExplainerHeap<N, H, R> where
-N: Clone, H: Clone, R: Clone,
+pub struct ExplainerHeap<N, H, R>
+where N: Clone, H: Clone, R: Clone,
 {
     pub initial_heap: H,
-    pub orig_node: ExplainerNode<N>,
+    pub node: N,
     pub transitions: Vec<ExplainerStep<N, H, R>>,
-
     pub working_heap: H,
 }
-impl<N, H, R> ExplainerHeap<N, H, R> where
-N: Clone, H: Clone, R: Clone,
-{
+
+impl<N: Clone, H: Clone, R: Clone> ExplainerHeap<N, H, R> {
     pub fn new(node: N, heap: H) -> Self {
         ExplainerHeap {
             initial_heap: heap.clone(),
-            orig_node: ExplainerNode { node },
+            node,
             transitions: Vec::new(),
             working_heap: heap,
         }
@@ -48,59 +31,36 @@ N: Clone, H: Clone, R: Clone,
 }
 
 #[derive(Clone)]
-pub struct ExplainerResult<N, H, R> where
-R: Clone, N: Clone, H: Clone,
+pub struct ExplainerResult<N, H, R>
+where N: Clone, H: Clone, R: Clone,
 {
     pub orig_result: R,
     pub heap: ExplainerHeap<N, H, R>,
 }
 
-type EN<N> = ExplainerNode<N>;
 type EH<N, H, R> = ExplainerHeap<N, H, R>;
 type ER<N, H, R> = ExplainerResult<N, H, R>;
 
 #[derive(Clone)]
-pub struct Explainer<N, H, R> where
-N: Clone, H: Clone, R: Clone,
+pub struct Explainer<N, H, R>
+where N: Clone, H: Clone, R: Clone,
 {
     pub orig_fold: Fold<N, H, R>,
 }
 
-impl<N, H, R> Explainer<N, H, R> where
-N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
-{
-    pub fn new(run: Fold<N, H, R>) -> Self {
-        Explainer {
-            orig_fold: run,
-        }
+impl<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static> Explainer<N, H, R> {
+    pub fn new(fold: Fold<N, H, R>) -> Self {
+        Explainer { orig_fold: fold }
     }
-}
 
-pub fn treeish_for_explres<N, H, R>() -> Treeish<ER<N, H, R>> where
-N: Clone + 'static,
-H: Clone + 'static,
-R: Clone + 'static,
-{
-    treeish(|x: &ER<N,H,R>| {
-        x.heap.transitions.iter().map(|step| {
-            step.incoming_result.clone()
-        }).collect::<Vec<_>>()
-    })
-}
-
-impl<N, H, R> Explainer<N, H, R> where
-N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
-{
-
-
-    pub fn wrap(&self) -> Fold<EN<N>, EH<N, H, R>, ER<N, H, R>> {
+    /// Wrap the original fold to record computation traces.
+    /// The wrapped fold operates on N directly — no type change needed.
+    pub fn wrap(&self) -> Fold<N, EH<N, H, R>, ER<N, H, R>> {
         let f1 = self.orig_fold.clone();
         let f2 = self.orig_fold.clone();
         let f3 = self.orig_fold.clone();
-        crate::fold::fold::<EN<N>, EH<N,H,R>, ER<N,H,R>>(
-            move |node: &EN<N>| {
-                EH::new(node.node.clone(), f1.init(&node.node))
-            },
+        crate::fold::fold(
+            move |node: &N| EH::new(node.clone(), f1.init(node)),
             move |heap: &mut EH<N, H, R>, result: &ER<N, H, R>| {
                 f2.accumulate(&mut heap.working_heap, &result.orig_result);
                 heap.transitions.push(ExplainerStep {
@@ -108,41 +68,43 @@ N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
                     resulting_heap: heap.working_heap.clone(),
                 });
             },
-            move |heap: &EH<N, H, R>| {
-                ER {
-                    orig_result: f3.finalize(&heap.working_heap),
-                    heap: heap.clone(),
-                }
+            move |heap: &EH<N, H, R>| ER {
+                orig_result: f3.finalize(&heap.working_heap),
+                heap: heap.clone(),
             },
         )
     }
 
-    pub fn explain(&self,
-        exec: &crate::cata::Exec<EN<N>, ER<N, H, R>>,
+    /// Run the wrapped fold on a graph, returning the full trace.
+    pub fn explain(
+        &self,
+        exec: &crate::cata::Exec<N, ER<N, H, R>>,
         graph: &Treeish<N>,
         node: &N,
-    ) -> ExplainerResult<N,H,R> {
-        let wrapped_fold = self.wrap();
-        let wrapped_treeish = graph.treemap(
-            move |node: &N| EN::new(node.clone()),
-            move |node: &EN<N>| node.node.clone(),
-        );
-        exec.run(&wrapped_fold, &wrapped_treeish, &EN::new(node.clone()))
+    ) -> ER<N, H, R> {
+        exec.run(&self.wrap(), graph, node)
     }
 
-    pub fn explain_and_fold<HEx: 'static, REx: Clone + 'static>(&self,
-        exec: &crate::cata::Exec<EN<N>, ER<N, H, R>>,
+    /// Run the wrapped fold, then fold the trace with a second fold.
+    pub fn explain_and_fold<HEx: 'static, REx: Clone + 'static>(
+        &self,
+        exec: &crate::cata::Exec<N, ER<N, H, R>>,
         exec_result: &crate::cata::Exec<ER<N, H, R>, REx>,
         graph: &Treeish<N>,
-        fold_explainer: &Fold<ER<N,H,R>, HEx, REx>,
+        fold_explainer: &Fold<ER<N, H, R>, HEx, REx>,
         node: &N,
     ) -> (R, REx) {
-        let wrapped_result = self.explain(exec, graph, node);
-        let treeish_for_result: Treeish<ER<N,H,R>> = treeish_for_explres();
-        let folded = exec_result.run(fold_explainer, &treeish_for_result, &wrapped_result);
-        (wrapped_result.orig_result, folded)
+        let result = self.explain(exec, graph, node);
+        let treeish = treeish_for_explres::<N, H, R>();
+        let folded = exec_result.run(fold_explainer, &treeish, &result);
+        (result.orig_result, folded)
     }
-
 }
 
-
+/// Treeish over ExplainerResult — each result's transitions are its children.
+pub fn treeish_for_explres<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>(
+) -> Treeish<ER<N, H, R>> {
+    treeish(|x: &ER<N, H, R>| {
+        x.heap.transitions.iter().map(|step| step.incoming_result.clone()).collect()
+    })
+}

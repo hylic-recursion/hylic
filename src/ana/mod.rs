@@ -1,26 +1,16 @@
 use std::sync::Arc;
 use either::Either;
 
-use crate::graph::types::{Edgy, Treeish, edgy_visit};
+use crate::graph::types::{Edgy, Treeish, edgy_visit, treeish_visit};
 use crate::graph::Graph;
 
-pub(crate) mod edgy_from_deperr;
-pub(crate) mod treeish_from_deperr;
-pub(crate) mod treeish_from_err_edgy;
-
-pub(crate) type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
 pub(crate) type GrowNodeFn<Seed, NodeE, NodeV> = Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>;
-
-use edgy_from_deperr::EdgyFromDepErr;
-use treeish_from_deperr::TreeishFromDepErr;
 
 pub struct SeedGraph<NodeV, NodeE, Seed, Top> {
     /// NodeV ->> Seed
     pub(crate) impl_seeds_from_valid_edgy: Edgy<NodeV, Seed>,
-
     /// Seed -> NodeV|NodeE
     pub(crate) impl_grow_node_fn: Arc<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>,
-
     /// Top ->> Seed
     pub(crate) impl_seeds_from_top: Edgy<Top, Seed>,
 }
@@ -53,75 +43,58 @@ where
             impl_seeds_from_top: seeds_from_top,
         }
     }
-    
+
     pub fn seeds_from_valid(&self, node: &NodeV) -> Vec<Seed> {
         self.impl_seeds_from_valid_edgy.apply(node)
     }
-    
+
     pub fn grow_node(&self, seed: &Seed) -> Either<NodeE, NodeV> {
         (self.impl_grow_node_fn)(seed)
     }
-    
+
     pub fn seeds_from_top(&self, top: &Top) -> Vec<Seed> {
         self.impl_seeds_from_top.apply(top)
     }
 
-    // Creates an EdgyFromDepErr from the basic functions
-    fn spec_edgy_from_deperr(&self) -> EdgyFromDepErr<NodeV, NodeE, Seed> {
-        let grow_node_fn = self.impl_grow_node_fn.clone();
-        EdgyFromDepErr::new(
-            self.impl_seeds_from_valid_edgy.clone(), 
-            move |seed| (grow_node_fn)(seed)
-        )
-    }
-
-    // Creates a TreeishFromDepErr from the edgy_spec
-    fn spec_treeish_from_deperr(&self) -> TreeishFromDepErr<NodeV, NodeE, Seed> {
-        TreeishFromDepErr::new(self.spec_edgy_from_deperr())
-    }
-
-    // Creates a Treeish from the TreeishFromDepErr
+    /// Build the recursive tree traversal. Valid nodes produce children
+    /// via seeds; error nodes are leaves (no children).
     pub fn make_treeish(&self) -> Treeish<Either<NodeE, NodeV>> {
-        self.spec_treeish_from_deperr().make_treeish()
-    }
-
-    // Creates the edgy that yields the top "Node"s, an ingredient for the Graph
-    pub fn make_top_edgy(&self) -> Edgy<Top, Either<NodeE, NodeV>> {
-        let seeds_fn = self.impl_seeds_from_top.clone();
-        let grow_node_fn = self.impl_grow_node_fn.clone();
-
-        edgy_visit(move |node: &Top, cb: &mut dyn FnMut(&Either<NodeE, NodeV>)| {
-            seeds_fn.visit(node, &mut |seed: &Seed| {
-                let grown = (grow_node_fn)(seed);
-                cb(&grown);
-            });
+        let seeds = self.impl_seeds_from_valid_edgy.clone();
+        let grow = self.impl_grow_node_fn.clone();
+        treeish_visit(move |node: &Either<NodeE, NodeV>, cb: &mut dyn FnMut(&Either<NodeE, NodeV>)| {
+            if let Either::Right(valid) = node {
+                seeds.visit(valid, &mut |seed: &Seed| cb(&grow(seed)));
+            }
         })
     }
 
-    // Creates the Graph from treeish and top_edgy
+    /// Build the top-level entry edgy: top → seeds → grown nodes.
+    pub fn make_top_edgy(&self) -> Edgy<Top, Either<NodeE, NodeV>> {
+        let seeds_fn = self.impl_seeds_from_top.clone();
+        let grow = self.impl_grow_node_fn.clone();
+        edgy_visit(move |top: &Top, cb: &mut dyn FnMut(&Either<NodeE, NodeV>)| {
+            seeds_fn.visit(top, &mut |seed: &Seed| cb(&grow(seed)));
+        })
+    }
+
+    /// Build the complete Graph from treeish + top_edgy.
     pub fn make_graph(&self) -> Graph<Top, Either<NodeE, NodeV>> {
-        Graph::new(
-            self.make_treeish(),
-            self.make_top_edgy()
-        )
+        Graph::new(self.make_treeish(), self.make_top_edgy())
     }
 
     pub fn map_grow_node_fn<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(GrowNodeFn<Seed, NodeE, NodeV>) -> GrowNodeFn<Seed, NodeE, NodeV> + 'static,
+    where F: FnOnce(GrowNodeFn<Seed, NodeE, NodeV>) -> GrowNodeFn<Seed, NodeE, NodeV> + 'static,
     {
-        let original_fn = self.impl_grow_node_fn.clone();
-        let boxed_original = Box::new(move |seed: &Seed| (*original_fn)(seed));
+        let orig = self.impl_grow_node_fn.clone();
         SeedGraph {
             impl_seeds_from_valid_edgy: self.impl_seeds_from_valid_edgy.clone(),
-            impl_grow_node_fn: Arc::from(mapper(boxed_original)),
+            impl_grow_node_fn: Arc::from(mapper(Box::new(move |seed: &Seed| (*orig)(seed)))),
             impl_seeds_from_top: self.impl_seeds_from_top.clone(),
         }
     }
 
     pub fn map_seeds_from_valid<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
+    where F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
     {
         SeedGraph {
             impl_seeds_from_valid_edgy: mapper(self.impl_seeds_from_valid_edgy.clone()),
@@ -131,8 +104,7 @@ where
     }
 
     pub fn map_seeds_from_top<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(Edgy<Top, Seed>) -> Edgy<Top, Seed> + 'static,
+    where F: FnOnce(Edgy<Top, Seed>) -> Edgy<Top, Seed> + 'static,
     {
         SeedGraph {
             impl_seeds_from_valid_edgy: self.impl_seeds_from_valid_edgy.clone(),

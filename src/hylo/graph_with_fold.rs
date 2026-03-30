@@ -115,3 +115,13 @@ where
         )
     }
 }
+
+/// Convenience for Either-typed node graphs (seed-based resolution pattern).
+impl<NodeE, NodeV, Top, HeapT, ReturnT> GraphWithFold<either::Either<NodeE, NodeV>, Top, HeapT, ReturnT>
+where
+    NodeE: 'static, NodeV: Clone + 'static, Top: 'static, HeapT: 'static, ReturnT: 'static,
+{
+    pub fn run_valid(&self, exec: &Exec<either::Either<NodeE, NodeV>, ReturnT>, node: &NodeV) -> ReturnT {
+        self.run_node(exec, &either::Either::Right(node.clone()))
+    }
+}
