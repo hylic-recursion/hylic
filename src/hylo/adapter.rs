@@ -42,17 +42,20 @@ where
         self.graph_with_fold.heap_of_top(top)
     }
 
-    pub fn run_node(&self, node: &NodeT) -> ReturnT {
-        use crate::cata::sync;
-        sync::run(
+    pub fn run_node(&self, strategy: crate::cata::Strategy, node: &NodeT) -> ReturnT
+    where NodeT: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
+    {
+        strategy.run(
             &self.graph_with_fold.fold_impl,
             &self.graph_with_fold.graph.treeish,
             node,
         )
     }
 
-    pub fn run_top(&self, top: &Top) -> ReturnT {
-        self.graph_with_fold.run(top)
+    pub fn run_top(&self, strategy: crate::cata::Strategy, top: &Top) -> ReturnT
+    where NodeT: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
+    {
+        self.graph_with_fold.run(strategy, top)
     }
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self

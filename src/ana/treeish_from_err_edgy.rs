@@ -5,8 +5,6 @@ use either::Either;
 use crate::graph::types::{treeish_visit, Edgy, Treeish};
 use crate::ana::ContramapFunc;
 
-pub mod transformations;
-
 #[derive(Clone)]
 pub struct TreeishFromErrEdgy<NodeV, NodeE> {
     pub(crate) impl_contramap_or: Arc<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>,
@@ -78,14 +76,22 @@ where
     where
         F: FnOnce(Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>) -> Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync> + 'static,
     {
-        transformations::map_contramap_or(self, mapper)
+        let original_fn = self.impl_contramap_or.clone();
+        let boxed_original = Box::new(move |result: &Either<NodeE, NodeV>| (*original_fn)(result));
+        TreeishFromErrEdgy {
+            impl_contramap_or: Arc::from(mapper(boxed_original)),
+            impl_edgy_valid: self.impl_edgy_valid.clone(),
+        }
     }
 
     pub fn map_edgy_valid<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Edgy<NodeV, Either<NodeE, NodeV>>) -> Edgy<NodeV, Either<NodeE, NodeV>> + 'static,
     {
-        transformations::map_edgy_valid(self, mapper)
+        TreeishFromErrEdgy {
+            impl_contramap_or: self.impl_contramap_or.clone(),
+            impl_edgy_valid: mapper(self.impl_edgy_valid.clone()),
+        }
     }
     
 }

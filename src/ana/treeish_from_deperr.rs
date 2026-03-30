@@ -8,8 +8,6 @@ use crate::graph::types::Treeish;
 use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
 
 
-pub mod transformations;
-
 #[derive(Clone)]
 pub struct TreeishFromDepErr<NodeV, NodeE, HeapSeed> {
     pub(crate) impl_edgy_from_deperr: EdgyFromDepErr<NodeV, NodeE, HeapSeed>,
@@ -76,14 +74,20 @@ where
     where
         F: FnOnce(EdgyFromDepErr<NodeV, NodeE, HeapSeed>) -> EdgyFromDepErr<NodeV, NodeE, HeapSeed> + 'static,
     {
-        transformations::map_edgy_from_deperr(self, mapper)
+        TreeishFromDepErr {
+            impl_edgy_from_deperr: mapper(self.impl_edgy_from_deperr.clone()),
+            impl_contramap_or: self.impl_contramap_or.clone(),
+        }
     }
 
     pub fn map_contramap_or<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(OptContramapFuncRc<NodeV, NodeE>) -> OptContramapFuncRc<NodeV, NodeE> + 'static,
     {
-        transformations::map_contramap_or(self, mapper)
+        TreeishFromDepErr {
+            impl_edgy_from_deperr: self.impl_edgy_from_deperr.clone(),
+            impl_contramap_or: mapper(self.impl_contramap_or.clone()),
+        }
     }
     
 }

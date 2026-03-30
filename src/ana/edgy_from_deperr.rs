@@ -1,5 +1,3 @@
-pub mod transformations;
-
 use std::sync::Arc;
 
 use either::Either;
@@ -52,14 +50,22 @@ where
     where
         F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
     {
-        transformations::map_edgy_seed(self, mapper)
+        EdgyFromDepErr {
+            impl_edgy_seed: mapper(self.impl_edgy_seed.clone()),
+            impl_grow_node: self.impl_grow_node.clone(),
+        }
     }
 
     pub fn map_grow_node<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>) -> Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>,
     {
-        transformations::map_grow_node(self, mapper)
+        let original_fn = self.impl_grow_node.clone();
+        let boxed_original = Box::new(move |seed: &Seed| (*original_fn)(seed));
+        EdgyFromDepErr {
+            impl_edgy_seed: self.impl_edgy_seed.clone(),
+            impl_grow_node: Arc::from(mapper(boxed_original)),
+        }
     }
     
 }

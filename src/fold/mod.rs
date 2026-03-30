@@ -1,5 +1,4 @@
 pub mod algebra;
-pub mod transformations;
 
 pub use algebra::Fold;
 

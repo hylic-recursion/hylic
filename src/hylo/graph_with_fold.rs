@@ -32,11 +32,12 @@ where
         (self.impl_heap_of_top)(top)
     }
 
-    pub fn run(&self, top: &Top) -> ReturnT {
-        use crate::cata::sync;
+    pub fn run(&self, strategy: crate::cata::Strategy, top: &Top) -> ReturnT
+    where NodeT: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
+    {
         let mut heap = (self.impl_heap_of_top)(top);
         self.graph.top_edgy.visit(top, &mut |child| {
-            let result = sync::run(&self.fold_impl, &self.graph.treeish, child);
+            let result = strategy.run(&self.fold_impl, &self.graph.treeish, child);
             self.fold_impl.accumulate(&mut heap, &result);
         });
         self.fold_impl.finalize(&heap)

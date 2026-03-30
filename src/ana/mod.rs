@@ -1,12 +1,9 @@
 use std::sync::Arc;
 use either::Either;
 
-use crate::fold::Fold;
 use crate::graph::types::{Edgy, Treeish, edgy_visit};
 use crate::graph::Graph;
-use crate::hylo::GraphWithFold;
 
-pub mod transformations;
 pub mod edgy_from_deperr;
 pub mod treeish_from_deperr;
 pub mod treeish_from_err_edgy;
@@ -101,122 +98,38 @@ where
         )
     }
 
-    pub fn to_fold<Heap, ResultT>(
-        &self,
-        fold_impl: Fold<Either<NodeE, NodeV>, Heap, ResultT>,
-        top_to_heap: impl Fn(&Top) -> Heap + Send + Sync + 'static,
-    ) -> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ResultT> where
-        // TODO: reduce this
-        NodeV: Clone + 'static,
-        NodeE: Clone + 'static,
-        Top: Clone + 'static,
-        Seed: Clone + 'static,
-        Heap: Clone + 'static,
-        ResultT: Clone + 'static,
-        {
-        SeedGraphFold::new(
-            self.clone(),
-            fold_impl,
-            top_to_heap,
-        )
-    }
-    
     pub fn map_grow_node_fn<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>) -> Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync> + 'static,
     {
-        transformations::map_grow_node_fn(self, mapper)
+        let original_fn = self.impl_grow_node_fn.clone();
+        let boxed_original = Box::new(move |seed: &Seed| (*original_fn)(seed));
+        SeedGraph {
+            impl_seeds_from_valid_edgy: self.impl_seeds_from_valid_edgy.clone(),
+            impl_grow_node_fn: Arc::from(mapper(boxed_original)),
+            impl_seeds_from_top: self.impl_seeds_from_top.clone(),
+        }
     }
 
     pub fn map_seeds_from_valid<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
     {
-        transformations::map_seeds_from_valid(self, mapper)
+        SeedGraph {
+            impl_seeds_from_valid_edgy: mapper(self.impl_seeds_from_valid_edgy.clone()),
+            impl_grow_node_fn: self.impl_grow_node_fn.clone(),
+            impl_seeds_from_top: self.impl_seeds_from_top.clone(),
+        }
     }
 
     pub fn map_seeds_from_top<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Edgy<Top, Seed>) -> Edgy<Top, Seed> + 'static,
     {
-        transformations::map_seeds_from_top(self, mapper)
-    }
-}
-
-
-/// this struct builds on SeedGraph
-/// - it formulates the RaCo using seed-centric heap construction
-#[derive(Clone)]
-pub struct SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> {
-    pub graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,
-    pub(crate) impl_fold: Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
-    pub(crate) impl_top_to_heap: Arc<dyn Fn(&Top) -> Heap + Send + Sync>,
-    // pub seed_to_heap: Arc<dyn Fn(&Seed) -> Heap>>,
-}
-
-impl<NodeV, NodeE, Seed, Top, Heap, ReturnT> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> 
-where
-    NodeV: Clone + 'static,
-    NodeE: Clone + 'static,
-    Top: Clone + 'static,
-    Heap: Clone + 'static,
-    Seed: Clone + 'static,
-    ReturnT: Clone + 'static,
-{
-    pub fn new(
-        graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,
-        fold_impl: Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
-        top_to_heap: impl Fn(&Top) -> Heap + Send + Sync + 'static,
-    ) -> Self {
-        SeedGraphFold {
-            graph_spec,
-            impl_fold: fold_impl,
-            impl_top_to_heap: Arc::from(Box::new(top_to_heap) as Box<dyn Fn(&Top) -> Heap + Send + Sync>),
+        SeedGraph {
+            impl_seeds_from_valid_edgy: self.impl_seeds_from_valid_edgy.clone(),
+            impl_grow_node_fn: self.impl_grow_node_fn.clone(),
+            impl_seeds_from_top: mapper(self.impl_seeds_from_top.clone()),
         }
     }
-    
-    pub fn top_to_heap(&self, top: &Top) -> Heap {
-        (self.impl_top_to_heap)(top)
-    }
-
-    pub fn make_graph_with_fold(
-        &self,
-    ) -> GraphWithFold<Either<NodeE, NodeV>, Top, Heap, ReturnT> {
-        let graph = self.graph_spec.make_graph();
-        let run = self.impl_fold.clone();
-        let top_to_heap = self.impl_top_to_heap.clone();
-        GraphWithFold::new(
-            &graph,
-            &run,
-            move |top| top_to_heap(top),
-        )
-    }
-
-    pub fn execute(&self, top: &Top) -> ReturnT {
-        self.make_graph_with_fold().run(top)
-    }
-    
-    pub fn map_top_to_heap<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(Box<dyn Fn(&Top) -> Heap + Send + Sync>) -> Box<dyn Fn(&Top) -> Heap + Send + Sync>,
-    {
-        transformations::map_top_to_heap(self, mapper)
-    }
-
-    pub fn map_graph_spec<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(SeedGraph<NodeV, NodeE, Seed, Top>) -> SeedGraph<NodeV, NodeE, Seed, Top>,
-    {
-        transformations::map_graph_spec(self, mapper)
-    }
-
-    pub fn map_fold<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(crate::fold::Fold<Either<NodeE, NodeV>, Heap, ReturnT>) -> crate::fold::Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
-    {
-        transformations::map_fold(self, mapper)
-    }
-
 }
-
-

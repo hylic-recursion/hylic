@@ -46,18 +46,22 @@ where
         self.core_adapter.heap_of_top(top)
     }
 
-    pub fn run_node(&self, node: &Either<NodeE, NodeV>) -> ReturnT {
-        self.core_adapter.run_node(node)
+    pub fn run_node(&self, strategy: crate::cata::Strategy, node: &Either<NodeE, NodeV>) -> ReturnT
+    where Either<NodeE, NodeV>: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
+    {
+        self.core_adapter.run_node(strategy, node)
     }
 
-    pub fn run_valid(&self, node: &NodeV) -> ReturnT {
-        self.run_node(
-            &Either::Right(node.clone()),
-        )
+    pub fn run_valid(&self, strategy: crate::cata::Strategy, node: &NodeV) -> ReturnT
+    where NodeV: Clone, NodeE: Clone, Either<NodeE, NodeV>: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
+    {
+        self.run_node(strategy, &Either::Right(node.clone()))
     }
 
-    pub fn run_top(&self, top: &Top) -> ReturnT {
-        self.core_adapter.run_top(top)
+    pub fn run_top(&self, strategy: crate::cata::Strategy, top: &Top) -> ReturnT
+    where Either<NodeE, NodeV>: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
+    {
+        self.core_adapter.run_top(strategy, top)
     }
     
     pub fn map_graph_with_seed_and_err<F>(&self, mapper: F) -> Self
