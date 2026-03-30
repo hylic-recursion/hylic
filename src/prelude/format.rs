@@ -7,7 +7,7 @@ use std::{fmt::Display, sync::Arc};
 use derive_more::Display;
 
 use crate::prelude::vec_fold::{vec_fold, VecHeap, VecFold};
-use crate::utils::{push_indent, MapFn};
+use crate::utils::push_indent;
 
 /// Spec, leads to fold
 #[derive(Clone, Display)]
@@ -50,7 +50,7 @@ impl <N> TreeFormatCfg<N> {
     pub fn map_format_n<F>(&self, f: F) -> Self
     where
         N: 'static,
-        F: MapFn<Box<dyn Fn(&N) -> String + Send + Sync>> + 'static,
+        F: FnOnce(Box<dyn Fn(&N) -> String + Send + Sync>) -> Box<dyn Fn(&N) -> String + Send + Sync> + 'static,
     {
         let original_format_n = self.format_n.clone();
         return TreeFormatCfg{

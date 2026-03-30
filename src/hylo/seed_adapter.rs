@@ -1,7 +1,6 @@
 use either::Either;
 
 use crate::fold::Fold;
-use crate::utils::MapFn;
 use crate::ana::SeedGraph;
 use crate::hylo::adapter::FoldAdapter;
 
@@ -62,8 +61,8 @@ where
     }
     
     pub fn map_graph_with_seed_and_err<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<SeedGraph<NodeV, NodeE, Seed, Top>> + 'static,
+    where
+        F: FnOnce(SeedGraph<NodeV, NodeE, Seed, Top>) -> SeedGraph<NodeV, NodeE, Seed, Top> + 'static,
     {
         let new_graph_with_seed_and_err = mapper(self.graph_with_seed_and_err.clone());
         let new_graph = new_graph_with_seed_and_err.make_graph();
@@ -75,8 +74,8 @@ where
     }
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Box<dyn Fn(&Top) -> HeapT + Send + Sync>> + 'static,
+    where
+        F: FnOnce(Box<dyn Fn(&Top) -> HeapT + Send + Sync>) -> Box<dyn Fn(&Top) -> HeapT + Send + Sync> + 'static,
     {
         Self {
             graph_with_seed_and_err: self.graph_with_seed_and_err.clone(),

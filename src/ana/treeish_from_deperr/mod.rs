@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use either::Either;
 use super::edgy_from_deperr::EdgyFromDepErr;
-use crate::graph::OptContramapFuncRc;
+use crate::ana::OptContramapFuncRc;
 
 use crate::graph::types::Treeish;
 use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
-use crate::utils::MapFn;
 
 
 pub mod transformations;
@@ -75,14 +74,14 @@ where
     
     pub fn map_edgy_from_deperr<F>(&self, mapper: F) -> Self
     where
-        F: MapFn<EdgyFromDepErr<NodeV, NodeE, HeapSeed>> + 'static,
+        F: FnOnce(EdgyFromDepErr<NodeV, NodeE, HeapSeed>) -> EdgyFromDepErr<NodeV, NodeE, HeapSeed> + 'static,
     {
         transformations::map_edgy_from_deperr(self, mapper)
     }
-    
+
     pub fn map_contramap_or<F>(&self, mapper: F) -> Self
     where
-        F: MapFn<OptContramapFuncRc<NodeV, NodeE>> + 'static,
+        F: FnOnce(OptContramapFuncRc<NodeV, NodeE>) -> OptContramapFuncRc<NodeV, NodeE> + 'static,
     {
         transformations::map_contramap_or(self, mapper)
     }

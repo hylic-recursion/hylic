@@ -3,8 +3,7 @@ use either::Either;
 
 
 use crate::graph::types::{treeish_visit, Edgy, Treeish};
-use crate::graph::ContramapFunc;
-use crate::utils::MapFn;
+use crate::ana::ContramapFunc;
 
 pub mod transformations;
 
@@ -76,15 +75,15 @@ where
     }
     
     pub fn map_contramap_or<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>> + 'static,
+    where
+        F: FnOnce(Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>) -> Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync> + 'static,
     {
         transformations::map_contramap_or(self, mapper)
     }
-    
+
     pub fn map_edgy_valid<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Edgy<NodeV, Either<NodeE, NodeV>>> + 'static,
+    where
+        F: FnOnce(Edgy<NodeV, Either<NodeE, NodeV>>) -> Edgy<NodeV, Either<NodeE, NodeV>> + 'static,
     {
         transformations::map_edgy_valid(self, mapper)
     }

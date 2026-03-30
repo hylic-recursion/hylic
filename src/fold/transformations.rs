@@ -1,15 +1,11 @@
 use std::sync::Arc;
 use crate::fold::Fold;
-use crate::utils::MapFn;
-
-type InitFn<N, H> = Box<dyn Fn(&N) -> H + Send + Sync>;
-type AccumulateFn<H, R> = Box<dyn Fn(&mut H, &R) + Send + Sync>;
-type FinalizeFn<H, R> = Box<dyn Fn(&H) -> R + Send + Sync>;
+use super::{InitFn, AccumulateFn, FinalizeFn};
 
 pub fn map_init<N, H, R, F>(
     run: &Fold<N, H, R>, mapper: F,
 ) -> Fold<N, H, R>
-where N: 'static, H: 'static, R: 'static, F: MapFn<InitFn<N, H>>,
+where N: 'static, H: 'static, R: 'static, F: FnOnce(InitFn<N, H>) -> InitFn<N, H>,
 {
     let orig = run.impl_init.clone();
     Fold {
@@ -22,7 +18,7 @@ where N: 'static, H: 'static, R: 'static, F: MapFn<InitFn<N, H>>,
 pub fn map_accumulate<N, H, R, F>(
     run: &Fold<N, H, R>, mapper: F,
 ) -> Fold<N, H, R>
-where N: 'static, H: 'static, R: 'static, F: MapFn<AccumulateFn<H, R>>,
+where N: 'static, H: 'static, R: 'static, F: FnOnce(AccumulateFn<H, R>) -> AccumulateFn<H, R>,
 {
     let orig = run.impl_accumulate.clone();
     Fold {
@@ -35,7 +31,7 @@ where N: 'static, H: 'static, R: 'static, F: MapFn<AccumulateFn<H, R>>,
 pub fn map_finalize<N, H, R, F>(
     run: &Fold<N, H, R>, mapper: F,
 ) -> Fold<N, H, R>
-where N: 'static, H: 'static, R: 'static, F: MapFn<FinalizeFn<H, R>>,
+where N: 'static, H: 'static, R: 'static, F: FnOnce(FinalizeFn<H, R>) -> FinalizeFn<H, R>,
 {
     let orig = run.impl_finalize.clone();
     Fold {

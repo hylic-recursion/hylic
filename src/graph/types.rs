@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use either::Either;
-use crate::prelude::visit::Visit;
+use crate::graph::visit::Visit;
 
 #[derive(Clone)]
 pub struct Edgy<NodeT, EdgeT> {

@@ -1,5 +1,5 @@
-use crate::utils::MapFn;
 use std::sync::Arc;
+use super::{InitFn, AccumulateFn, FinalizeFn};
 
 #[derive(Clone)]
 pub struct Fold<N, H, R> {
@@ -42,30 +42,45 @@ where
     }
     
     pub fn map_init<F>(&self, mapper: F) -> Self
-    where 
+    where
         H: 'static,
         R: 'static,
-        F: MapFn<Box<dyn Fn(&N) -> H + Send + Sync>>,
+        F: FnOnce(InitFn<N, H>) -> InitFn<N, H> + 'static,
     {
-        super::transformations::map_init(self, mapper)
+        let orig = self.impl_init.clone();
+        Fold {
+            impl_init: Arc::from(mapper(Box::new(move |n: &N| orig(n)))),
+            impl_accumulate: self.impl_accumulate.clone(),
+            impl_finalize: self.impl_finalize.clone(),
+        }
     }
-    
+
     pub fn map_accumulate<F>(&self, mapper: F) -> Self
-    where 
+    where
         H: 'static,
         R: 'static,
-        F: MapFn<Box<dyn Fn(&mut H, &R) + Send + Sync>>,
+        F: FnOnce(AccumulateFn<H, R>) -> AccumulateFn<H, R> + 'static,
     {
-        super::transformations::map_accumulate(self, mapper)
+        let orig = self.impl_accumulate.clone();
+        Fold {
+            impl_init: self.impl_init.clone(),
+            impl_accumulate: Arc::from(mapper(Box::new(move |h: &mut H, r: &R| orig(h, r)))),
+            impl_finalize: self.impl_finalize.clone(),
+        }
     }
-    
+
     pub fn map_finalize<F>(&self, mapper: F) -> Self
-    where 
+    where
         H: 'static,
         R: 'static,
-        F: MapFn<Box<dyn Fn(&H) -> R + Send + Sync>>,
+        F: FnOnce(FinalizeFn<H, R>) -> FinalizeFn<H, R> + 'static,
     {
-        super::transformations::map_finalize(self, mapper)
+        let orig = self.impl_finalize.clone();
+        Fold {
+            impl_init: self.impl_init.clone(),
+            impl_accumulate: self.impl_accumulate.clone(),
+            impl_finalize: Arc::from(mapper(Box::new(move |h: &H| orig(h)))),
+        }
     }
     
     pub fn map<RNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> Fold<N, H, RNew>

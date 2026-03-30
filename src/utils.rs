@@ -1,11 +1,5 @@
 use std::fmt::Display;
 
-pub trait MapFn<T>: Fn(T) -> T + 'static {}
-impl<T, F: Fn(T) -> T + 'static> MapFn<T> for F {}
-
-pub trait EdgyMapFn<T, U>: Fn(crate::graph::types::Edgy<T, U>) -> crate::graph::types::Edgy<T, U> + 'static {}
-impl<T, U, F: Fn(crate::graph::types::Edgy<T, U>) -> crate::graph::types::Edgy<T, U> + 'static> EdgyMapFn<T, U> for F {}
-
 pub fn push_indent_with_nl(s: &str, indent: &str) -> String {
     push_indent(&format!("\n{}", s), indent)
 }

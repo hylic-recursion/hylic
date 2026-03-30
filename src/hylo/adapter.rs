@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::fold::Fold;
-use crate::utils::MapFn;
 use crate::graph::graph::Graph;
 use crate::hylo::GraphWithFold;
 
@@ -57,8 +56,8 @@ where
     }
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Box<dyn Fn(&Top) -> HeapT + Send + Sync>> + 'static,
+    where
+        F: FnOnce(Box<dyn Fn(&Top) -> HeapT + Send + Sync>) -> Box<dyn Fn(&Top) -> HeapT + Send + Sync> + 'static,
     {
         let original_fn = self.graph_with_fold.impl_heap_of_top.clone();
         let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));
@@ -73,8 +72,8 @@ where
     }
     
     pub fn map_graph<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Graph<Top, NodeT>> + 'static,
+    where
+        F: FnOnce(Graph<Top, NodeT>) -> Graph<Top, NodeT> + 'static,
     {
         Self {
             graph_with_fold: GraphWithFold {
@@ -86,8 +85,8 @@ where
     }
     
     pub fn map_fold<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Fold<NodeT, HeapT, ReturnT>> + 'static,
+    where
+        F: FnOnce(Fold<NodeT, HeapT, ReturnT>) -> Fold<NodeT, HeapT, ReturnT> + 'static,
     {
         Self {
             graph_with_fold: GraphWithFold {

@@ -5,12 +5,15 @@ use crate::fold::Fold;
 use crate::graph::types::{Edgy, Treeish, edgy_visit};
 use crate::graph::Graph;
 use crate::hylo::GraphWithFold;
-use crate::utils::{EdgyMapFn, MapFn};
 
 pub mod transformations;
 pub mod edgy_from_deperr;
 pub mod treeish_from_deperr;
 pub mod treeish_from_err_edgy;
+
+pub type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
+pub type OptContramapFunc<NodeV, NodeE> = Option<Box<ContramapFunc<NodeV, NodeE>>>;
+pub type OptContramapFuncRc<NodeV, NodeE> = Option<Arc<ContramapFunc<NodeV, NodeE>>>;
 
 use edgy_from_deperr::EdgyFromDepErr;
 use treeish_from_deperr::TreeishFromDepErr;
@@ -119,22 +122,22 @@ where
     }
     
     pub fn map_grow_node_fn<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>> + 'static,
+    where
+        F: FnOnce(Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>) -> Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync> + 'static,
     {
         transformations::map_grow_node_fn(self, mapper)
     }
-    
+
     pub fn map_seeds_from_valid<F>(&self, mapper: F) -> Self
-    where 
-        F: EdgyMapFn<NodeV, Seed> + 'static,
+    where
+        F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
     {
         transformations::map_seeds_from_valid(self, mapper)
     }
-    
+
     pub fn map_seeds_from_top<F>(&self, mapper: F) -> Self
-    where 
-        F: EdgyMapFn<Top, Seed> + 'static,
+    where
+        F: FnOnce(Edgy<Top, Seed>) -> Edgy<Top, Seed> + 'static,
     {
         transformations::map_seeds_from_top(self, mapper)
     }
@@ -194,22 +197,22 @@ where
     }
     
     pub fn map_top_to_heap<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Box<dyn Fn(&Top) -> Heap + Send + Sync>>,
+    where
+        F: FnOnce(Box<dyn Fn(&Top) -> Heap + Send + Sync>) -> Box<dyn Fn(&Top) -> Heap + Send + Sync>,
     {
         transformations::map_top_to_heap(self, mapper)
     }
-    
+
     pub fn map_graph_spec<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<SeedGraph<NodeV, NodeE, Seed, Top>>,
+    where
+        F: FnOnce(SeedGraph<NodeV, NodeE, Seed, Top>) -> SeedGraph<NodeV, NodeE, Seed, Top>,
     {
         transformations::map_graph_spec(self, mapper)
     }
-    
+
     pub fn map_fold<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<crate::fold::Fold<Either<NodeE, NodeV>, Heap, ReturnT>>,
+    where
+        F: FnOnce(crate::fold::Fold<Either<NodeE, NodeV>, Heap, ReturnT>) -> crate::fold::Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
     {
         transformations::map_fold(self, mapper)
     }

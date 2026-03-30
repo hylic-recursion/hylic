@@ -5,6 +5,10 @@ pub use algebra::Fold;
 
 pub type SimpleFold<N, H> = Fold<N, H, H>;
 
+pub type InitFn<N, H> = Box<dyn Fn(&N) -> H + Send + Sync>;
+pub type AccumulateFn<H, R> = Box<dyn Fn(&mut H, &R) + Send + Sync>;
+pub type FinalizeFn<H, R> = Box<dyn Fn(&H) -> R + Send + Sync>;
+
 pub fn fold<N, H, R>(
     init: impl Fn(&N) -> H + Send + Sync + 'static,
     accumulate: impl Fn(&mut H, &R) + Send + Sync + 'static,

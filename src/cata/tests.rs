@@ -1,7 +1,7 @@
 use crate::graph::treeish;
 use crate::fold;
 use crate::cata::ALL;
-use crate::cata::par::UIO;
+use crate::uio::UIO;
 
 #[test]
 fn uio_basic() {

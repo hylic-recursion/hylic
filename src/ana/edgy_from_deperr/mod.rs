@@ -5,8 +5,6 @@ use std::sync::Arc;
 use either::Either;
 
 use crate::graph::types::{Edgy, edgy_visit};
-use crate::utils::{MapFn, EdgyMapFn};
-// Map functionality is now provided by standalone functions
 
 
 #[derive(Clone)]
@@ -51,15 +49,15 @@ where
     }
     
     pub fn map_edgy_seed<F>(&self, mapper: F) -> Self
-    where 
-        F: EdgyMapFn<NodeV, Seed>,
+    where
+        F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
     {
         transformations::map_edgy_seed(self, mapper)
     }
-    
+
     pub fn map_grow_node<F>(&self, mapper: F) -> Self
-    where 
-        F: MapFn<Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>>,
+    where
+        F: FnOnce(Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>) -> Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>,
     {
         transformations::map_grow_node(self, mapper)
     }
