@@ -6,21 +6,30 @@ use crate::ana::SeedGraph;
 use crate::cata::Exec;
 use crate::hylo::{GraphWithFold, HeapOfTopFn};
 
-#[derive(Clone)]
 pub struct SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> {
     pub graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,
     pub(crate) impl_fold: Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
     pub(crate) impl_top_to_heap: Arc<dyn Fn(&Top) -> Heap + Send + Sync>,
 }
 
+impl<NodeV, NodeE, Seed, Top, Heap, ReturnT> Clone for SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> {
+    fn clone(&self) -> Self {
+        SeedGraphFold {
+            graph_spec: self.graph_spec.clone(),
+            impl_fold: self.impl_fold.clone(),
+            impl_top_to_heap: self.impl_top_to_heap.clone(),
+        }
+    }
+}
+
 impl<NodeV, NodeE, Seed, Top, Heap, ReturnT> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>
 where
     NodeV: Clone + 'static,
     NodeE: Clone + 'static,
-    Top: Clone + 'static,
-    Heap: Clone + 'static,
+    Top: 'static,
+    Heap: 'static,
     Seed: Clone + 'static,
-    ReturnT: Clone + 'static,
+    ReturnT: 'static,
 {
     pub fn new(
         graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,

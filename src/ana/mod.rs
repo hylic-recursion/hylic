@@ -14,7 +14,6 @@ pub type GrowNodeFn<Seed, NodeE, NodeV> = Box<dyn Fn(&Seed) -> Either<NodeE, Nod
 use edgy_from_deperr::EdgyFromDepErr;
 use treeish_from_deperr::TreeishFromDepErr;
 
-#[derive(Clone)]
 pub struct SeedGraph<NodeV, NodeE, Seed, Top> {
     /// NodeV ->> Seed
     pub(crate) impl_seeds_from_valid_edgy: Edgy<NodeV, Seed>,
@@ -26,11 +25,21 @@ pub struct SeedGraph<NodeV, NodeE, Seed, Top> {
     pub(crate) impl_seeds_from_top: Edgy<Top, Seed>,
 }
 
-impl <NodeV, NodeE, Seed, Top> SeedGraph<NodeV, NodeE, Seed, Top> 
+impl<NodeV, NodeE, Seed, Top> Clone for SeedGraph<NodeV, NodeE, Seed, Top> {
+    fn clone(&self) -> Self {
+        SeedGraph {
+            impl_seeds_from_valid_edgy: self.impl_seeds_from_valid_edgy.clone(),
+            impl_grow_node_fn: self.impl_grow_node_fn.clone(),
+            impl_seeds_from_top: self.impl_seeds_from_top.clone(),
+        }
+    }
+}
+
+impl<NodeV, NodeE, Seed, Top> SeedGraph<NodeV, NodeE, Seed, Top>
 where
     NodeV: Clone + 'static,
     NodeE: Clone + 'static,
-    Top: Clone + 'static,
+    Top: 'static,
     Seed: Clone + 'static,
 {
     pub fn new(

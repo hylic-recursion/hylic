@@ -1,9 +1,14 @@
 use super::types::{Edgy, Treeish};
 
-#[derive(Clone)]
 pub struct Graph<Top, Node> {
     pub treeish: Treeish<Node>,
     pub top_edgy: Edgy<Top, Node>,
+}
+
+impl<Top, Node> Clone for Graph<Top, Node> {
+    fn clone(&self) -> Self {
+        Graph { treeish: self.treeish.clone(), top_edgy: self.top_edgy.clone() }
+    }
 }
 
 impl<Top, Node> Graph<Top, Node>

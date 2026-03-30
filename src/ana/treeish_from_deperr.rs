@@ -9,7 +9,12 @@ use crate::graph::types::Treeish;
 use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
 
 
-#[derive(Clone)]
+impl<NodeV, NodeE, HeapSeed> Clone for TreeishFromDepErr<NodeV, NodeE, HeapSeed> {
+    fn clone(&self) -> Self {
+        TreeishFromDepErr { impl_edgy_from_deperr: self.impl_edgy_from_deperr.clone(), impl_contramap_or: self.impl_contramap_or.clone() }
+    }
+}
+
 pub struct TreeishFromDepErr<NodeV, NodeE, HeapSeed> {
     pub(crate) impl_edgy_from_deperr: EdgyFromDepErr<NodeV, NodeE, HeapSeed>,
     pub(crate) impl_contramap_or: Option<Arc<ContramapFunc<NodeV, NodeE>>>,

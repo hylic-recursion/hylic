@@ -5,10 +5,15 @@ use either::Either;
 use crate::graph::types::{treeish_visit, Edgy, Treeish};
 use crate::ana::ContramapFunc;
 
-#[derive(Clone)]
+impl<NodeV, NodeE> Clone for TreeishFromErrEdgy<NodeV, NodeE> {
+    fn clone(&self) -> Self {
+        TreeishFromErrEdgy { impl_contramap_or: self.impl_contramap_or.clone(), impl_edges: self.impl_edges.clone() }
+    }
+}
+
 pub struct TreeishFromErrEdgy<NodeV, NodeE> {
     pub(crate) impl_contramap_or: Arc<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>,
-    pub(crate) impl_edgy_valid: Edgy<NodeV, Either<NodeE, NodeV>>,
+    pub(crate) impl_edges: Edgy<NodeV, Either<NodeE, NodeV>>,
 }
 
 impl<NodeV, NodeE> TreeishFromErrEdgy<NodeV, NodeE>
@@ -20,12 +25,12 @@ where
         (self.impl_contramap_or)(result)
     }
     
-    pub fn edgy_valid(&self, node: &NodeV) -> Vec<Either<NodeE, NodeV>> {
-        self.impl_edgy_valid.apply(node)
+    pub fn edges(&self, node: &NodeV) -> Vec<Either<NodeE, NodeV>> {
+        self.impl_edges.apply(node)
     }
     
     pub fn make_treeish(&self) -> Treeish<Either<NodeE, NodeV>> {
-        let valid_edgy = self.impl_edgy_valid.clone();
+        let valid_edgy = self.impl_edges.clone();
         let contramap = self.impl_contramap_or.clone();
 
         treeish_visit(move |v: &Either<NodeE, NodeV>, cb: &mut dyn FnMut(&Either<NodeE, NodeV>)| {
@@ -46,7 +51,7 @@ where
                 let f = Self::default_contramap();
                 Arc::from(Box::new(move |v: &Either<NodeE, NodeV>| f(v)) as Box<ContramapFunc<NodeV, NodeE>>)
             },
-            impl_edgy_valid: e,
+            impl_edges: e,
         }
     }
 
@@ -57,7 +62,7 @@ where
     ) -> Self {
         TreeishFromErrEdgy {
             impl_contramap_or: Arc::from(Box::new(contramap_or) as Box<ContramapFunc<NodeV, NodeE>>),
-            impl_edgy_valid: e,
+            impl_edges: e,
         }
     }
 
@@ -80,17 +85,17 @@ where
         let boxed_original = Box::new(move |result: &Either<NodeE, NodeV>| (*original_fn)(result));
         TreeishFromErrEdgy {
             impl_contramap_or: Arc::from(mapper(boxed_original)),
-            impl_edgy_valid: self.impl_edgy_valid.clone(),
+            impl_edges: self.impl_edges.clone(),
         }
     }
 
-    pub fn map_edgy_valid<F>(&self, mapper: F) -> Self
+    pub fn map_edges<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Edgy<NodeV, Either<NodeE, NodeV>>) -> Edgy<NodeV, Either<NodeE, NodeV>> + 'static,
     {
         TreeishFromErrEdgy {
             impl_contramap_or: self.impl_contramap_or.clone(),
-            impl_edgy_valid: mapper(self.impl_edgy_valid.clone()),
+            impl_edges: mapper(self.impl_edges.clone()),
         }
     }
     

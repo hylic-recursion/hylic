@@ -17,11 +17,11 @@ pub type ChildVisitorFn<N, R> = dyn Fn(
 /// Fused (callback), unfused (collect), parallel (rayon) are
 /// different lambdas — the executor doesn't know which.
 pub struct Exec<N, R> {
-    visit_children: Arc<ChildVisitorFn<N, R>>,
+    impl_visit_children: Arc<ChildVisitorFn<N, R>>,
 }
 
 impl<N, R> Clone for Exec<N, R> {
-    fn clone(&self) -> Self { Exec { visit_children: self.visit_children.clone() } }
+    fn clone(&self) -> Self { Exec { impl_visit_children: self.impl_visit_children.clone() } }
 }
 
 // --- Constructors: each checks its own bounds ---
@@ -30,33 +30,33 @@ impl<N: 'static, R: 'static> Exec<N, R> {
     /// Fused: callback-based traversal. Zero allocation.
     /// Recursion and accumulation interleave inside graph.visit.
     pub fn fused() -> Self {
-        Exec { visit_children: Arc::new(|graph, node, recurse, handle| {
+        Exec { impl_visit_children: Arc::new(|graph, node, recurse, handle| {
             graph.visit(node, &mut |child: &N| handle(&recurse(child)));
         })}
     }
 
     /// Custom child visitor.
-    pub fn new(visit_children: Arc<ChildVisitorFn<N, R>>) -> Self {
-        Exec { visit_children }
+    pub fn new(impl_visit_children: Arc<ChildVisitorFn<N, R>>) -> Self {
+        Exec { impl_visit_children }
     }
 
     /// Transform the child visitor.
-    pub fn map_visit_children(
+    pub fn map_impl_visit_children(
         &self,
         mapper: impl FnOnce(Arc<ChildVisitorFn<N, R>>) -> Arc<ChildVisitorFn<N, R>>,
     ) -> Self {
-        Exec { visit_children: mapper(self.visit_children.clone()) }
+        Exec { impl_visit_children: mapper(self.impl_visit_children.clone()) }
     }
 
     pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
-        run_inner(&self.visit_children, fold, graph, root)
+        run_inner(&self.impl_visit_children, fold, graph, root)
     }
 }
 
 impl<N: Clone + 'static, R: 'static> Exec<N, R> {
     /// Unfused sequential: collect children, process one by one.
     pub fn sequential() -> Self {
-        Exec { visit_children: Arc::new(|graph, node, recurse, handle| {
+        Exec { impl_visit_children: Arc::new(|graph, node, recurse, handle| {
             for child in graph.apply(node) { handle(&recurse(&child)); }
         })}
     }
@@ -66,7 +66,7 @@ impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> Exec<N, R> {
     /// Unfused parallel: collect children, rayon par_iter.
     /// Send + Sync bounds checked here, encapsulated in the lambda.
     pub fn rayon() -> Self {
-        Exec { visit_children: Arc::new(|graph, node, recurse, handle| {
+        Exec { impl_visit_children: Arc::new(|graph, node, recurse, handle| {
             use rayon::prelude::*;
             let children = graph.apply(node);
             if children.len() <= 1 {

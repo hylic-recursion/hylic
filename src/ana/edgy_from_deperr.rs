@@ -6,9 +6,14 @@ use crate::graph::types::{Edgy, edgy_visit};
 use super::GrowNodeFn;
 
 
-#[derive(Clone)]
+impl<NodeV, NodeE, Seed> Clone for EdgyFromDepErr<NodeV, NodeE, Seed> {
+    fn clone(&self) -> Self {
+        EdgyFromDepErr { impl_seeds: self.impl_seeds.clone(), impl_grow_node: self.impl_grow_node.clone() }
+    }
+}
+
 pub struct EdgyFromDepErr<NodeV, NodeE, Seed> {
-    pub(crate) impl_edgy_seed: Edgy<NodeV, Seed>,
+    pub(crate) impl_seeds: Edgy<NodeV, Seed>,
     pub(crate) impl_grow_node: Arc<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>,
 }
 
@@ -19,17 +24,17 @@ where
     Seed: Clone + 'static,
 {
     pub fn new(
-        edgy_seed: Edgy<NodeV, Seed>,
+        seeds: Edgy<NodeV, Seed>,
         grow_node: impl Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync + 'static
     ) -> Self {
         EdgyFromDepErr {
-            impl_edgy_seed: edgy_seed,
+            impl_seeds: seeds,
             impl_grow_node: Arc::from(Box::new(grow_node) as GrowNodeFn<Seed, NodeE, NodeV>),
         }
     }
     
-    pub fn edgy_seed(&self, node: &NodeV) -> Vec<Seed> {
-        self.impl_edgy_seed.apply(node)
+    pub fn seeds(&self, node: &NodeV) -> Vec<Seed> {
+        self.impl_seeds.apply(node)
     }
     
     pub fn grow_node(&self, seed: &Seed) -> Either<NodeE, NodeV> {
@@ -38,21 +43,21 @@ where
     
     pub fn make_edgy(&self) -> Edgy<NodeV, Either<NodeE, NodeV>> {
         let grow_node_fn = self.impl_grow_node.clone();
-        let edgy_seed = self.impl_edgy_seed.clone();
+        let seeds = self.impl_seeds.clone();
         edgy_visit(move |node: &NodeV, cb: &mut dyn FnMut(&Either<NodeE, NodeV>)| {
-            edgy_seed.visit(node, &mut |seed: &Seed| {
+            seeds.visit(node, &mut |seed: &Seed| {
                 let grown = (grow_node_fn)(seed);
                 cb(&grown);
             });
         })
     }
     
-    pub fn map_edgy_seed<F>(&self, mapper: F) -> Self
+    pub fn map_seeds<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Edgy<NodeV, Seed>) -> Edgy<NodeV, Seed> + 'static,
     {
         EdgyFromDepErr {
-            impl_edgy_seed: mapper(self.impl_edgy_seed.clone()),
+            impl_seeds: mapper(self.impl_seeds.clone()),
             impl_grow_node: self.impl_grow_node.clone(),
         }
     }
@@ -64,7 +69,7 @@ where
         let original_fn = self.impl_grow_node.clone();
         let boxed_original = Box::new(move |seed: &Seed| (*original_fn)(seed));
         EdgyFromDepErr {
-            impl_edgy_seed: self.impl_edgy_seed.clone(),
+            impl_seeds: self.impl_seeds.clone(),
             impl_grow_node: Arc::from(mapper(boxed_original)),
         }
     }

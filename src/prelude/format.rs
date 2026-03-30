@@ -1,7 +1,3 @@
-// for now on String
-
-// PURPOSE: any kinds of N to be joined by formatting function into a String
-
 use std::{fmt::Display, sync::Arc};
 
 use derive_more::Display;
@@ -26,11 +22,7 @@ pub struct TreeFormatCfg<N> {
 impl<N> TreeFormatCfg<N> {
 
     pub fn format(&self, node: &N, childstrings: &[String]) -> String {
-        let processed_childstrings = childstrings
-            // .iter()
-            // .map(|s| push_indent(s, &self.indent))
-            // .collect::<Vec<_>>()
-            .join(&self.separator);
+        let processed_childstrings = childstrings.join(&self.separator);
         let mut result = String::new();
         result.push_str((&self.format_n)(node).as_str());
 

@@ -32,8 +32,7 @@ N: Clone, H: Clone, R: Clone,
     pub orig_node: ExplainerNode<N>,
     pub transitions: Vec<ExplainerStep<N, H, R>>,
 
-    pub _wip_heap: H,
-    // pub _phantom_R: std::marker::PhantomData<R>,
+    pub working_heap: H,
 }
 impl<N, H, R> ExplainerHeap<N, H, R> where
 N: Clone, H: Clone, R: Clone,
@@ -43,7 +42,7 @@ N: Clone, H: Clone, R: Clone,
             initial_heap: heap.clone(),
             orig_node: ExplainerNode { node },
             transitions: Vec::new(),
-            _wip_heap: heap,
+            working_heap: heap,
         }
     }
 }
@@ -95,28 +94,23 @@ N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 
 
     pub fn wrap(&self) -> Fold<EN<N>, EH<N, H, R>, ER<N, H, R>> {
-        let impl_init = self.orig_fold.impl_init.clone();
-        let impl_accumulate = self.orig_fold.impl_accumulate.clone();
-        let impl_finalize = self.orig_fold.impl_finalize.clone();
+        let f1 = self.orig_fold.clone();
+        let f2 = self.orig_fold.clone();
+        let f3 = self.orig_fold.clone();
         crate::fold::fold::<EN<N>, EH<N,H,R>, ER<N,H,R>>(
             move |node: &EN<N>| {
-                EH::new(node.node.clone(), impl_init(&node.node))
+                EH::new(node.node.clone(), f1.init(&node.node))
             },
             move |heap: &mut EH<N, H, R>, result: &ER<N, H, R>| {
-                {
-                    let heap_orig_mut: &mut H = &mut heap._wip_heap;
-                    let result_orig: &R = &result.orig_result;
-                    impl_accumulate(heap_orig_mut, result_orig);
-                }
+                f2.accumulate(&mut heap.working_heap, &result.orig_result);
                 heap.transitions.push(ExplainerStep {
                     incoming_result: result.clone(),
-                    resulting_heap: heap._wip_heap.clone(),
+                    resulting_heap: heap.working_heap.clone(),
                 });
             },
             move |heap: &EH<N, H, R>| {
-                let orig_result = impl_finalize(&heap._wip_heap);
                 ER {
-                    orig_result,
+                    orig_result: f3.finalize(&heap.working_heap),
                     heap: heap.clone(),
                 }
             },
