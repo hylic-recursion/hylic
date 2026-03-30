@@ -104,3 +104,13 @@ pub fn treeish<NodeT>(
 ) -> Treeish<NodeT> {
     edgy(func)
 }
+
+/// Construct a Treeish from a slice-returning accessor.
+/// For types where children are stored as a field (Vec, Arc<[T]>, slice).
+pub fn treeish_from<N>(
+    accessor: impl Fn(&N) -> &[N] + Send + Sync + 'static,
+) -> Treeish<N> where N: 'static {
+    treeish_visit(move |node: &N, cb: &mut dyn FnMut(&N)| {
+        for child in accessor(node) { cb(child); }
+    })
+}
