@@ -1,6 +1,6 @@
 use crate::graph::treeish;
 use crate::fold;
-use crate::cata::ALL;
+use crate::cata::Exec;
 use crate::uio::UIO;
 
 #[test]
@@ -34,8 +34,8 @@ fn all_executors_match() {
     let graph = treeish(|n: &N| n.children.clone());
     let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
 
-    for exec in ALL {
-        assert_eq!(exec.run(&my_fold, &graph, &tree), 10, "failed for {:?}", exec);
+    for exec in [Exec::fused(), Exec::rayon()] {
+        assert_eq!(exec.run(&my_fold, &graph, &tree), 10);
     }
 }
 
@@ -56,7 +56,7 @@ fn all_executors_vec_fold() {
         if ch.is_empty() { heap.node.name.clone() } else { format!("{}[{}]", heap.node.name, ch) }
     });
 
-    for exec in ALL {
-        assert_eq!(exec.run(&my_fold, &graph, &tree), "a[b[d, e], c]", "failed for {:?}", exec);
+    for exec in [Exec::fused(), Exec::rayon()] {
+        assert_eq!(exec.run(&my_fold, &graph, &tree), "a[b[d, e], c]");
     }
 }

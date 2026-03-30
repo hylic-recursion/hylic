@@ -3,10 +3,9 @@ use either::Either;
 
 use crate::fold::Fold;
 use crate::ana::SeedGraph;
+use crate::cata::Exec;
 use crate::hylo::{GraphWithFold, HeapOfTopFn};
 
-/// This struct builds on SeedGraph
-/// - it formulates the RaCo using seed-centric heap construction
 #[derive(Clone)]
 pub struct SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> {
     pub graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,
@@ -39,31 +38,19 @@ where
         (self.impl_top_to_heap)(top)
     }
 
-    pub fn make_graph_with_fold(
-        &self,
-    ) -> GraphWithFold<Either<NodeE, NodeV>, Top, Heap, ReturnT> {
+    pub fn make_graph_with_fold(&self) -> GraphWithFold<Either<NodeE, NodeV>, Top, Heap, ReturnT> {
         let graph = self.graph_spec.make_graph();
         let run = self.impl_fold.clone();
         let top_to_heap = self.impl_top_to_heap.clone();
-        GraphWithFold::new(
-            &graph,
-            &run,
-            move |top| top_to_heap(top),
-        )
+        GraphWithFold::new(&graph, &run, move |top| top_to_heap(top))
     }
 
-    pub fn execute(&self, strategy: crate::cata::Strategy, top: &Top) -> ReturnT
-    where
-        Either<NodeE, NodeV>: Send + Sync,
-        Heap: Send + Sync,
-        ReturnT: Send + Sync,
-    {
-        self.make_graph_with_fold().run(strategy, top)
+    pub fn execute(&self, exec: &Exec<Either<NodeE, NodeV>, ReturnT>, top: &Top) -> ReturnT {
+        self.make_graph_with_fold().run(exec, top)
     }
 
     pub fn map_top_to_heap<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(HeapOfTopFn<Top, Heap>) -> HeapOfTopFn<Top, Heap>,
+    where F: FnOnce(HeapOfTopFn<Top, Heap>) -> HeapOfTopFn<Top, Heap>,
     {
         let original_fn = self.impl_top_to_heap.clone();
         let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));
@@ -75,8 +62,7 @@ where
     }
 
     pub fn map_graph_spec<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(SeedGraph<NodeV, NodeE, Seed, Top>) -> SeedGraph<NodeV, NodeE, Seed, Top>,
+    where F: FnOnce(SeedGraph<NodeV, NodeE, Seed, Top>) -> SeedGraph<NodeV, NodeE, Seed, Top>,
     {
         SeedGraphFold {
             graph_spec: mapper(self.graph_spec.clone()),
@@ -86,8 +72,7 @@ where
     }
 
     pub fn map_fold<F>(&self, mapper: F) -> Self
-    where
-        F: FnOnce(Fold<Either<NodeE, NodeV>, Heap, ReturnT>) -> Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
+    where F: FnOnce(Fold<Either<NodeE, NodeV>, Heap, ReturnT>) -> Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
     {
         SeedGraphFold {
             graph_spec: self.graph_spec.clone(),

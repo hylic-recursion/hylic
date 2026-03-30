@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::fold::Fold;
 use crate::graph::graph::Graph;
+use crate::cata::Exec;
 use crate::hylo::{GraphWithFold, HeapOfTopFn};
 
 #[derive(Clone)]
@@ -30,34 +31,26 @@ where
         heap_of_top_fn: impl Fn(&Top) -> HeapT + Send + Sync + 'static,
     ) -> Self {
         FoldAdapter {
-            graph_with_fold: GraphWithFold::new(
-                graph,
-                fold_impl,
-                heap_of_top_fn,
-            ),
+            graph_with_fold: GraphWithFold::new(graph, fold_impl, heap_of_top_fn),
         }
     }
-    
+
     pub fn heap_of_top(&self, top: &Top) -> HeapT {
         self.graph_with_fold.heap_of_top(top)
     }
 
-    pub fn run_node(&self, strategy: crate::cata::Strategy, node: &NodeT) -> ReturnT
-    where NodeT: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
-    {
-        strategy.run(
+    pub fn run_node(&self, exec: &Exec<NodeT, ReturnT>, node: &NodeT) -> ReturnT {
+        exec.run(
             &self.graph_with_fold.fold_impl,
             &self.graph_with_fold.graph.treeish,
             node,
         )
     }
 
-    pub fn run_top(&self, strategy: crate::cata::Strategy, top: &Top) -> ReturnT
-    where NodeT: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
-    {
-        self.graph_with_fold.run(strategy, top)
+    pub fn run_top(&self, exec: &Exec<NodeT, ReturnT>, top: &Top) -> ReturnT {
+        self.graph_with_fold.run(exec, top)
     }
-    
+
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(HeapOfTopFn<Top, HeapT>) -> HeapOfTopFn<Top, HeapT> + 'static,
@@ -73,7 +66,7 @@ where
             },
         }
     }
-    
+
     pub fn map_graph<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Graph<Top, NodeT>) -> Graph<Top, NodeT> + 'static,
@@ -86,7 +79,7 @@ where
             },
         }
     }
-    
+
     pub fn map_fold<F>(&self, mapper: F) -> Self
     where
         F: FnOnce(Fold<NodeT, HeapT, ReturnT>) -> Fold<NodeT, HeapT, ReturnT> + 'static,
@@ -99,8 +92,7 @@ where
             },
         }
     }
-    
-    /// Maps the return type of this adapter to a new type using mapper and backmapper functions
+
     pub fn map<ReturnNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> FoldAdapter<NodeT, Top, HeapT, ReturnNew>
     where
         ReturnNew: Clone + 'static,
@@ -114,15 +106,13 @@ where
             move |top| (gwf.impl_heap_of_top)(top),
         )
     }
-    
-    /// Maps the return type to a tuple of (original, zipped) using the mapper function
+
     pub fn zipmap<ReturnZip, MapF>(&self, mapper: MapF) -> FoldAdapter<NodeT, Top, HeapT, (ReturnT, ReturnZip)>
     where
         ReturnZip: Clone + 'static,
         MapF: Fn(&ReturnT) -> ReturnZip + Send + Sync + 'static,
     {
         let backmap = |x: &(ReturnT, ReturnZip)| x.0.clone();
-        
         self.map(
             move |x| (x.clone(), mapper(x)),
             backmap,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::graph::Graph;
 use crate::fold::Fold;
+use crate::cata::Exec;
 use super::HeapOfTopFn;
 
 #[derive(Clone)]
@@ -33,12 +34,10 @@ where
         (self.impl_heap_of_top)(top)
     }
 
-    pub fn run(&self, strategy: crate::cata::Strategy, top: &Top) -> ReturnT
-    where NodeT: Send + Sync, HeapT: Send + Sync, ReturnT: Send + Sync,
-    {
+    pub fn run(&self, exec: &Exec<NodeT, ReturnT>, top: &Top) -> ReturnT {
         let mut heap = (self.impl_heap_of_top)(top);
         self.graph.top_edgy.visit(top, &mut |child| {
-            let result = strategy.run(&self.fold_impl, &self.graph.treeish, child);
+            let result = exec.run(&self.fold_impl, &self.graph.treeish, child);
             self.fold_impl.accumulate(&mut heap, &result);
         });
         self.fold_impl.finalize(&heap)

@@ -3,7 +3,7 @@ use std::hint::black_box;
 
 use hylic::graph::treeish;
 use hylic::fold;
-use hylic::cata::ALL;
+use hylic::cata::Exec;
 
 fn busy_work(iterations: u64) -> u64 {
     let mut x: u64 = 0xDEAD_BEEF;
@@ -141,9 +141,14 @@ fn bench_executors(c: &mut Criterion) {
             |a: &mut u64, c: &u64| { *a = a.wrapping_add(*c); },
         );
 
-        for exec in ALL {
+        let executors: Vec<(&str, Exec<Node, u64>)> = vec![
+            ("fused", Exec::fused()),
+            ("sequential", Exec::sequential()),
+            ("rayon", Exec::rayon()),
+        ];
+        for (name, exec) in &executors {
             group.bench_with_input(
-                BenchmarkId::new(format!("{:?}", exec).to_lowercase(), cfg.name),
+                BenchmarkId::new(*name, cfg.name),
                 &(),
                 |b, _| b.iter(|| exec.run(&raco, &graph, black_box(&tree))),
             );

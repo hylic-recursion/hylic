@@ -123,28 +123,29 @@ N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
         )
     }
 
-    pub fn explain(&self, strategy: crate::cata::Strategy, graph: &Treeish<N>, node: &N) -> ExplainerResult<N,H,R>
-    where N: Clone + Send + Sync, H: Send + Sync, R: Send + Sync,
-    {
+    pub fn explain(&self,
+        exec: &crate::cata::Exec<EN<N>, ER<N, H, R>>,
+        graph: &Treeish<N>,
+        node: &N,
+    ) -> ExplainerResult<N,H,R> {
         let wrapped_fold = self.wrap();
         let wrapped_treeish = graph.treemap(
             move |node: &N| EN::new(node.clone()),
             move |node: &EN<N>| node.node.clone(),
         );
-        strategy.run(&wrapped_fold, &wrapped_treeish, &EN::new(node.clone()))
+        exec.run(&wrapped_fold, &wrapped_treeish, &EN::new(node.clone()))
     }
 
-    pub fn explain_and_fold<HEx, REx>(&self,
-        strategy: crate::cata::Strategy,
+    pub fn explain_and_fold<HEx: 'static, REx: Clone + 'static>(&self,
+        exec: &crate::cata::Exec<EN<N>, ER<N, H, R>>,
+        exec_result: &crate::cata::Exec<ER<N, H, R>, REx>,
         graph: &Treeish<N>,
         fold_explainer: &Fold<ER<N,H,R>, HEx, REx>,
         node: &N,
-    ) -> (R, REx)
-    where N: Clone + Send + Sync, H: Send + Sync, R: Clone + Send + Sync, HEx: Send + Sync + 'static, REx: Clone + Send + Sync + 'static,
-    {
-        let wrapped_result = self.explain(strategy, graph, node);
+    ) -> (R, REx) {
+        let wrapped_result = self.explain(exec, graph, node);
         let treeish_for_result: Treeish<ER<N,H,R>> = treeish_for_explres();
-        let folded = strategy.run(fold_explainer, &treeish_for_result, &wrapped_result);
+        let folded = exec_result.run(fold_explainer, &treeish_for_result, &wrapped_result);
         (wrapped_result.orig_result, folded)
     }
 

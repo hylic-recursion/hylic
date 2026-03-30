@@ -2,7 +2,9 @@
 
 use crate::fold::{Fold, simple_fold};
 use crate::graph::Treeish;
-use crate::cata::Strategy;
+use crate::cata::Exec;
+use crate::prelude::vec_fold::{vec_fold, VecHeap};
+use crate::prelude::utils::push_indent;
 
 /// Count all nodes in a tree.
 pub fn count_fold<N: 'static>() -> Fold<N, usize, usize> {
@@ -17,21 +19,18 @@ pub fn depth_fold<N: 'static>() -> Fold<N, usize, usize> {
     )
 }
 
-/// Format a tree as an indented string and return it.
-/// Uses vec_fold directly — no Display bound needed, just your format_node closure.
-pub fn pretty_print<N: Clone + Send + Sync + 'static>(
-    strategy: Strategy,
+/// Format a tree as an indented string.
+pub fn pretty_print<N: Clone + 'static>(
+    exec: &Exec<N, String>,
     graph: &Treeish<N>,
     root: &N,
     format_node: impl Fn(&N) -> String + Send + Sync + 'static,
 ) -> String {
-    use crate::prelude::vec_fold::{vec_fold, VecHeap};
-    use crate::prelude::utils::push_indent;
     let fold = vec_fold(move |heap: &VecHeap<N, String>| {
         let label = format_node(&heap.node);
         if heap.childresults.is_empty() { return label; }
         let children = heap.childresults.join(",\n");
         format!("{}[\n{}\n]", label, push_indent(&children, "  "))
     });
-    strategy.run(&fold, graph, root)
+    exec.run(&fold, graph, root)
 }
