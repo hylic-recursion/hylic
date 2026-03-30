@@ -1,6 +1,6 @@
 use crate::graph::treeish;
-use crate::rake;
-use crate::rake::execute::ALL;
+use crate::fold;
+use crate::cata::ALL;
 use super::UIO;
 
 #[test]
@@ -32,7 +32,7 @@ fn all_executors_match() {
         N { val: 3, children: vec![] },
     ]};
     let graph = treeish(|n: &N| n.children.clone());
-    let raco = rake::rake(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
+    let raco = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
 
     for exec in ALL {
         assert_eq!(exec.run(&raco, &graph, &tree), 10, "failed for {:?}", exec);
@@ -40,7 +40,7 @@ fn all_executors_match() {
 }
 
 #[test]
-fn all_executors_vec_compress() {
+fn all_executors_vec_fold() {
     #[derive(Clone)]
     struct T { name: String, children: Vec<T> }
     impl T {
@@ -50,7 +50,7 @@ fn all_executors_vec_compress() {
 
     let tree = T::branch("a", vec![T::branch("b", vec![T::leaf("d"), T::leaf("e")]), T::leaf("c")]);
     let graph = treeish(|n: &T| n.children.clone());
-    let raco = rake::vec_compress(|heap: &rake::VecHeap<T, String>| {
+    let raco = fold::vec_fold(|heap: &fold::VecHeap<T, String>| {
         let ch = heap.childresults.join(", ");
         if ch.is_empty() { heap.node.name.clone() } else { format!("{}[{}]", heap.node.name, ch) }
     });

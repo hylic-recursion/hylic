@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use either::Either;
 use crate::graph::types::Edgy;
-use crate::graph::treeish_from_err_edgy::TreeishFromErrEdgy;
+use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
 use crate::utils::MapFn;
 
-use super::super::ContramapFunc;
+use crate::graph::ContramapFunc;
 
 type EdgyT<NodeV, EdgeT> = Edgy<NodeV, EdgeT>;
 

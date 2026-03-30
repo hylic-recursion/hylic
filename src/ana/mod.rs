@@ -1,24 +1,22 @@
 use std::sync::Arc;
 use either::Either;
 
-use crate::rake::RakeCompress;
-use crate::graph::types::{
-    Edgy,
-    Treeish,
-    edgy_visit,
-};
-use crate::graph::TreeishFromDepErr;
-use crate::graph::EdgyFromDepErr;
+use crate::fold::Fold;
+use crate::graph::types::{Edgy, Treeish, edgy_visit};
+use crate::graph::Graph;
+use crate::hylo::GraphWithFold;
 use crate::utils::{EdgyMapFn, MapFn};
-use super::graph::{
-    Graph,
-    GraphWithRaco,
-};
 
 pub mod transformations;
+pub mod edgy_from_deperr;
+pub mod treeish_from_deperr;
+pub mod treeish_from_err_edgy;
+
+use edgy_from_deperr::EdgyFromDepErr;
+use treeish_from_deperr::TreeishFromDepErr;
 
 #[derive(Clone)]
-pub struct GraphWithSeedAndErr<NodeV, NodeE, Seed, Top> {
+pub struct SeedGraph<NodeV, NodeE, Seed, Top> {
     /// NodeV ->> Seed
     pub(crate) impl_seeds_from_valid_edgy: Edgy<NodeV, Seed>,
 
@@ -29,7 +27,7 @@ pub struct GraphWithSeedAndErr<NodeV, NodeE, Seed, Top> {
     pub(crate) impl_seeds_from_top: Edgy<Top, Seed>,
 }
 
-impl <NodeV, NodeE, Seed, Top> GraphWithSeedAndErr<NodeV, NodeE, Seed, Top> 
+impl <NodeV, NodeE, Seed, Top> SeedGraph<NodeV, NodeE, Seed, Top> 
 where
     NodeV: Clone + 'static,
     NodeE: Clone + 'static,
@@ -41,7 +39,7 @@ where
         grow_node_fn: impl Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync + 'static,
         seeds_from_top: Edgy<Top, Seed>,
     ) -> Self {
-        GraphWithSeedAndErr {
+        SeedGraph {
             impl_seeds_from_valid_edgy: seeds_from_valid_edgy,
             impl_grow_node_fn: Arc::from(Box::new(grow_node_fn) as Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>),
             impl_seeds_from_top: seeds_from_top,
@@ -100,11 +98,11 @@ where
         )
     }
 
-    pub fn to_rake_compress<Heap, ResultT>(
+    pub fn to_fold<Heap, ResultT>(
         &self,
-        rake_compress_impl: RakeCompress<Either<NodeE, NodeV>, Heap, ResultT>,
+        fold_impl: Fold<Either<NodeE, NodeV>, Heap, ResultT>,
         top_to_heap: impl Fn(&Top) -> Heap + Send + Sync + 'static,
-    ) -> GraphWithSeedAndErrRaco<NodeV, NodeE, Seed, Top, Heap, ResultT> where
+    ) -> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ResultT> where
         // TODO: reduce this
         NodeV: Clone + 'static,
         NodeE: Clone + 'static,
@@ -113,9 +111,9 @@ where
         Heap: Clone + 'static,
         ResultT: Clone + 'static,
         {
-        GraphWithSeedAndErrRaco::new(
+        SeedGraphFold::new(
             self.clone(),
-            rake_compress_impl,
+            fold_impl,
             top_to_heap,
         )
     }
@@ -143,17 +141,17 @@ where
 }
 
 
-/// this struct builds on GraphWithSeedAndErr
+/// this struct builds on SeedGraph
 /// - it formulates the RaCo using seed-centric heap construction
 #[derive(Clone)]
-pub struct GraphWithSeedAndErrRaco<NodeV, NodeE, Seed, Top, Heap, ReturnT> {
-    pub graph_spec: GraphWithSeedAndErr<NodeV, NodeE, Seed, Top>,
-    pub(crate) impl_rake_compress: RakeCompress<Either<NodeE, NodeV>, Heap, ReturnT>,
+pub struct SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> {
+    pub graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,
+    pub(crate) impl_fold: Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
     pub(crate) impl_top_to_heap: Arc<dyn Fn(&Top) -> Heap + Send + Sync>,
     // pub seed_to_heap: Arc<dyn Fn(&Seed) -> Heap>>,
 }
 
-impl<NodeV, NodeE, Seed, Top, Heap, ReturnT> GraphWithSeedAndErrRaco<NodeV, NodeE, Seed, Top, Heap, ReturnT> 
+impl<NodeV, NodeE, Seed, Top, Heap, ReturnT> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT> 
 where
     NodeV: Clone + 'static,
     NodeE: Clone + 'static,
@@ -163,13 +161,13 @@ where
     ReturnT: Clone + 'static,
 {
     pub fn new(
-        graph_spec: GraphWithSeedAndErr<NodeV, NodeE, Seed, Top>,
-        rake_compress_impl: RakeCompress<Either<NodeE, NodeV>, Heap, ReturnT>,
+        graph_spec: SeedGraph<NodeV, NodeE, Seed, Top>,
+        fold_impl: Fold<Either<NodeE, NodeV>, Heap, ReturnT>,
         top_to_heap: impl Fn(&Top) -> Heap + Send + Sync + 'static,
     ) -> Self {
-        GraphWithSeedAndErrRaco {
+        SeedGraphFold {
             graph_spec,
-            impl_rake_compress: rake_compress_impl,
+            impl_fold: fold_impl,
             impl_top_to_heap: Arc::from(Box::new(top_to_heap) as Box<dyn Fn(&Top) -> Heap + Send + Sync>),
         }
     }
@@ -178,21 +176,21 @@ where
         (self.impl_top_to_heap)(top)
     }
 
-    pub fn make_raco_graph(
+    pub fn make_graph_with_fold(
         &self,
-    ) -> GraphWithRaco<Either<NodeE, NodeV>, Top, Heap, ReturnT> {
+    ) -> GraphWithFold<Either<NodeE, NodeV>, Top, Heap, ReturnT> {
         let graph = self.graph_spec.make_graph();
-        let rake_compress = self.impl_rake_compress.clone();
+        let run = self.impl_fold.clone();
         let top_to_heap = self.impl_top_to_heap.clone();
-        GraphWithRaco::new(
+        GraphWithFold::new(
             &graph,
-            &rake_compress,
+            &run,
             move |top| top_to_heap(top),
         )
     }
 
     pub fn execute(&self, top: &Top) -> ReturnT {
-        self.make_raco_graph().rake_compress(top)
+        self.make_graph_with_fold().run(top)
     }
     
     pub fn map_top_to_heap<F>(&self, mapper: F) -> Self
@@ -204,16 +202,16 @@ where
     
     pub fn map_graph_spec<F>(&self, mapper: F) -> Self
     where 
-        F: MapFn<GraphWithSeedAndErr<NodeV, NodeE, Seed, Top>>,
+        F: MapFn<SeedGraph<NodeV, NodeE, Seed, Top>>,
     {
         transformations::map_graph_spec(self, mapper)
     }
     
-    pub fn map_rake_compress<F>(&self, mapper: F) -> Self
+    pub fn map_fold<F>(&self, mapper: F) -> Self
     where 
-        F: MapFn<crate::rake::RakeCompress<Either<NodeE, NodeV>, Heap, ReturnT>>,
+        F: MapFn<crate::fold::Fold<Either<NodeE, NodeV>, Heap, ReturnT>>,
     {
-        transformations::map_rake_compress(self, mapper)
+        transformations::map_fold(self, mapper)
     }
 
 }

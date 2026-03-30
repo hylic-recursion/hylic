@@ -1,5 +1,5 @@
-use crate::graph::treeish_from_deperr::TreeishFromDepErr;
-use crate::graph::EdgyFromDepErr;
+use crate::ana::treeish_from_deperr::TreeishFromDepErr;
+use crate::ana::edgy_from_deperr::EdgyFromDepErr;
 use crate::graph::OptContramapFuncRc;
 use crate::utils::MapFn;
 

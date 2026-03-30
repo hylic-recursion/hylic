@@ -1,19 +1,19 @@
 use either::Either;
 
-use crate::rake::RakeCompress;
+use crate::fold::Fold;
 use crate::utils::MapFn;
-use crate::graph::graph_with_seed_and_err::GraphWithSeedAndErr;
-use crate::graph::raco_adapter::core::RacoAdapter;
+use crate::ana::SeedGraph;
+use crate::hylo::adapter::FoldAdapter;
 
-/// RacoAdapterSeedErr is a specialized version of RacoAdapter that works with
-/// GraphWithSeedAndErr. It internally uses the more generic RacoAdapter from core.rs.
+/// SeedFoldAdapter is a specialized version of FoldAdapter that works with
+/// SeedGraph. It internally uses the more generic FoldAdapter from core.rs.
 #[derive(Clone)]
-pub struct RacoAdapterSeedErr<NodeV, NodeE, Seed, Top, HeapT, ReturnT> {
-    pub graph_with_seed_and_err: GraphWithSeedAndErr<NodeV, NodeE, Seed, Top>,
-    pub core_adapter: RacoAdapter<Either<NodeE, NodeV>, Top, HeapT, ReturnT>,
+pub struct SeedFoldAdapter<NodeV, NodeE, Seed, Top, HeapT, ReturnT> {
+    pub graph_with_seed_and_err: SeedGraph<NodeV, NodeE, Seed, Top>,
+    pub core_adapter: FoldAdapter<Either<NodeE, NodeV>, Top, HeapT, ReturnT>,
 }
 
-impl <NodeV, NodeE, Seed, Top, HeapT, ReturnT> RacoAdapterSeedErr<NodeV, NodeE, Seed, Top, HeapT, ReturnT>
+impl <NodeV, NodeE, Seed, Top, HeapT, ReturnT> SeedFoldAdapter<NodeV, NodeE, Seed, Top, HeapT, ReturnT>
 where
     NodeV: Clone + 'static,
     NodeE: Clone + 'static,
@@ -23,21 +23,21 @@ where
     ReturnT: Clone + 'static,
 {
     pub fn new(
-        graph_with_seed_and_err: GraphWithSeedAndErr<NodeV, NodeE, Seed, Top>,
-        rake_compress_impl: RakeCompress<Either<NodeE, NodeV>, HeapT, ReturnT>,
+        graph_with_seed_and_err: SeedGraph<NodeV, NodeE, Seed, Top>,
+        fold_impl: Fold<Either<NodeE, NodeV>, HeapT, ReturnT>,
         heap_of_top_fn: impl Fn(&Top) -> HeapT + Send + Sync + 'static,
     ) -> Self {
-        // Create the graph from GraphWithSeedAndErr
+        // Create the graph from SeedGraph
         let graph = graph_with_seed_and_err.make_graph();
         
-        // Create the core RacoAdapter
-        let core_adapter = RacoAdapter::new_from_parts(
+        // Create the core FoldAdapter
+        let core_adapter = FoldAdapter::new_from_parts(
             &graph,
-            &rake_compress_impl,
+            &fold_impl,
             heap_of_top_fn,
         );
         
-        RacoAdapterSeedErr {
+        SeedFoldAdapter {
             graph_with_seed_and_err,
             core_adapter,
         }
@@ -47,23 +47,23 @@ where
         self.core_adapter.heap_of_top(top)
     }
 
-    pub fn execute_on_node(&self, node: &Either<NodeE, NodeV>) -> ReturnT {
-        self.core_adapter.execute_on_node(node)
+    pub fn run_node(&self, node: &Either<NodeE, NodeV>) -> ReturnT {
+        self.core_adapter.run_node(node)
     }
 
-    pub fn execute_on_valid(&self, node: &NodeV) -> ReturnT {
-        self.execute_on_node(
+    pub fn run_valid(&self, node: &NodeV) -> ReturnT {
+        self.run_node(
             &Either::Right(node.clone()),
         )
     }
 
-    pub fn execute_top(&self, top: &Top) -> ReturnT {
-        self.core_adapter.execute_top(top)
+    pub fn run_top(&self, top: &Top) -> ReturnT {
+        self.core_adapter.run_top(top)
     }
     
     pub fn map_graph_with_seed_and_err<F>(&self, mapper: F) -> Self
     where 
-        F: MapFn<GraphWithSeedAndErr<NodeV, NodeE, Seed, Top>> + 'static,
+        F: MapFn<SeedGraph<NodeV, NodeE, Seed, Top>> + 'static,
     {
         let new_graph_with_seed_and_err = mapper(self.graph_with_seed_and_err.clone());
         let new_graph = new_graph_with_seed_and_err.make_graph();
@@ -85,25 +85,25 @@ where
     }
     
     pub fn map<ReturnNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) 
-        -> RacoAdapterSeedErr<NodeV, NodeE, Seed, Top, HeapT, ReturnNew>
+        -> SeedFoldAdapter<NodeV, NodeE, Seed, Top, HeapT, ReturnNew>
     where
         ReturnNew: Clone + 'static,
         MapF: Fn(&ReturnT) -> ReturnNew + Send + Sync + 'static,
         BackF: Fn(&ReturnNew) -> ReturnT + Send + Sync + 'static,
     {
-        RacoAdapterSeedErr {
+        SeedFoldAdapter {
             graph_with_seed_and_err: self.graph_with_seed_and_err.clone(),
             core_adapter: self.core_adapter.map(mapper, backmapper),
         }
     }
     
     pub fn zipmap<ReturnZip, MapF>(&self, mapper: MapF) 
-        -> RacoAdapterSeedErr<NodeV, NodeE, Seed, Top, HeapT, (ReturnT, ReturnZip)>
+        -> SeedFoldAdapter<NodeV, NodeE, Seed, Top, HeapT, (ReturnT, ReturnZip)>
     where
         ReturnZip: Clone + 'static,  // Add Clone bound to ReturnZip
         MapF: Fn(&ReturnT) -> ReturnZip + Send + Sync + 'static,
     {
-        RacoAdapterSeedErr {
+        SeedFoldAdapter {
             graph_with_seed_and_err: self.graph_with_seed_and_err.clone(),
             core_adapter: self.core_adapter.zipmap(mapper),
         }

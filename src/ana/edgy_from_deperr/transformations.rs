@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use either::Either;
 
-use crate::graph::edgy_from_deperr::EdgyFromDepErr;
+use crate::ana::edgy_from_deperr::EdgyFromDepErr;
 use crate::utils::{MapFn, EdgyMapFn};
 
 

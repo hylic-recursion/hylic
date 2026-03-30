@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use either::Either;
-use super::{EdgyFromDepErr, OptContramapFuncRc};
+use super::edgy_from_deperr::EdgyFromDepErr;
+use crate::graph::OptContramapFuncRc;
 
 use crate::graph::types::Treeish;
-use crate::graph::treeish_from_err_edgy::TreeishFromErrEdgy;
+use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
 use crate::utils::MapFn;
 
 

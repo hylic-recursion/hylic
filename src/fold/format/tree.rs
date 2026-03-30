@@ -6,13 +6,13 @@ use std::{fmt::Display, sync::Arc};
 
 use derive_more::Display;
 
-use crate::rake::{vec_compress, VecHeap, VecHeapCompress};
+use crate::fold::{vec_fold, VecHeap, VecFold};
 use crate::utils::{push_indent, MapFn};
 
 /// Spec, leads to raco
 #[derive(Clone, Display)]
-#[display("JoinHeapCfg{{sep={},l/r={}{},indent={}}}", separator, join_left_str, join_right_str, indent)]
-pub struct JoinHeapCfg<N> {
+#[display("TreeFormatCfg{{sep={},l/r={}{},indent={}}}", separator, join_left_str, join_right_str, indent)]
+pub struct TreeFormatCfg<N> {
     pub format_n: Arc<dyn Fn(&N) -> String + Send + Sync>,
     pub separator: String,
     pub join_left_str: String,
@@ -21,7 +21,7 @@ pub struct JoinHeapCfg<N> {
 }
 
 /// Formatting impl
-impl<N> JoinHeapCfg<N> {
+impl<N> TreeFormatCfg<N> {
 
     pub fn format(&self, node: &N, childstrings: &[String]) -> String {
         let processed_childstrings = childstrings
@@ -45,7 +45,7 @@ impl<N> JoinHeapCfg<N> {
 }
 
 /// Mapping functions on format
-impl <N> JoinHeapCfg<N> {
+impl <N> TreeFormatCfg<N> {
 
     pub fn map_format_n<F>(&self, f: F) -> Self
     where
@@ -53,7 +53,7 @@ impl <N> JoinHeapCfg<N> {
         F: MapFn<Box<dyn Fn(&N) -> String + Send + Sync>> + 'static,
     {
         let original_format_n = self.format_n.clone();
-        return JoinHeapCfg{
+        return TreeFormatCfg{
             format_n: Arc::from(f(Box::new(move |n: &N| (original_format_n)(n)))),
             separator: self.separator.clone(),
             join_left_str: self.join_left_str.clone(),
@@ -66,8 +66,8 @@ impl <N> JoinHeapCfg<N> {
 
 }
 
-// implement the rake compress on the structure
-impl <N> JoinHeapCfg<N> where 
+// implement the rake finalize on the structure
+impl <N> TreeFormatCfg<N> where 
 N: Clone + Display + 'static {
     pub fn new(
         format_n: impl Fn(&N) -> String + Send + Sync + 'static,
@@ -76,7 +76,7 @@ N: Clone + Display + 'static {
         join_right_string: &str,
         indent: &str,
     ) -> Self {
-        JoinHeapCfg {
+        TreeFormatCfg {
             format_n: Arc::from(Box::new(format_n) as Box<dyn Fn(&N) -> String + Send + Sync>),
             separator: separator.to_string(),
             join_left_str: join_left_string.to_string(),
@@ -88,7 +88,7 @@ N: Clone + Display + 'static {
     pub fn default_oneline(
         format_n: impl Fn(&N) -> String + Send + Sync + 'static,
     ) -> Self {
-        JoinHeapCfg::new(
+        TreeFormatCfg::new(
             format_n,
             ", ",
             "[",
@@ -100,7 +100,7 @@ N: Clone + Display + 'static {
     pub fn default_multiline(
         format_n: impl Fn(&N) -> String + Send + Sync + 'static,
     ) -> Self {
-        JoinHeapCfg::new(
+        TreeFormatCfg::new(
             format_n,
             ",\n",
             "[\n",
@@ -109,11 +109,11 @@ N: Clone + Display + 'static {
         )
     }
 
-    pub fn make_raco(
+    pub fn make_fold(
         &self,
-    ) -> VecHeapCompress<N, String> {
+    ) -> VecFold<N, String> {
         let selfclone = self.clone();
-        vec_compress(
+        vec_fold(
             move |heap: &VecHeap<N, String>| {
                 selfclone.format(&heap.node, &heap.childresults)
             },
@@ -121,12 +121,12 @@ N: Clone + Display + 'static {
     }
 }
 
-impl <N> Default for JoinHeapCfg<N> where
+impl <N> Default for TreeFormatCfg<N> where
 N: Display + Clone + 'static
 {
     fn default() -> Self
     {
-        JoinHeapCfg::default_multiline(|n: &N| n.to_string())
+        TreeFormatCfg::default_multiline(|n: &N| n.to_string())
     }
 }
 

@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use crate::rake::RakeCompress;
+use crate::fold::Fold;
 use crate::utils::MapFn;
 use crate::graph::graph::Graph;
-use crate::graph::graph::GraphWithRaco;
+use crate::hylo::GraphWithFold;
 
 #[derive(Clone)]
-pub struct RacoAdapter<NodeT, Top, HeapT, ReturnT> {
-    pub graph_with_raco: GraphWithRaco<NodeT, Top, HeapT, ReturnT>,
+pub struct FoldAdapter<NodeT, Top, HeapT, ReturnT> {
+    pub graph_with_raco: GraphWithFold<NodeT, Top, HeapT, ReturnT>,
 }
 
-impl<NodeT, Top, HeapT, ReturnT> RacoAdapter<NodeT, Top, HeapT, ReturnT>
+impl<NodeT, Top, HeapT, ReturnT> FoldAdapter<NodeT, Top, HeapT, ReturnT>
 where
     NodeT: Clone + 'static,
     Top: Clone + 'static,
@@ -18,22 +18,22 @@ where
     ReturnT: Clone + 'static,
 {
     pub fn new(
-        graph_with_raco: &GraphWithRaco<NodeT, Top, HeapT, ReturnT>,
+        graph_with_raco: &GraphWithFold<NodeT, Top, HeapT, ReturnT>,
     ) -> Self {
-        RacoAdapter {
+        FoldAdapter {
             graph_with_raco: graph_with_raco.clone(),
         }
     }
 
     pub fn new_from_parts(
         graph: &Graph<Top, NodeT>,
-        rake_compress_impl: &RakeCompress<NodeT, HeapT, ReturnT>,
+        fold_impl: &Fold<NodeT, HeapT, ReturnT>,
         heap_of_top_fn: impl Fn(&Top) -> HeapT + Send + Sync + 'static,
     ) -> Self {
-        RacoAdapter {
-            graph_with_raco: GraphWithRaco::new(
+        FoldAdapter {
+            graph_with_raco: GraphWithFold::new(
                 graph,
-                rake_compress_impl,
+                fold_impl,
                 heap_of_top_fn,
             ),
         }
@@ -43,17 +43,17 @@ where
         self.graph_with_raco.heap_of_top(top)
     }
 
-    pub fn execute_on_node(&self, node: &NodeT) -> ReturnT {
-        use crate::rake::execute::sync;
-        sync::recurse(
-            &self.graph_with_raco.rake_compress_impl,
+    pub fn run_node(&self, node: &NodeT) -> ReturnT {
+        use crate::cata::sync;
+        sync::run(
+            &self.graph_with_raco.fold_impl,
             &self.graph_with_raco.graph.treeish,
             node,
         )
     }
 
-    pub fn execute_top(&self, top: &Top) -> ReturnT {
-        self.graph_with_raco.rake_compress(top)
+    pub fn run_top(&self, top: &Top) -> ReturnT {
+        self.graph_with_raco.run(top)
     }
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
@@ -64,9 +64,9 @@ where
         let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));
         
         Self {
-            graph_with_raco: GraphWithRaco {
+            graph_with_raco: GraphWithFold {
                 graph: self.graph_with_raco.graph.clone(),
-                rake_compress_impl: self.graph_with_raco.rake_compress_impl.clone(),
+                fold_impl: self.graph_with_raco.fold_impl.clone(),
                 impl_heap_of_top: Arc::from(mapper(boxed_original)),
             },
         }
@@ -77,44 +77,44 @@ where
         F: MapFn<Graph<Top, NodeT>> + 'static,
     {
         Self {
-            graph_with_raco: GraphWithRaco {
+            graph_with_raco: GraphWithFold {
                 graph: mapper(self.graph_with_raco.graph.clone()),
-                rake_compress_impl: self.graph_with_raco.rake_compress_impl.clone(),
+                fold_impl: self.graph_with_raco.fold_impl.clone(),
                 impl_heap_of_top: self.graph_with_raco.impl_heap_of_top.clone(),
             },
         }
     }
     
-    pub fn map_rake_compress<F>(&self, mapper: F) -> Self
+    pub fn map_fold<F>(&self, mapper: F) -> Self
     where 
-        F: MapFn<RakeCompress<NodeT, HeapT, ReturnT>> + 'static,
+        F: MapFn<Fold<NodeT, HeapT, ReturnT>> + 'static,
     {
         Self {
-            graph_with_raco: GraphWithRaco {
+            graph_with_raco: GraphWithFold {
                 graph: self.graph_with_raco.graph.clone(),
-                rake_compress_impl: mapper(self.graph_with_raco.rake_compress_impl.clone()),
+                fold_impl: mapper(self.graph_with_raco.fold_impl.clone()),
                 impl_heap_of_top: self.graph_with_raco.impl_heap_of_top.clone(),
             },
         }
     }
     
     /// Maps the return type of this adapter to a new type using mapper and backmapper functions
-    pub fn map<ReturnNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> RacoAdapter<NodeT, Top, HeapT, ReturnNew>
+    pub fn map<ReturnNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> FoldAdapter<NodeT, Top, HeapT, ReturnNew>
     where
         ReturnNew: Clone + 'static,
         MapF: Fn(&ReturnT) -> ReturnNew + Send + Sync + 'static,
         BackF: Fn(&ReturnNew) -> ReturnT + Send + Sync + 'static,
     {
         let gwr = self.graph_with_raco.clone();
-        RacoAdapter::new_from_parts(
+        FoldAdapter::new_from_parts(
             &gwr.graph,
-            &gwr.rake_compress_impl.map(mapper, backmapper),
+            &gwr.fold_impl.map(mapper, backmapper),
             move |top| (gwr.impl_heap_of_top)(top),
         )
     }
     
     /// Maps the return type to a tuple of (original, zipped) using the mapper function
-    pub fn zipmap<ReturnZip, MapF>(&self, mapper: MapF) -> RacoAdapter<NodeT, Top, HeapT, (ReturnT, ReturnZip)>
+    pub fn zipmap<ReturnZip, MapF>(&self, mapper: MapF) -> FoldAdapter<NodeT, Top, HeapT, (ReturnT, ReturnZip)>
     where
         ReturnZip: Clone + 'static,
         MapF: Fn(&ReturnT) -> ReturnZip + Send + Sync + 'static,

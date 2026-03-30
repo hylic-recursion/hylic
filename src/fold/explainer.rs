@@ -1,8 +1,7 @@
 use crate::graph::{treeish, Treeish};
 
 use super::{
-    RakeCompress,
-    rake_compress,
+    Fold,
 };
 
 #[derive(Clone)]
@@ -18,7 +17,7 @@ impl <N> ExplainerNode<N> where N: Clone {
 }
 
 #[derive(Clone)]
-pub struct ExplainerHeapStep<N, H, R> where
+pub struct ExplainerStep<N, H, R> where
 N: Clone, H: Clone, R: Clone,
 {
     pub incoming_result: ExplainerResult<N, H, R>,
@@ -31,7 +30,7 @@ N: Clone, H: Clone, R: Clone,
 {
     pub initial_heap: H,
     pub orig_node: ExplainerNode<N>,
-    pub transitions: Vec<ExplainerHeapStep<N, H, R>>,
+    pub transitions: Vec<ExplainerStep<N, H, R>>,
 
     pub _wip_heap: H,
     // pub _phantom_R: std::marker::PhantomData<R>,
@@ -62,18 +61,18 @@ type EH<N, H, R> = ExplainerHeap<N, H, R>;
 type ER<N, H, R> = ExplainerResult<N, H, R>;
 
 #[derive(Clone)]
-pub struct ExplainerRacoImpl<N, H, R> where
+pub struct Explainer<N, H, R> where
 N: Clone, H: Clone, R: Clone,
 {
-    pub orig_rake_compress: RakeCompress<N, H, R>,
+    pub orig_fold: Fold<N, H, R>,
 }
 
-impl<N, H, R> ExplainerRacoImpl<N, H, R> where
+impl<N, H, R> Explainer<N, H, R> where
 N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
-    pub fn new(rake_compress: RakeCompress<N, H, R>) -> Self {
-        ExplainerRacoImpl {
-            orig_rake_compress: rake_compress,
+    pub fn new(run: Fold<N, H, R>) -> Self {
+        Explainer {
+            orig_fold: run,
         }
     }
 }
@@ -90,35 +89,35 @@ R: Clone + 'static,
     })
 }
 
-impl<N, H, R> ExplainerRacoImpl<N, H, R> where
+impl<N, H, R> Explainer<N, H, R> where
 N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
 
-    pub fn of(rake_compress: RakeCompress<N, H, R>) -> Self {
-        ExplainerRacoImpl::new(rake_compress)
+    pub fn of(run: Fold<N, H, R>) -> Self {
+        Explainer::new(run)
     }
 
-    pub fn wrap(&self) -> RakeCompress<EN<N>, EH<N, H, R>, ER<N, H, R>> {
-        let impl_rake_null = self.orig_rake_compress.impl_rake_null.clone();
-        let impl_rake_add = self.orig_rake_compress.impl_rake_add.clone();
-        let impl_compress = self.orig_rake_compress.impl_compress.clone();
-        rake_compress::<EN<N>, EH<N,H,R>, ER<N,H,R>>(
+    pub fn wrap(&self) -> Fold<EN<N>, EH<N, H, R>, ER<N, H, R>> {
+        let impl_init = self.orig_fold.impl_init.clone();
+        let impl_accumulate = self.orig_fold.impl_accumulate.clone();
+        let impl_finalize = self.orig_fold.impl_finalize.clone();
+        crate::fold::fold::<EN<N>, EH<N,H,R>, ER<N,H,R>>(
             move |node: &EN<N>| {
-                EH::new(node.node.clone(), impl_rake_null(&node.node))
+                EH::new(node.node.clone(), impl_init(&node.node))
             },
             move |heap: &mut EH<N, H, R>, result: &ER<N, H, R>| {
                 {
                     let heap_orig_mut: &mut H = &mut heap._wip_heap;
                     let result_orig: &R = &result.orig_result;
-                    impl_rake_add(heap_orig_mut, result_orig);
+                    impl_accumulate(heap_orig_mut, result_orig);
                 }
-                heap.transitions.push(ExplainerHeapStep {
+                heap.transitions.push(ExplainerStep {
                     incoming_result: result.clone(),
                     resulting_heap: heap._wip_heap.clone(),
                 });
             },
             move |heap: &EH<N, H, R>| {
-                let orig_result = impl_compress(&heap._wip_heap);
+                let orig_result = impl_finalize(&heap._wip_heap);
                 ER {
                     orig_result,
                     heap: heap.clone(),
@@ -130,26 +129,26 @@ N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
     pub fn explain(&self, graph: &Treeish<N>, node: &N) -> ExplainerResult<N,H,R>
     where N: Clone,
     {
-        use super::execute::sync;
+        use crate::cata::sync;
         let wrapped_raco = self.wrap();
         let wrapped_treeish = graph.treemap(
             move |node: &N| EN::new(node.clone()),
             move |node: &EN<N>| node.node.clone(),
         );
-        sync::recurse(&wrapped_raco, &wrapped_treeish, &EN::new(node.clone()))
+        sync::run(&wrapped_raco, &wrapped_treeish, &EN::new(node.clone()))
     }
 
-    pub fn execute_raked<HEx, REx>(&self,
+    pub fn explain_and_fold<HEx, REx>(&self,
         graph: &Treeish<N>,
-        raco_explainer: &RakeCompress<ER<N,H,R>, HEx, REx>,
+        raco_explainer: &Fold<ER<N,H,R>, HEx, REx>,
         node: &N,
     ) -> (R, REx)
     where N: Clone,
     {
-        use super::execute::sync;
+        use crate::cata::sync;
         let wrapped_result = self.explain(graph, node);
         let treeish_for_result: Treeish<ER<N,H,R>> = treeish_for_explres();
-        let raked = sync::recurse(raco_explainer, &treeish_for_result, &wrapped_result);
+        let raked = sync::run(raco_explainer, &treeish_for_result, &wrapped_result);
         (wrapped_result.orig_result, raked)
     }
 
