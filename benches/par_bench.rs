@@ -4,6 +4,7 @@ use std::hint::black_box;
 use hylic::graph::treeish;
 use hylic::fold;
 use hylic::cata::Exec;
+use hylic::prelude::uio_parallel;
 
 fn busy_work(iterations: u64) -> u64 {
     let mut x: u64 = 0xDEAD_BEEF;
@@ -62,56 +63,84 @@ struct BenchConfig {
 
 fn configs() -> Vec<BenchConfig> {
     vec![
-        // Pure overhead measurement
+        // Minimal work — measures pure framework overhead
         BenchConfig {
-            name: "trivial",
-            tree: TreeSpec { node_count: 80, branch_factor: 8 },
+            name: "overhead_only",
+            tree: TreeSpec { node_count: 200, branch_factor: 8 },
             graph_latency_us: 0, graph_compute: 0, fold_compute: 0,
+            asymmetric: false,
+        },
+        // Light CPU work — typical fast resolution
+        BenchConfig {
+            name: "light_cpu",
+            tree: TreeSpec { node_count: 200, branch_factor: 8 },
+            graph_latency_us: 0, graph_compute: 1_000, fold_compute: 1_000,
             asymmetric: false,
         },
         // I/O-dominant discovery (the real resolution case)
         BenchConfig {
             name: "io_discovery",
-            tree: TreeSpec { node_count: 80, branch_factor: 8 },
-            graph_latency_us: 100, graph_compute: 0, fold_compute: 100,
+            tree: TreeSpec { node_count: 200, branch_factor: 8 },
+            graph_latency_us: 100, graph_compute: 0, fold_compute: 500,
             asymmetric: false,
         },
         // Parse-heavy discovery
         BenchConfig {
             name: "parse_heavy",
-            tree: TreeSpec { node_count: 80, branch_factor: 8 },
-            graph_latency_us: 0, graph_compute: 20_000, fold_compute: 100,
+            tree: TreeSpec { node_count: 200, branch_factor: 8 },
+            graph_latency_us: 0, graph_compute: 20_000, fold_compute: 500,
             asymmetric: false,
         },
         // Heavy fold (formatting, analysis)
         BenchConfig {
             name: "heavy_fold",
-            tree: TreeSpec { node_count: 80, branch_factor: 8 },
-            graph_latency_us: 0, graph_compute: 100, fold_compute: 20_000,
+            tree: TreeSpec { node_count: 200, branch_factor: 8 },
+            graph_latency_us: 0, graph_compute: 500, fold_compute: 20_000,
             asymmetric: false,
         },
         // Balanced real-world
         BenchConfig {
             name: "balanced",
-            tree: TreeSpec { node_count: 80, branch_factor: 8 },
+            tree: TreeSpec { node_count: 200, branch_factor: 8 },
             graph_latency_us: 50, graph_compute: 5_000, fold_compute: 5_000,
             asymmetric: false,
         },
-        // Asymmetric: branching nodes expensive, leaves cheap
-        BenchConfig {
-            name: "asymmetric",
-            tree: TreeSpec { node_count: 80, branch_factor: 8 },
-            graph_latency_us: 0, graph_compute: 10_000, fold_compute: 10_000,
-            asymmetric: true,
-        },
-        // Deep tree, I/O discovery
+        // Deep tree, I/O
         BenchConfig {
             name: "deep_io",
-            tree: TreeSpec { node_count: 80, branch_factor: 2 },
-            graph_latency_us: 100, graph_compute: 0, fold_compute: 100,
+            tree: TreeSpec { node_count: 200, branch_factor: 2 },
+            graph_latency_us: 100, graph_compute: 0, fold_compute: 500,
+            asymmetric: false,
+        },
+        // Large tree, light work — stress allocation
+        BenchConfig {
+            name: "large_light",
+            tree: TreeSpec { node_count: 1000, branch_factor: 10 },
+            graph_latency_us: 0, graph_compute: 500, fold_compute: 500,
             asymmetric: false,
         },
     ]
+}
+
+/// Execution modes — the full 2×2 matrix:
+///   traversal: fused (callback) vs rayon (par_iter)
+///   fold: eager (direct) vs deferred (UIO lift, join_par)
+enum Mode {
+    Fused,           // sequential traversal, eager fold
+    Rayon,           // parallel traversal, eager fold
+    UioFused,        // sequential traversal, deferred fold (UIO)
+    UioRayon,        // parallel traversal, deferred fold (UIO)
+}
+
+impl Mode {
+    fn name(&self) -> &'static str {
+        match self {
+            Mode::Fused => "fused",
+            Mode::Rayon => "rayon",
+            Mode::UioFused => "uio+fused",
+            Mode::UioRayon => "uio+rayon",
+        }
+    }
 }
 
 fn bench_executors(c: &mut Criterion) {
@@ -133,7 +162,7 @@ fn bench_executors(c: &mut Criterion) {
             n.children.clone()
         });
 
-        let raco = fold::simple_fold(
+        let my_fold = fold::simple_fold(
             move |n: &Node| {
                 let work = if asym && fc > 0 { fc * (n.children.len() as u64 + 1) } else { fc };
                 (n.id as u64).wrapping_add(busy_work(work))
@@ -141,16 +170,34 @@ fn bench_executors(c: &mut Criterion) {
             |a: &mut u64, c: &u64| { *a = a.wrapping_add(*c); },
         );
 
-        let executors: Vec<(&str, Exec<Node, u64>)> = vec![
-            ("fused", Exec::fused()),
-            ("sequential", Exec::sequential()),
-            ("rayon", Exec::rayon()),
-        ];
-        for (name, exec) in &executors {
+        let modes = [Mode::Fused, Mode::Rayon, Mode::UioFused, Mode::UioRayon];
+
+        for mode in &modes {
             group.bench_with_input(
-                BenchmarkId::new(*name, cfg.name),
+                BenchmarkId::new(mode.name(), cfg.name),
                 &(),
-                |b, _| b.iter(|| exec.run(&raco, &graph, black_box(&tree))),
+                |b, _| {
+                    match mode {
+                        Mode::Fused => {
+                            let exec = Exec::fused();
+                            b.iter(|| exec.run(&my_fold, &graph, black_box(&tree)));
+                        }
+                        Mode::Rayon => {
+                            let exec = Exec::rayon();
+                            b.iter(|| exec.run(&my_fold, &graph, black_box(&tree)));
+                        }
+                        Mode::UioFused => {
+                            let exec = Exec::fused();
+                            let lift = uio_parallel();
+                            b.iter(|| exec.run_lifted(&my_fold, &graph, black_box(&tree), &lift));
+                        }
+                        Mode::UioRayon => {
+                            let exec = Exec::fused();
+                            let lift = uio_parallel().with_inner_exec(|| Exec::rayon());
+                            b.iter(|| exec.run_lifted(&my_fold, &graph, black_box(&tree), &lift));
+                        }
+                    }
+                },
             );
         }
     }

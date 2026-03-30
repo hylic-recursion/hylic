@@ -58,12 +58,12 @@ let r2 = Exec::rayon().run(&fold, &graph, &root);
 |--------|---------|
 | `graph` | Tree structure: `Edgy`, `Treeish`, `Graph` |
 | `fold` | Fold algebra: `Fold`, `simple_fold`, type aliases |
-| `cata` | Execution: `Exec` (fused, sequential, rayon) |
-| `ana` | Seed-based graph construction (anamorphism) |
-| `hylo` | `GraphWithFold` — graph + fold + top-level entry = runnable pipeline |
-| `prelude` | `VecFold`, `Explainer`, `TreeFormatCfg`, `memoize`, `seeds_for_fallible` |
-| `uio` | Lazy memoized computation (`UIO<T>`) |
+| `cata` | Execution: `Exec` (fused, sequential, rayon), `Lift` (type-domain transformation) |
+| `pipeline` | `GraphWithFold` — graph + fold + top-level entry = runnable pipeline |
+| `prelude` | `VecFold`, `Explainer`, `memoize`, `seeds_for_fallible`, `uio_parallel` |
+| `uio` | Lazy memoized computation (`UIO<T>`, `FnOnce`-based) |
 
+`graph` includes `SeedGraph` for seed-based graph construction.
 Core modules (`graph`, `fold`, `cata`) have no knowledge of higher
-layers. `ana` builds graphs from seeds. `hylo` wires fold and graph
-into execution pipelines. `prelude` provides batteries built on core.
+layers. `pipeline` wires graph + fold into runnable pipelines.
+`prelude` provides batteries built on core.
