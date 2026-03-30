@@ -18,16 +18,20 @@ pub fn depth_fold<N: 'static>() -> Fold<N, usize, usize> {
 }
 
 /// Format a tree as an indented string and return it.
-pub fn pretty_print<N: Send + Sync + 'static>(
+/// Uses vec_fold directly — no Display bound needed, just your format_node closure.
+pub fn pretty_print<N: Clone + Send + Sync + 'static>(
     strategy: Strategy,
     graph: &Treeish<N>,
     root: &N,
     format_node: impl Fn(&N) -> String + Send + Sync + 'static,
-) -> String
-where N: Clone
-{
-    use crate::prelude::format::TreeFormatCfg;
-    let cfg = TreeFormatCfg::default_multiline(format_node);
-    let fold = cfg.make_fold();
+) -> String {
+    use crate::prelude::vec_fold::{vec_fold, VecHeap};
+    use crate::utils::push_indent;
+    let fold = vec_fold(move |heap: &VecHeap<N, String>| {
+        let label = format_node(&heap.node);
+        if heap.childresults.is_empty() { return label; }
+        let children = heap.childresults.join(",\n");
+        format!("{}[\n{}\n]", label, push_indent(&children, "  "))
+    });
     strategy.run(&fold, graph, root)
 }
