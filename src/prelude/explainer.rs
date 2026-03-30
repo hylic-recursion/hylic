@@ -93,9 +93,6 @@ impl<N, H, R> Explainer<N, H, R> where
 N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
 
-    pub fn of(run: Fold<N, H, R>) -> Self {
-        Explainer::new(run)
-    }
 
     pub fn wrap(&self) -> Fold<EN<N>, EH<N, H, R>, ER<N, H, R>> {
         let impl_init = self.orig_fold.impl_init.clone();

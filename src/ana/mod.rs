@@ -9,8 +9,6 @@ pub mod treeish_from_deperr;
 pub mod treeish_from_err_edgy;
 
 pub type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
-pub type OptContramapFunc<NodeV, NodeE> = Option<Box<ContramapFunc<NodeV, NodeE>>>;
-pub type OptContramapFuncRc<NodeV, NodeE> = Option<Arc<ContramapFunc<NodeV, NodeE>>>;
 
 use edgy_from_deperr::EdgyFromDepErr;
 use treeish_from_deperr::TreeishFromDepErr;

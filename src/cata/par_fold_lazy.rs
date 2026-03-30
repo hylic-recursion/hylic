@@ -3,7 +3,7 @@ use crate::graph::types::Treeish;
 use crate::fold::Fold;
 use crate::uio::UIO;
 
-pub fn run<N, H, R>(fold: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R
+pub(crate) fn run<N, H, R>(fold: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R
 where
     N: Clone + Send + Sync + 'static,
     H: Send + Sync + 'static,

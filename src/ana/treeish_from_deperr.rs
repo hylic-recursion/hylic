@@ -1,8 +1,9 @@
 use std::sync::Arc;
+use crate::ana::ContramapFunc;
 
 use either::Either;
 use super::edgy_from_deperr::EdgyFromDepErr;
-use crate::ana::OptContramapFuncRc;
+
 
 use crate::graph::types::Treeish;
 use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
@@ -82,7 +83,7 @@ where
 
     pub fn map_contramap_or<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(OptContramapFuncRc<NodeV, NodeE>) -> OptContramapFuncRc<NodeV, NodeE> + 'static,
+        F: FnOnce(Option<Arc<ContramapFunc<NodeV, NodeE>>>) -> Option<Arc<ContramapFunc<NodeV, NodeE>>> + 'static,
     {
         TreeishFromDepErr {
             impl_edgy_from_deperr: self.impl_edgy_from_deperr.clone(),
