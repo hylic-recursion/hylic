@@ -60,3 +60,17 @@ fn all_executors_vec_fold() {
         assert_eq!(exec.run(&my_fold, &graph, &tree), "a[b[d, e], c]");
     }
 }
+
+#[test]
+fn uio_parallel_lift() {
+    let tree = N { val: 1, children: vec![
+        N { val: 2, children: vec![N { val: 4, children: vec![] }] },
+        N { val: 3, children: vec![] },
+    ]};
+    let graph = treeish(|n: &N| n.children.clone());
+    let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
+
+    let lift = crate::prelude::uio_parallel();
+    let result = Exec::fused().run_lifted(&my_fold, &graph, &tree, &lift);
+    assert_eq!(result, 10);
+}

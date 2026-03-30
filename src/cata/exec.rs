@@ -43,6 +43,22 @@ impl<N: 'static, R: 'static> Exec<N, R> {
     pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
         run_inner(&self.impl_visit_children, fold, graph, root)
     }
+
+    /// Lifted execution: transforms Treeish + Fold to another type domain,
+    /// runs the lifted computation with fused traversal, unwraps the result.
+    pub fn run_lifted<H: 'static, N2: 'static, H2: 'static, R2: 'static>(
+        &self,
+        fold: &Fold<N, H, R>,
+        graph: &Treeish<N>,
+        root: &N,
+        lift: &super::lift::Lift<N, H, R, N2, H2, R2>,
+    ) -> R {
+        let lifted_treeish = lift.lift_treeish(graph.clone());
+        let lifted_fold = lift.lift_fold(fold.clone());
+        let lifted_root = lift.lift_root(root);
+        let inner_result = Exec::<N2, R2>::fused().run(&lifted_fold, &lifted_treeish, &lifted_root);
+        lift.unwrap(inner_result)
+    }
 }
 
 impl<N: Clone + 'static, R: 'static> Exec<N, R> {

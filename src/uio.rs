@@ -1,4 +1,4 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct UIO<T: Send + Sync + 'static> {
     inner: Arc<UIOInner<T>>,
@@ -6,14 +6,14 @@ pub struct UIO<T: Send + Sync + 'static> {
 
 struct UIOInner<T: Send + Sync> {
     cell: OnceLock<T>,
-    compute: Box<dyn Fn() -> T + Send + Sync>,
+    compute: Mutex<Option<Box<dyn FnOnce() -> T + Send + Sync>>>,
 }
 
 impl<T: Send + Sync + 'static> UIO<T> {
-    pub fn new(f: impl Fn() -> T + Send + Sync + 'static) -> Self {
+    pub fn new(f: impl FnOnce() -> T + Send + Sync + 'static) -> Self {
         UIO { inner: Arc::new(UIOInner {
             cell: OnceLock::new(),
-            compute: Box::new(f),
+            compute: Mutex::new(Some(Box::new(f))),
         })}
     }
 
@@ -22,12 +22,15 @@ impl<T: Send + Sync + 'static> UIO<T> {
         let _ = cell.set(value);
         UIO { inner: Arc::new(UIOInner {
             cell,
-            compute: Box::new(|| unreachable!()),
+            compute: Mutex::new(None),
         })}
     }
 
     pub fn eval(&self) -> &T {
-        self.inner.cell.get_or_init(|| (self.inner.compute)())
+        self.inner.cell.get_or_init(|| {
+            self.inner.compute.lock().unwrap().take()
+                .expect("UIO: compute already consumed but OnceLock empty")()
+        })
     }
 
     pub fn map<U: Send + Sync + 'static>(
