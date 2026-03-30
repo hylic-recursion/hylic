@@ -3,16 +3,16 @@ use crate::graph::types::Treeish;
 use crate::fold::Fold;
 use crate::fold::par::UIO;
 
-pub fn run<N, H, R>(raco: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R
+pub fn run<N, H, R>(fold: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R
 where
     N: Clone + Send + Sync + 'static,
     H: Send + Sync + 'static,
     R: Clone + Send + Sync + 'static,
 {
     let ctx = Arc::new(Ctx {
-            init: raco.impl_init.clone(),
-            accumulate: raco.impl_accumulate.clone(),
-            finalize: raco.impl_finalize.clone(),
+            init: fold.impl_init.clone(),
+            accumulate: fold.impl_accumulate.clone(),
+            finalize: fold.impl_finalize.clone(),
             graph: graph.clone(),
     });
     build(&ctx, node).eval().clone()

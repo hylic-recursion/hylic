@@ -7,7 +7,7 @@ use crate::hylo::GraphWithFold;
 
 #[derive(Clone)]
 pub struct FoldAdapter<NodeT, Top, HeapT, ReturnT> {
-    pub graph_with_raco: GraphWithFold<NodeT, Top, HeapT, ReturnT>,
+    pub graph_with_fold: GraphWithFold<NodeT, Top, HeapT, ReturnT>,
 }
 
 impl<NodeT, Top, HeapT, ReturnT> FoldAdapter<NodeT, Top, HeapT, ReturnT>
@@ -18,10 +18,10 @@ where
     ReturnT: Clone + 'static,
 {
     pub fn new(
-        graph_with_raco: &GraphWithFold<NodeT, Top, HeapT, ReturnT>,
+        graph_with_fold: &GraphWithFold<NodeT, Top, HeapT, ReturnT>,
     ) -> Self {
         FoldAdapter {
-            graph_with_raco: graph_with_raco.clone(),
+            graph_with_fold: graph_with_fold.clone(),
         }
     }
 
@@ -31,7 +31,7 @@ where
         heap_of_top_fn: impl Fn(&Top) -> HeapT + Send + Sync + 'static,
     ) -> Self {
         FoldAdapter {
-            graph_with_raco: GraphWithFold::new(
+            graph_with_fold: GraphWithFold::new(
                 graph,
                 fold_impl,
                 heap_of_top_fn,
@@ -40,33 +40,33 @@ where
     }
     
     pub fn heap_of_top(&self, top: &Top) -> HeapT {
-        self.graph_with_raco.heap_of_top(top)
+        self.graph_with_fold.heap_of_top(top)
     }
 
     pub fn run_node(&self, node: &NodeT) -> ReturnT {
         use crate::cata::sync;
         sync::run(
-            &self.graph_with_raco.fold_impl,
-            &self.graph_with_raco.graph.treeish,
+            &self.graph_with_fold.fold_impl,
+            &self.graph_with_fold.graph.treeish,
             node,
         )
     }
 
     pub fn run_top(&self, top: &Top) -> ReturnT {
-        self.graph_with_raco.run(top)
+        self.graph_with_fold.run(top)
     }
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
     where 
         F: MapFn<Box<dyn Fn(&Top) -> HeapT + Send + Sync>> + 'static,
     {
-        let original_fn = self.graph_with_raco.impl_heap_of_top.clone();
+        let original_fn = self.graph_with_fold.impl_heap_of_top.clone();
         let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));
-        
+
         Self {
-            graph_with_raco: GraphWithFold {
-                graph: self.graph_with_raco.graph.clone(),
-                fold_impl: self.graph_with_raco.fold_impl.clone(),
+            graph_with_fold: GraphWithFold {
+                graph: self.graph_with_fold.graph.clone(),
+                fold_impl: self.graph_with_fold.fold_impl.clone(),
                 impl_heap_of_top: Arc::from(mapper(boxed_original)),
             },
         }
@@ -77,10 +77,10 @@ where
         F: MapFn<Graph<Top, NodeT>> + 'static,
     {
         Self {
-            graph_with_raco: GraphWithFold {
-                graph: mapper(self.graph_with_raco.graph.clone()),
-                fold_impl: self.graph_with_raco.fold_impl.clone(),
-                impl_heap_of_top: self.graph_with_raco.impl_heap_of_top.clone(),
+            graph_with_fold: GraphWithFold {
+                graph: mapper(self.graph_with_fold.graph.clone()),
+                fold_impl: self.graph_with_fold.fold_impl.clone(),
+                impl_heap_of_top: self.graph_with_fold.impl_heap_of_top.clone(),
             },
         }
     }
@@ -90,10 +90,10 @@ where
         F: MapFn<Fold<NodeT, HeapT, ReturnT>> + 'static,
     {
         Self {
-            graph_with_raco: GraphWithFold {
-                graph: self.graph_with_raco.graph.clone(),
-                fold_impl: mapper(self.graph_with_raco.fold_impl.clone()),
-                impl_heap_of_top: self.graph_with_raco.impl_heap_of_top.clone(),
+            graph_with_fold: GraphWithFold {
+                graph: self.graph_with_fold.graph.clone(),
+                fold_impl: mapper(self.graph_with_fold.fold_impl.clone()),
+                impl_heap_of_top: self.graph_with_fold.impl_heap_of_top.clone(),
             },
         }
     }
@@ -105,11 +105,11 @@ where
         MapF: Fn(&ReturnT) -> ReturnNew + Send + Sync + 'static,
         BackF: Fn(&ReturnNew) -> ReturnT + Send + Sync + 'static,
     {
-        let gwr = self.graph_with_raco.clone();
+        let gwf = self.graph_with_fold.clone();
         FoldAdapter::new_from_parts(
-            &gwr.graph,
-            &gwr.fold_impl.map(mapper, backmapper),
-            move |top| (gwr.impl_heap_of_top)(top),
+            &gwf.graph,
+            &gwf.fold_impl.map(mapper, backmapper),
+            move |top| (gwf.impl_heap_of_top)(top),
         )
     }
     

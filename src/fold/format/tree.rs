@@ -9,7 +9,7 @@ use derive_more::Display;
 use crate::fold::{vec_fold, VecHeap, VecFold};
 use crate::utils::{push_indent, MapFn};
 
-/// Spec, leads to raco
+/// Spec, leads to fold
 #[derive(Clone, Display)]
 #[display("TreeFormatCfg{{sep={},l/r={}{},indent={}}}", separator, join_left_str, join_right_str, indent)]
 pub struct TreeFormatCfg<N> {
@@ -66,7 +66,7 @@ impl <N> TreeFormatCfg<N> {
 
 }
 
-// implement the rake finalize on the structure
+// implement the fold finalize on the structure
 impl <N> TreeFormatCfg<N> where 
 N: Clone + Display + 'static {
     pub fn new(
