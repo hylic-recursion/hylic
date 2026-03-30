@@ -1,5 +1,4 @@
-pub mod sync;
-pub mod par;
+pub mod exec;
 
 #[cfg(test)]
 mod tests;
@@ -7,7 +6,7 @@ mod tests;
 use crate::graph::types::Treeish;
 use crate::fold::Fold;
 
-pub use par::Par;
+pub use exec::{Exec, ChildVisitorFn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strategy {
@@ -27,8 +26,8 @@ impl Strategy {
         R: Clone + Send + Sync + 'static,
     {
         match self {
-            Sequential => sync::run(fold, graph, node),
-            Strategy::Par => par::Par::new(fold).run(graph, node),
+            Sequential => Exec::fused().run(fold, graph, node),
+            Par => Exec::rayon().run(fold, graph, node),
         }
     }
 }
