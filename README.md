@@ -69,7 +69,7 @@ Same fold, different strategy:
 ```rust
 use hylic::cata::{Strategy, ALL};
 
-let result = Strategy::ParTraverse.run(&fold, &graph, &root);
+let result = Strategy::Par.run(&fold, &graph, &root);
 
 // Verify all strategies produce the same result
 for s in ALL {
@@ -85,7 +85,7 @@ hylic is organized into layers with strict dependency flow:
 |--------|---------|
 | `graph` | Tree structure: `Edgy`, `Treeish`, `Graph` |
 | `fold` | Fold algebra: `Fold`, `simple_fold`, `fold` |
-| `cata` | Execution: `Strategy` (Sequential, ParTraverse, ParFoldLazy) |
+| `cata` | Execution: `Strategy` (Sequential, Par), `Par<N,H,R>` composed executor |
 | `ana` | Seed-based graph construction (anamorphism) |
 | `hylo` | Fold+graph adapters for composed pipelines |
 | `prelude` | Helpers: `VecFold`, `Explainer`, `TreeFormatCfg`, `Visit` |
