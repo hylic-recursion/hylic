@@ -5,7 +5,7 @@
 //! is reachable from multiple parents.
 
 use crate::uio::UIO;
-use crate::graph::types::{Treeish, treeish_visit};
+use crate::graph::types::Treeish;
 
 /// Wrap a Treeish so each node's children are memoized via UIO.
 /// The first traversal computes; subsequent traversals return cached results.
