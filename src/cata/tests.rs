@@ -50,7 +50,8 @@ fn all_executors_vec_fold() {
 
     let tree = T::branch("a", vec![T::branch("b", vec![T::leaf("d"), T::leaf("e")]), T::leaf("c")]);
     let graph = treeish(|n: &T| n.children.clone());
-    let my_fold = fold::vec_fold(|heap: &fold::VecHeap<T, String>| {
+    use crate::prelude::{vec_fold, VecHeap};
+    let my_fold = vec_fold(|heap: &VecHeap<T, String>| {
         let ch = heap.childresults.join(", ");
         if ch.is_empty() { heap.node.name.clone() } else { format!("{}[{}]", heap.node.name, ch) }
     });

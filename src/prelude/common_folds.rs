@@ -26,7 +26,7 @@ pub fn pretty_print<N: Clone + Send + Sync + 'static>(
     format_node: impl Fn(&N) -> String + Send + Sync + 'static,
 ) -> String {
     use crate::prelude::vec_fold::{vec_fold, VecHeap};
-    use crate::utils::push_indent;
+    use crate::prelude::utils::push_indent;
     let fold = vec_fold(move |heap: &VecHeap<N, String>| {
         let label = format_node(&heap.node);
         if heap.childresults.is_empty() { return label; }

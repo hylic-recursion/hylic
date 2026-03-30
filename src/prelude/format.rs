@@ -7,7 +7,7 @@ use std::{fmt::Display, sync::Arc};
 use derive_more::Display;
 
 use crate::prelude::vec_fold::{vec_fold, VecHeap, VecFold};
-use crate::utils::push_indent;
+use super::utils::push_indent;
 
 pub type FormatFn<N> = Box<dyn Fn(&N) -> String + Send + Sync>;
 

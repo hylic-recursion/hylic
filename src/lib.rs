@@ -4,7 +4,6 @@
 //! ([`graph::Treeish`]) and the execution strategy ([`cata::Strategy`]).
 //! Each piece is independently definable, transformable, and composable.
 
-pub mod utils;
 pub mod uio;
 
 pub mod graph;

@@ -1,3 +1,4 @@
+pub(crate) mod utils;
 pub mod vec_fold;
 pub mod explainer;
 pub mod format;

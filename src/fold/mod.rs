@@ -23,7 +23,3 @@ pub fn simple_fold<N, H>(
     Fold::new(init, accumulate, |heap| heap.clone())
 }
 
-// Convenience re-exports from prelude
-pub use crate::prelude::vec_fold::{vec_fold, VecFold, VecHeap};
-pub use crate::prelude::explainer;
-pub use crate::prelude::format;

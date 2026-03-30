@@ -1,7 +1,7 @@
 use crate::graph::types::Treeish;
 use crate::fold::Fold;
 
-pub(crate) fn run<N: 'static, H, R>(fold: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R {
+pub fn run<N: 'static, H, R>(fold: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R {
     let mut heap = fold.init(node);
     graph.visit(node, &mut |child| {
         let result = run(fold, graph, child);
