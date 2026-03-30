@@ -2,9 +2,12 @@ use std::sync::Arc;
 use either::Either;
 use crate::graph::visit::Visit;
 
-#[derive(Clone)]
 pub struct Edgy<NodeT, EdgeT> {
     impl_visit: Arc<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>,
+}
+
+impl<NodeT, EdgeT> Clone for Edgy<NodeT, EdgeT> {
+    fn clone(&self) -> Self { Edgy { impl_visit: self.impl_visit.clone() } }
 }
 
 impl<NodeT, EdgeT> Edgy<NodeT, EdgeT>
@@ -53,6 +56,14 @@ where NodeT: 'static, EdgeT: 'static,
                 Either::Left(node) => inner(&node, cb),
                 Either::Right(edges) => { for e in &edges { cb(e); } }
             }
+        })
+    }
+
+    /// Keep only edges matching a predicate. Same types, fewer edges.
+    pub fn filter(&self, pred: impl Fn(&EdgeT) -> bool + Send + Sync + 'static) -> Self {
+        let inner = self.impl_visit.clone();
+        edgy_visit(move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| {
+            inner(n, &mut |e: &EdgeT| { if pred(e) { cb(e); } });
         })
     }
 }

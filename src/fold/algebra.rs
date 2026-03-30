@@ -1,14 +1,23 @@
 use std::sync::Arc;
 use super::{InitFn, AccumulateFn, FinalizeFn};
 
-#[derive(Clone)]
 pub struct Fold<N, H, R> {
     // Function to create the initial heap value for a node
     pub(crate) impl_init: Arc<dyn Fn(&N) -> H + Send + Sync>,
     pub(crate) impl_accumulate: Arc<dyn Fn(&mut H, &R) + Send + Sync>,
     pub(crate) impl_finalize: Arc<dyn Fn(&H) -> R + Send + Sync>,
 }
-impl<N, H, R> Fold<N, H, R> 
+impl<N, H, R> Clone for Fold<N, H, R> {
+    fn clone(&self) -> Self {
+        Fold {
+            impl_init: self.impl_init.clone(),
+            impl_accumulate: self.impl_accumulate.clone(),
+            impl_finalize: self.impl_finalize.clone(),
+        }
+    }
+}
+
+impl<N, H, R> Fold<N, H, R>
 where
     N: 'static,
 {
@@ -122,10 +131,53 @@ where
         MapF: Fn(&R) -> RZip + Send + Sync + 'static,
     {
         let backmap = |x: &(R, RZip)| x.0.clone();
-        
+
         self.map(
             move |x| (x.clone(), mapper(x)),
             backmap,
+        )
+    }
+
+    /// Change the node type. Only init sees the node — accumulate and
+    /// finalize are unchanged. The fold is contravariant in N.
+    pub fn contramap<NewN: 'static>(
+        &self,
+        f: impl Fn(&NewN) -> N + Send + Sync + 'static,
+    ) -> Fold<NewN, H, R>
+    where H: 'static, R: 'static,
+    {
+        let init = self.impl_init.clone();
+        let acc = self.impl_accumulate.clone();
+        let fin = self.impl_finalize.clone();
+        Fold::new(
+            move |new_n: &NewN| init(&f(new_n)),
+            move |h: &mut H, r: &R| acc(h, r),
+            move |h: &H| fin(h),
+        )
+    }
+
+    /// Run two folds in one tree traversal. The categorical product:
+    /// each fold maintains its own heap, sees its own child results,
+    /// produces its own output. One pass, two results.
+    pub fn product<H2, R2>(
+        &self,
+        other: &Fold<N, H2, R2>,
+    ) -> Fold<N, (H, H2), (R, R2)>
+    where H: 'static, H2: 'static, R: 'static, R2: 'static,
+    {
+        let init1 = self.impl_init.clone();
+        let init2 = other.impl_init.clone();
+        let acc1 = self.impl_accumulate.clone();
+        let acc2 = other.impl_accumulate.clone();
+        let fin1 = self.impl_finalize.clone();
+        let fin2 = other.impl_finalize.clone();
+        Fold::new(
+            move |n: &N| (init1(n), init2(n)),
+            move |heap: &mut (H, H2), child: &(R, R2)| {
+                acc1(&mut heap.0, &child.0);
+                acc2(&mut heap.1, &child.1);
+            },
+            move |heap: &(H, H2)| (fin1(&heap.0), fin2(&heap.1)),
         )
     }
 }
