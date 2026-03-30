@@ -32,10 +32,10 @@ fn all_executors_match() {
         N { val: 3, children: vec![] },
     ]};
     let graph = treeish(|n: &N| n.children.clone());
-    let raco = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
+    let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
 
     for exec in ALL {
-        assert_eq!(exec.run(&raco, &graph, &tree), 10, "failed for {:?}", exec);
+        assert_eq!(exec.run(&my_fold, &graph, &tree), 10, "failed for {:?}", exec);
     }
 }
 
@@ -50,12 +50,12 @@ fn all_executors_vec_fold() {
 
     let tree = T::branch("a", vec![T::branch("b", vec![T::leaf("d"), T::leaf("e")]), T::leaf("c")]);
     let graph = treeish(|n: &T| n.children.clone());
-    let raco = fold::vec_fold(|heap: &fold::VecHeap<T, String>| {
+    let my_fold = fold::vec_fold(|heap: &fold::VecHeap<T, String>| {
         let ch = heap.childresults.join(", ");
         if ch.is_empty() { heap.node.name.clone() } else { format!("{}[{}]", heap.node.name, ch) }
     });
 
     for exec in ALL {
-        assert_eq!(exec.run(&raco, &graph, &tree), "a[b[d, e], c]", "failed for {:?}", exec);
+        assert_eq!(exec.run(&my_fold, &graph, &tree), "a[b[d, e], c]", "failed for {:?}", exec);
     }
 }

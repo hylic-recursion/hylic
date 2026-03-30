@@ -71,7 +71,7 @@ where
 
 
 pub fn map_top_to_heap<NodeV, NodeE, Seed, Top, Heap, ReturnT, F>(
-    raco: &SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>,
+    sgf: &SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>,
     mapper: F
 ) -> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>
 where 
@@ -83,18 +83,18 @@ where
     ReturnT: Clone + 'static,
     F: MapFn<FuncTopToHeap<Top, Heap>>,
 {
-    let original_fn = raco.impl_top_to_heap.clone();
+    let original_fn = sgf.impl_top_to_heap.clone();
     let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));
     
     SeedGraphFold {
-        graph_spec: raco.graph_spec.clone(),
-        impl_fold: raco.impl_fold.clone(),
+        graph_spec: sgf.graph_spec.clone(),
+        impl_fold: sgf.impl_fold.clone(),
         impl_top_to_heap: Arc::from(mapper(boxed_original)),
     }
 }
 
 pub fn map_graph_spec<NodeV, NodeE, Seed, Top, Heap, ReturnT, F>(
-    raco: &SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>,
+    sgf: &SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>,
     mapper: F
 ) -> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>
 where 
@@ -107,14 +107,14 @@ where
     F: MapFn<SeedGraph<NodeV, NodeE, Seed, Top>>,
 {
     SeedGraphFold {
-        graph_spec: mapper(raco.graph_spec.clone()),
-        impl_fold: raco.impl_fold.clone(),
-        impl_top_to_heap: raco.impl_top_to_heap.clone(),
+        graph_spec: mapper(sgf.graph_spec.clone()),
+        impl_fold: sgf.impl_fold.clone(),
+        impl_top_to_heap: sgf.impl_top_to_heap.clone(),
     }
 }
 
 pub fn map_fold<NodeV, NodeE, Seed, Top, Heap, ReturnT, F>(
-    raco: &SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>,
+    sgf: &SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>,
     mapper: F
 ) -> SeedGraphFold<NodeV, NodeE, Seed, Top, Heap, ReturnT>
 where 
@@ -127,9 +127,9 @@ where
     F: MapFn<Fold<Either<NodeE, NodeV>, Heap, ReturnT>>,
 {
     SeedGraphFold {
-        graph_spec: raco.graph_spec.clone(),
-        impl_fold: mapper(raco.impl_fold.clone()),
-        impl_top_to_heap: raco.impl_top_to_heap.clone(),
+        graph_spec: sgf.graph_spec.clone(),
+        impl_fold: mapper(sgf.impl_fold.clone()),
+        impl_top_to_heap: sgf.impl_top_to_heap.clone(),
     }
 }
 
