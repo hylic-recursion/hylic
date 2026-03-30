@@ -9,5 +9,5 @@ pub use vec_fold::{vec_fold, VecFold, VecHeap};
 pub use explainer::Explainer;
 pub use format::TreeFormatCfg;
 pub use traced::{Traced, traced_treeish};
-pub use memoize::memoize_treeish;
+pub use memoize::{memoize_treeish, memoize_treeish_by};
 pub use common_folds::{count_fold, depth_fold, pretty_print};

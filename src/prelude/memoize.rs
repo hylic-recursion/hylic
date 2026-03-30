@@ -1,22 +1,49 @@
-//! Graph memoization via UIO — each child is computed at most once.
+//! Graph memoization — cache children so repeated visits skip the graph function.
 //!
-//! Wraps a Treeish so that repeated traversals of the same node
-//! return the cached result. Useful for DAGs where the same node
-//! is reachable from multiple parents.
+//! For DAGs where the same node is reachable from multiple parents,
+//! wrapping the Treeish avoids redundant traversals. The returned
+//! Treeish has the same node type — the fold doesn't change.
 
-use crate::uio::UIO;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::sync::{Arc, Mutex};
 use crate::graph::types::Treeish;
+use crate::graph::treeish;
 
-/// Wrap a Treeish so each node's children are memoized via UIO.
-/// The first traversal computes; subsequent traversals return cached results.
+/// Memoize a Treeish using a caller-provided key function.
 ///
-/// The returned Treeish operates on `UIO<N>` — nodes are lazy wrappers.
-/// Call `.eval()` to get the underlying `&N`.
-pub fn memoize_treeish<N>(graph: &Treeish<N>) -> Treeish<UIO<N>>
-where N: Clone + Send + Sync + 'static
+/// On first visit of a key, the original graph function runs and
+/// children are cached. Subsequent visits with the same key return
+/// the cached children without calling the graph.
+pub fn memoize_treeish_by<N, K>(
+    graph: &Treeish<N>,
+    key_fn: impl Fn(&N) -> K + Send + Sync + 'static,
+) -> Treeish<N>
+where
+    N: Clone + Send + Sync + 'static,
+    K: Hash + Eq + Send + Sync + 'static,
 {
-    graph.treemap(
-        |n: &N| UIO::pure(n.clone()),
-        |u: &UIO<N>| u.eval().clone(),
-    )
+    let graph = graph.clone();
+    let cache: Arc<Mutex<HashMap<K, Vec<N>>>> = Arc::new(Mutex::new(HashMap::new()));
+    treeish(move |node: &N| {
+        let k = key_fn(node);
+        let mut cache = cache.lock().unwrap();
+        if let Some(children) = cache.get(&k) {
+            return children.clone();
+        }
+        let children = graph.apply(node);
+        cache.insert(k, children.clone());
+        children
+    })
+}
+
+/// Memoize a Treeish for hashable node types.
+///
+/// Convenience wrapper over `memoize_treeish_by` that uses the node
+/// itself as the cache key.
+pub fn memoize_treeish<N>(graph: &Treeish<N>) -> Treeish<N>
+where
+    N: Clone + Hash + Eq + Send + Sync + 'static,
+{
+    memoize_treeish_by(graph, |n: &N| n.clone())
 }
