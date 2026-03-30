@@ -2,7 +2,8 @@ use std::sync::Arc;
 use crate::graph::Graph;
 use crate::fold::Fold;
 use crate::cata::Exec;
-use super::HeapOfTopFn;
+
+pub type HeapOfTopFn<Top, HeapT> = Box<dyn Fn(&Top) -> HeapT + Send + Sync>;
 
 pub struct GraphWithFold<NodeT, Top, HeapT, ReturnT> {
     pub graph: Graph<Top, NodeT>,
