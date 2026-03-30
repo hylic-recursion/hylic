@@ -17,6 +17,7 @@ pub struct EdgyFromDepErr<NodeV, NodeE, Seed> {
     pub(crate) impl_grow_node: Arc<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>,
 }
 
+#[allow(dead_code)]
 impl<NodeV, NodeE, Seed> EdgyFromDepErr<NodeV, NodeE, Seed> 
 where 
     NodeV: Clone + 'static,

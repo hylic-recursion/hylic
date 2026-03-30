@@ -40,14 +40,6 @@ impl<N: 'static, R: 'static> Exec<N, R> {
         Exec { impl_visit_children }
     }
 
-    /// Transform the child visitor.
-    pub fn map_impl_visit_children(
-        &self,
-        mapper: impl FnOnce(Arc<ChildVisitorFn<N, R>>) -> Arc<ChildVisitorFn<N, R>>,
-    ) -> Self {
-        Exec { impl_visit_children: mapper(self.impl_visit_children.clone()) }
-    }
-
     pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
         run_inner(&self.impl_visit_children, fold, graph, root)
     }

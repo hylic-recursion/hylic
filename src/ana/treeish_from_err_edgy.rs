@@ -16,6 +16,7 @@ pub struct TreeishFromErrEdgy<NodeV, NodeE> {
     pub(crate) impl_edges: Edgy<NodeV, Either<NodeE, NodeV>>,
 }
 
+#[allow(dead_code)]
 impl<NodeV, NodeE> TreeishFromErrEdgy<NodeV, NodeE>
 where 
     NodeV: Clone + 'static,

@@ -4,12 +4,12 @@ use either::Either;
 use crate::graph::types::{Edgy, Treeish, edgy_visit};
 use crate::graph::Graph;
 
-pub mod edgy_from_deperr;
-pub mod treeish_from_deperr;
-pub mod treeish_from_err_edgy;
+pub(crate) mod edgy_from_deperr;
+pub(crate) mod treeish_from_deperr;
+pub(crate) mod treeish_from_err_edgy;
 
-pub type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
-pub type GrowNodeFn<Seed, NodeE, NodeV> = Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>;
+pub(crate) type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
+pub(crate) type GrowNodeFn<Seed, NodeE, NodeV> = Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>;
 
 use edgy_from_deperr::EdgyFromDepErr;
 use treeish_from_deperr::TreeishFromDepErr;
@@ -67,7 +67,7 @@ where
     }
 
     // Creates an EdgyFromDepErr from the basic functions
-    pub fn spec_edgy_from_deperr(&self) -> EdgyFromDepErr<NodeV, NodeE, Seed> {
+    fn spec_edgy_from_deperr(&self) -> EdgyFromDepErr<NodeV, NodeE, Seed> {
         let grow_node_fn = self.impl_grow_node_fn.clone();
         EdgyFromDepErr::new(
             self.impl_seeds_from_valid_edgy.clone(), 
@@ -76,7 +76,7 @@ where
     }
 
     // Creates a TreeishFromDepErr from the edgy_spec
-    pub fn spec_treeish_from_deperr(&self) -> TreeishFromDepErr<NodeV, NodeE, Seed> {
+    fn spec_treeish_from_deperr(&self) -> TreeishFromDepErr<NodeV, NodeE, Seed> {
         TreeishFromDepErr::new(self.spec_edgy_from_deperr())
     }
 

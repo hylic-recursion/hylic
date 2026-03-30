@@ -20,6 +20,7 @@ pub struct TreeishFromDepErr<NodeV, NodeE, HeapSeed> {
     pub(crate) impl_contramap_or: Option<Arc<ContramapFunc<NodeV, NodeE>>>,
 }
 
+#[allow(dead_code)]
 impl <NodeV, NodeE, HeapSeed> TreeishFromDepErr<NodeV, NodeE, HeapSeed>
 where
     NodeV: Clone + 'static, 
