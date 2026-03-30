@@ -74,13 +74,14 @@ where NodeT: 'static,
 }
 
 pub type Treeish<Node> = Edgy<Node, Node>;
+pub type VisitFn<NodeT, EdgeT> = Box<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>;
 
 // Direct callback constructor — zero allocation traversal
 pub fn edgy_visit<NodeT, EdgeT>(
     func: impl Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync + 'static,
 ) -> Edgy<NodeT, EdgeT> {
     Edgy { impl_visit: Arc::from(
-        Box::new(func) as Box<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>
+        Box::new(func) as VisitFn<NodeT, EdgeT>
     )}
 }
 

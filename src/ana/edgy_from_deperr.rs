@@ -3,6 +3,7 @@ use std::sync::Arc;
 use either::Either;
 
 use crate::graph::types::{Edgy, edgy_visit};
+use super::GrowNodeFn;
 
 
 #[derive(Clone)]
@@ -23,7 +24,7 @@ where
     ) -> Self {
         EdgyFromDepErr {
             impl_edgy_seed: edgy_seed,
-            impl_grow_node: Arc::from(Box::new(grow_node) as Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>),
+            impl_grow_node: Arc::from(Box::new(grow_node) as GrowNodeFn<Seed, NodeE, NodeV>),
         }
     }
     
@@ -58,7 +59,7 @@ where
 
     pub fn map_grow_node<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>) -> Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>,
+        F: FnOnce(GrowNodeFn<Seed, NodeE, NodeV>) -> GrowNodeFn<Seed, NodeE, NodeV>,
     {
         let original_fn = self.impl_grow_node.clone();
         let boxed_original = Box::new(move |seed: &Seed| (*original_fn)(seed));

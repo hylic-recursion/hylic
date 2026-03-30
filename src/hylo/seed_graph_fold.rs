@@ -3,7 +3,7 @@ use either::Either;
 
 use crate::fold::Fold;
 use crate::ana::SeedGraph;
-use crate::hylo::GraphWithFold;
+use crate::hylo::{GraphWithFold, HeapOfTopFn};
 
 /// This struct builds on SeedGraph
 /// - it formulates the RaCo using seed-centric heap construction
@@ -31,7 +31,7 @@ where
         SeedGraphFold {
             graph_spec,
             impl_fold: fold_impl,
-            impl_top_to_heap: Arc::from(Box::new(top_to_heap) as Box<dyn Fn(&Top) -> Heap + Send + Sync>),
+            impl_top_to_heap: Arc::from(Box::new(top_to_heap) as HeapOfTopFn<Top, Heap>),
         }
     }
 
@@ -63,7 +63,7 @@ where
 
     pub fn map_top_to_heap<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(Box<dyn Fn(&Top) -> Heap + Send + Sync>) -> Box<dyn Fn(&Top) -> Heap + Send + Sync>,
+        F: FnOnce(HeapOfTopFn<Top, Heap>) -> HeapOfTopFn<Top, Heap>,
     {
         let original_fn = self.impl_top_to_heap.clone();
         let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));

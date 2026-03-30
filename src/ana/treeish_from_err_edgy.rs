@@ -74,7 +74,7 @@ where
     
     pub fn map_contramap_or<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>) -> Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync> + 'static,
+        F: FnOnce(Box<ContramapFunc<NodeV, NodeE>>) -> Box<ContramapFunc<NodeV, NodeE>> + 'static,
     {
         let original_fn = self.impl_contramap_or.clone();
         let boxed_original = Box::new(move |result: &Either<NodeE, NodeV>| (*original_fn)(result));

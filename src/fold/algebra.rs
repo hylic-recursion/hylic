@@ -23,9 +23,9 @@ where
         F3: Fn(&H) -> R + Send + Sync + 'static,
     {
         Fold {
-            impl_init: Arc::from(Box::new(init) as Box<dyn Fn(&N) -> H + Send + Sync>),
-            impl_accumulate: Arc::from(Box::new(accumulate) as Box<dyn Fn(&mut H, &R) + Send + Sync>),
-            impl_finalize: Arc::from(Box::new(finalize) as Box<dyn Fn(&H) -> R + Send + Sync>),
+            impl_init: Arc::from(Box::new(init) as InitFn<N, H>),
+            impl_accumulate: Arc::from(Box::new(accumulate) as AccumulateFn<H, R>),
+            impl_finalize: Arc::from(Box::new(finalize) as FinalizeFn<H, R>),
         }
     }
     

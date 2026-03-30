@@ -12,7 +12,7 @@ use crate::ana::treeish_from_err_edgy::TreeishFromErrEdgy;
 #[derive(Clone)]
 pub struct TreeishFromDepErr<NodeV, NodeE, HeapSeed> {
     pub(crate) impl_edgy_from_deperr: EdgyFromDepErr<NodeV, NodeE, HeapSeed>,
-    pub(crate) impl_contramap_or: Option<Arc<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync>>,
+    pub(crate) impl_contramap_or: Option<Arc<ContramapFunc<NodeV, NodeE>>>,
 }
 
 impl <NodeV, NodeE, HeapSeed> TreeishFromDepErr<NodeV, NodeE, HeapSeed>
@@ -36,7 +36,7 @@ where
         edgy_from_deperr: EdgyFromDepErr<NodeV, NodeE, HeapSeed>,
         contramap: impl Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync + 'static
     ) -> Self {
-        let f_boxed: Box<dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync> = Box::new(contramap);
+        let f_boxed: Box<ContramapFunc<NodeV, NodeE>> = Box::new(contramap);
         
         TreeishFromDepErr {
             impl_edgy_from_deperr: edgy_from_deperr,

@@ -9,6 +9,7 @@ pub mod treeish_from_deperr;
 pub mod treeish_from_err_edgy;
 
 pub type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
+pub type GrowNodeFn<Seed, NodeE, NodeV> = Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>;
 
 use edgy_from_deperr::EdgyFromDepErr;
 use treeish_from_deperr::TreeishFromDepErr;
@@ -39,7 +40,7 @@ where
     ) -> Self {
         SeedGraph {
             impl_seeds_from_valid_edgy: seeds_from_valid_edgy,
-            impl_grow_node_fn: Arc::from(Box::new(grow_node_fn) as Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>),
+            impl_grow_node_fn: Arc::from(Box::new(grow_node_fn) as GrowNodeFn<Seed, NodeE, NodeV>),
             impl_seeds_from_top: seeds_from_top,
         }
     }
@@ -98,7 +99,7 @@ where
 
     pub fn map_grow_node_fn<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync>) -> Box<dyn Fn(&Seed) -> Either<NodeE, NodeV> + Send + Sync> + 'static,
+        F: FnOnce(GrowNodeFn<Seed, NodeE, NodeV>) -> GrowNodeFn<Seed, NodeE, NodeV> + 'static,
     {
         let original_fn = self.impl_grow_node_fn.clone();
         let boxed_original = Box::new(move |seed: &Seed| (*original_fn)(seed));

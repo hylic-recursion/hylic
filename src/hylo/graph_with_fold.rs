@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::graph::Graph;
 use crate::fold::Fold;
+use super::HeapOfTopFn;
 
 #[derive(Clone)]
 pub struct GraphWithFold<NodeT, Top, HeapT, ReturnT> {
@@ -23,7 +24,7 @@ where
     ) -> Self {
         GraphWithFold {
             graph: graph.clone(),
-            impl_heap_of_top: Arc::from(Box::new(heap_of_top_fn) as Box<dyn Fn(&Top) -> HeapT + Send + Sync>),
+            impl_heap_of_top: Arc::from(Box::new(heap_of_top_fn) as HeapOfTopFn<Top, HeapT>),
             fold_impl: fold_impl.clone(),
         }
     }

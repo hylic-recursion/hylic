@@ -9,6 +9,8 @@ use derive_more::Display;
 use crate::prelude::vec_fold::{vec_fold, VecHeap, VecFold};
 use crate::utils::push_indent;
 
+pub type FormatFn<N> = Box<dyn Fn(&N) -> String + Send + Sync>;
+
 /// Spec, leads to fold
 #[derive(Clone, Display)]
 #[display("TreeFormatCfg{{sep={},l/r={}{},indent={}}}", separator, join_left_str, join_right_str, indent)]
@@ -50,7 +52,7 @@ impl <N> TreeFormatCfg<N> {
     pub fn map_format_n<F>(&self, f: F) -> Self
     where
         N: 'static,
-        F: FnOnce(Box<dyn Fn(&N) -> String + Send + Sync>) -> Box<dyn Fn(&N) -> String + Send + Sync> + 'static,
+        F: FnOnce(FormatFn<N>) -> FormatFn<N> + 'static,
     {
         let original_format_n = self.format_n.clone();
         return TreeFormatCfg{
@@ -77,7 +79,7 @@ N: Clone + Display + 'static {
         indent: &str,
     ) -> Self {
         TreeFormatCfg {
-            format_n: Arc::from(Box::new(format_n) as Box<dyn Fn(&N) -> String + Send + Sync>),
+            format_n: Arc::from(Box::new(format_n) as FormatFn<N>),
             separator: separator.to_string(),
             join_left_str: join_left_string.to_string(),
             join_right_str: join_right_string.to_string(),

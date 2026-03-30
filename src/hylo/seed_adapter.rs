@@ -3,6 +3,7 @@ use either::Either;
 use crate::fold::Fold;
 use crate::ana::SeedGraph;
 use crate::hylo::adapter::FoldAdapter;
+use super::HeapOfTopFn;
 
 /// SeedFoldAdapter is a specialized version of FoldAdapter that works with
 /// SeedGraph. It internally uses the more generic FoldAdapter from core.rs.
@@ -79,7 +80,7 @@ where
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(Box<dyn Fn(&Top) -> HeapT + Send + Sync>) -> Box<dyn Fn(&Top) -> HeapT + Send + Sync> + 'static,
+        F: FnOnce(HeapOfTopFn<Top, HeapT>) -> HeapOfTopFn<Top, HeapT> + 'static,
     {
         Self {
             graph_with_seed_and_err: self.graph_with_seed_and_err.clone(),

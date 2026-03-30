@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::fold::Fold;
 use crate::graph::graph::Graph;
-use crate::hylo::GraphWithFold;
+use crate::hylo::{GraphWithFold, HeapOfTopFn};
 
 #[derive(Clone)]
 pub struct FoldAdapter<NodeT, Top, HeapT, ReturnT> {
@@ -60,7 +60,7 @@ where
     
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
     where
-        F: FnOnce(Box<dyn Fn(&Top) -> HeapT + Send + Sync>) -> Box<dyn Fn(&Top) -> HeapT + Send + Sync> + 'static,
+        F: FnOnce(HeapOfTopFn<Top, HeapT>) -> HeapOfTopFn<Top, HeapT> + 'static,
     {
         let original_fn = self.graph_with_fold.impl_heap_of_top.clone();
         let boxed_original = Box::new(move |top: &Top| (*original_fn)(top));
