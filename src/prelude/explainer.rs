@@ -1,6 +1,6 @@
 use crate::graph::{treeish, Treeish};
 
-use super::{
+use crate::fold::{
     Fold,
 };
 

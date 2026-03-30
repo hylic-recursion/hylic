@@ -6,7 +6,7 @@ use std::{fmt::Display, sync::Arc};
 
 use derive_more::Display;
 
-use crate::fold::{vec_fold, VecHeap, VecFold};
+use crate::prelude::vec_fold::{vec_fold, VecHeap, VecFold};
 use crate::utils::{push_indent, MapFn};
 
 /// Spec, leads to fold

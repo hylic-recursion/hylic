@@ -2,7 +2,6 @@ use std::sync::Arc;
 use either::Either;
 
 pub mod types;
-pub mod traced;
 pub mod graph;
 
 pub type ContramapFunc<NodeV, NodeE> = dyn Fn(&Either<NodeE, NodeV>) -> Either<Vec<Either<NodeE, NodeV>>, NodeV> + Send + Sync;
@@ -11,4 +10,6 @@ pub type OptContramapFuncRc<NodeV, NodeE> = Option<Arc<ContramapFunc<NodeV, Node
 
 pub use types::{Treeish, Edgy, treeish, treeish_visit, edgy, edgy_visit};
 pub use graph::Graph;
-pub use traced::{Traced, traced_treeish};
+
+// Convenience re-export from prelude
+pub use crate::prelude::traced::{Traced, traced_treeish};

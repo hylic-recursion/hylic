@@ -1,7 +1,11 @@
 pub mod utils;
-pub mod visit;
+
+// Core
 pub mod graph;
 pub mod fold;
 pub mod cata;
 pub mod ana;
 pub mod hylo;
+
+// Prelude — convenience types, formatters, introspection
+pub mod prelude;

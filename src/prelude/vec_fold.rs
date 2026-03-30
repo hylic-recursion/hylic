@@ -1,4 +1,4 @@
-use super::{fold as fold_fn, Fold};
+use crate::fold::{fold as fold_fn, Fold};
 
 #[derive(Debug, Clone)]
 pub struct VecHeap<N, R> {

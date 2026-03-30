@@ -2,7 +2,8 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;
 
 use hylic::graph::treeish;
-use hylic::rake::{self, execute::ALL};
+use hylic::fold;
+use hylic::cata::ALL;
 
 fn busy_work(iterations: u64) -> u64 {
     let mut x: u64 = 0xDEAD_BEEF;
@@ -21,25 +22,25 @@ fn spin_wait_us(micros: u64) {
 }
 
 #[derive(Clone)]
-struct Node { id: usize, depth: usize, children: Vec<Node> }
+struct Node { id: usize, children: Vec<Node> }
 
 struct TreeSpec { node_count: usize, branch_factor: usize }
 
 fn gen_tree(spec: &TreeSpec, seed: u64) -> Node {
     let mut rng = SimpleRng(seed);
     let mut built = 1;
-    build_subtree(0, 0, spec, &mut built, &mut rng)
+    build_subtree(0, spec, &mut built, &mut rng)
 }
 
-fn build_subtree(id: usize, depth: usize, spec: &TreeSpec, built: &mut usize, rng: &mut SimpleRng) -> Node {
-    if *built >= spec.node_count { return Node { id, depth, children: vec![] }; }
+fn build_subtree(id: usize, spec: &TreeSpec, built: &mut usize, rng: &mut SimpleRng) -> Node {
+    if *built >= spec.node_count { return Node { id, children: vec![] }; }
     let max_ch = spec.branch_factor.min(spec.node_count - *built);
     let n_ch = if max_ch == 0 { 0 } else { 1 + rng.next_usize() % max_ch };
     let children = (0..n_ch).map(|_| {
         let cid = *built; *built += 1;
-        build_subtree(cid, depth + 1, spec, built, rng)
+        build_subtree(cid, spec, built, rng)
     }).collect();
-    Node { id, depth, children }
+    Node { id, children }
 }
 
 struct SimpleRng(u64);
@@ -132,7 +133,7 @@ fn bench_executors(c: &mut Criterion) {
             n.children.clone()
         });
 
-        let raco = rake::rake(
+        let raco = fold::simple_fold(
             move |n: &Node| {
                 let work = if asym && fc > 0 { fc * (n.children.len() as u64 + 1) } else { fc };
                 (n.id as u64).wrapping_add(busy_work(work))

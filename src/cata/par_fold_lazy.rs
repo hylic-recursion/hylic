@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use crate::graph::types::Treeish;
 use crate::fold::Fold;
-use crate::fold::par::UIO;
+use crate::cata::par::UIO;
 
 pub fn run<N, H, R>(fold: &Fold<N, H, R>, graph: &Treeish<N>, node: &N) -> R
 where

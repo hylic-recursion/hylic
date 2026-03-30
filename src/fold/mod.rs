@@ -1,12 +1,7 @@
-pub mod transformations;
-pub mod explainer;
 pub mod algebra;
-pub mod format;
-pub mod vec_fold;
-pub mod par;
+pub mod transformations;
 
 pub use algebra::Fold;
-pub use vec_fold::{vec_fold, VecFold, VecHeap};
 
 pub type SimpleFold<N, H> = Fold<N, H, H>;
 
@@ -24,3 +19,8 @@ pub fn simple_fold<N, H>(
 ) -> Fold<N, H, H> where N: 'static, H: Clone + 'static {
     Fold::new(init, accumulate, |heap| heap.clone())
 }
+
+// Convenience re-exports from prelude
+pub use crate::prelude::vec_fold::{vec_fold, VecFold, VecHeap};
+pub use crate::prelude::explainer;
+pub use crate::prelude::format;

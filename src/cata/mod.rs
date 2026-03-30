@@ -1,6 +1,10 @@
 pub mod sync;
 mod par_traverse;
 mod par_fold_lazy;
+pub mod par;
+
+#[cfg(test)]
+mod tests;
 
 use crate::graph::types::Treeish;
 use crate::fold::Fold;
