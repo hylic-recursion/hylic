@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use hylic::graph::{treeish, Treeish};
+use hylic::graph::{treeish_visit, Treeish};
 use hylic::fold::{self, Fold};
 
 use super::tree::{self, NodeId, TreeSpec};
@@ -31,9 +31,9 @@ impl PreparedScenario {
         let w2 = def.work.clone();
         let ch = children.clone();
 
-        let treeish = treeish(move |n: &NodeId| {
+        let treeish = treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
             w.do_graph();
-            ch[*n].clone()
+            for &child in &ch[*n] { cb(&child); }
         });
 
         let fold = fold::fold(

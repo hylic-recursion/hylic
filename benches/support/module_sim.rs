@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use hylic::graph::treeish;
+use hylic::graph::treeish_visit;
 use hylic::fold;
 use hylic::prelude::WorkPool;
 
@@ -169,7 +169,9 @@ pub fn hylic_fold(sim: &PreparedModuleSim) -> fold::Fold<String, u64, u64> {
 
 pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Treeish<String> {
     let reg = reg.clone();
-    treeish(move |name: &String| { reg[name].deps.clone() })
+    treeish_visit(move |name: &String, cb: &mut dyn FnMut(&String)| {
+        for dep in &reg[name].deps { cb(dep); }
+    })
 }
 
 pub fn run_hylic(mode: &str, sim: &PreparedModuleSim, pool: &Arc<WorkPool>) -> u64 {

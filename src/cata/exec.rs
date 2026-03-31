@@ -14,35 +14,49 @@ pub type ChildVisitorFn<N, R> = dyn Fn(
     &mut dyn FnMut(&R),
 ) + Send + Sync;
 
-/// Unified executor parameterized by a child-visiting lambda.
-/// Fused (callback), unfused (collect), parallel (rayon) are
-/// different lambdas — the executor doesn't know which.
+/// Unified executor. Fused mode uses a specialized zero-Arc path;
+/// all other modes use a ChildVisitorFn lambda.
 pub struct Exec<N, R> {
-    impl_visit_children: Arc<ChildVisitorFn<N, R>>,
+    inner: ExecInner<N, R>,
+}
+
+enum ExecInner<N, R> {
+    /// Zero-overhead recursive traversal via direct reference passing.
+    /// No Arc clones per recursion — fold and graph are borrowed.
+    Fused,
+    /// General-purpose: child-visiting lambda encapsulates traversal
+    /// mode and parallelism.
+    Custom(Arc<ChildVisitorFn<N, R>>),
 }
 
 impl<N, R> Clone for Exec<N, R> {
-    fn clone(&self) -> Self { Exec { impl_visit_children: self.impl_visit_children.clone() } }
+    fn clone(&self) -> Self {
+        Exec { inner: match &self.inner {
+            ExecInner::Fused => ExecInner::Fused,
+            ExecInner::Custom(f) => ExecInner::Custom(f.clone()),
+        }}
+    }
 }
 
-// --- Constructors: each checks its own bounds ---
+// --- Constructors ---
 
 impl<N: 'static, R: 'static> Exec<N, R> {
-    /// Fused: callback-based traversal. Zero allocation.
+    /// Fused: callback-based traversal. Zero allocation, zero Arc clones.
     /// Recursion and accumulation interleave inside graph.visit.
     pub fn fused() -> Self {
-        Exec { impl_visit_children: Arc::new(|graph, node, recurse, handle| {
-            graph.visit(node, &mut |child: &N| handle(&recurse(child)));
-        })}
+        Exec { inner: ExecInner::Fused }
     }
 
     /// Custom child visitor.
     pub fn new(impl_visit_children: Arc<ChildVisitorFn<N, R>>) -> Self {
-        Exec { impl_visit_children }
+        Exec { inner: ExecInner::Custom(impl_visit_children) }
     }
 
     pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
-        run_inner(&self.impl_visit_children, fold, graph, root)
+        match &self.inner {
+            ExecInner::Fused => run_inner_fused(fold, graph, root),
+            ExecInner::Custom(vc) => run_inner(vc, fold, graph, root),
+        }
     }
 
     // ANCHOR: run_lifted
@@ -64,8 +78,6 @@ impl<N: 'static, R: 'static> Exec<N, R> {
     // ANCHOR_END: run_lifted
 
     /// Run lifted, returning both the unwrapped result and the lifted result.
-    /// Useful for Explainer (get R + ExplainerResult) or any Lift where
-    /// the intermediate form carries information you want to keep.
     pub fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
         lift: &Lift<N0, H0, R0, N, H, R>,
@@ -80,15 +92,14 @@ impl<N: 'static, R: 'static> Exec<N, R> {
         let unwrapped = lift.unwrap(inner_result.clone());
         (unwrapped, inner_result)
     }
-
 }
 
 impl<N: Clone + 'static, R: 'static> Exec<N, R> {
     /// Unfused sequential: collect children, process one by one.
     pub fn sequential() -> Self {
-        Exec { impl_visit_children: Arc::new(|graph, node, recurse, handle| {
+        Exec::new(Arc::new(|graph, node, recurse, handle| {
             for child in graph.apply(node) { handle(&recurse(&child)); }
-        })}
+        }))
     }
 }
 
@@ -96,7 +107,7 @@ impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> Exec<N, R> {
     /// Unfused parallel: collect children, rayon par_iter.
     /// Send + Sync bounds checked here, encapsulated in the lambda.
     pub fn rayon() -> Self {
-        Exec { impl_visit_children: Arc::new(|graph, node, recurse, handle| {
+        Exec::new(Arc::new(|graph, node, recurse, handle| {
             use rayon::prelude::*;
             let children = graph.apply(node);
             if children.len() <= 1 {
@@ -105,11 +116,28 @@ impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> Exec<N, R> {
                 let results: Vec<R> = children.par_iter().map(|c| recurse(c)).collect();
                 for r in &results { handle(r); }
             }
-        })}
+        }))
     }
 }
 
-// --- Internal: the single run implementation ---
+// --- Fused: zero-Arc recursive traversal ---
+
+// ANCHOR: run_inner_fused
+fn run_inner_fused<N: 'static, H: 'static, R: 'static>(
+    fold: &Fold<N, H, R>,
+    graph: &Treeish<N>,
+    node: &N,
+) -> R {
+    let mut heap = fold.init(node);
+    graph.visit(node, &mut |child: &N| {
+        let r = run_inner_fused(fold, graph, child);
+        fold.accumulate(&mut heap, &r);
+    });
+    fold.finalize(&heap)
+}
+// ANCHOR_END: run_inner_fused
+
+// --- Custom: generic path with ChildVisitorFn ---
 
 // ANCHOR: run_inner
 fn run_inner<N: 'static, H: 'static, R: 'static>(
