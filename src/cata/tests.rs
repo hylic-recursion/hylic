@@ -1,25 +1,25 @@
 use crate::graph::treeish;
 use crate::fold;
 use crate::cata::Exec;
-use crate::uio::UIO;
+use crate::parref::ParRef;
 
 #[test]
 fn uio_basic() {
-    let u = UIO::new(|| 42);
+    let u = ParRef::new(|| 42);
     assert_eq!(*u.eval(), 42);
     assert_eq!(*u.eval(), 42);
 }
 
 #[test]
 fn uio_map() {
-    let u = UIO::new(|| 10);
+    let u = ParRef::new(|| 10);
     assert_eq!(*u.map(|x| x * 2).eval(), 20);
 }
 
 #[test]
 fn uio_join_par() {
-    let uios: Vec<UIO<i32>> = (0..5).map(|i| UIO::new(move || i * i)).collect();
-    assert_eq!(*UIO::join_par(uios).eval(), vec![0, 1, 4, 9, 16]);
+    let uios: Vec<ParRef<i32>> = (0..5).map(|i| ParRef::new(move || i * i)).collect();
+    assert_eq!(*ParRef::join_par(uios).eval(), vec![0, 1, 4, 9, 16]);
 }
 
 #[derive(Clone)]
@@ -62,7 +62,7 @@ fn all_executors_vec_fold() {
 }
 
 #[test]
-fn uio_parallel_lift() {
+fn parallel_lifts() {
     let tree = N { val: 1, children: vec![
         N { val: 2, children: vec![N { val: 4, children: vec![] }] },
         N { val: 3, children: vec![] },
@@ -70,7 +70,8 @@ fn uio_parallel_lift() {
     let graph = treeish(|n: &N| n.children.clone());
     let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
 
-    let lift = crate::prelude::uio_parallel();
-    let result = Exec::fused().run_lifted(&my_fold, &graph, &tree, &lift);
-    assert_eq!(result, 10);
+    assert_eq!(Exec::fused().run_lifted(&crate::prelude::parref_lazy(), &my_fold, &graph, &tree), 10);
+    crate::prelude::WorkPool::with(3, |pool| {
+        assert_eq!(Exec::fused().run_lifted(&crate::prelude::par_eager(pool), &my_fold, &graph, &tree), 10);
+    });
 }

@@ -1,17 +1,17 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
-pub struct UIO<T: Send + Sync + 'static> {
-    inner: Arc<UIOInner<T>>,
+pub struct ParRef<T: Send + Sync + 'static> {
+    inner: Arc<ParRefInner<T>>,
 }
 
-struct UIOInner<T: Send + Sync> {
+struct ParRefInner<T: Send + Sync> {
     cell: OnceLock<T>,
     compute: Mutex<Option<Box<dyn FnOnce() -> T + Send + Sync>>>,
 }
 
-impl<T: Send + Sync + 'static> UIO<T> {
+impl<T: Send + Sync + 'static> ParRef<T> {
     pub fn new(f: impl FnOnce() -> T + Send + Sync + 'static) -> Self {
-        UIO { inner: Arc::new(UIOInner {
+        ParRef { inner: Arc::new(ParRefInner {
             cell: OnceLock::new(),
             compute: Mutex::new(Some(Box::new(f))),
         })}
@@ -20,7 +20,7 @@ impl<T: Send + Sync + 'static> UIO<T> {
     pub fn pure(value: T) -> Self {
         let cell = OnceLock::new();
         let _ = cell.set(value);
-        UIO { inner: Arc::new(UIOInner {
+        ParRef { inner: Arc::new(ParRefInner {
             cell,
             compute: Mutex::new(None),
         })}
@@ -29,56 +29,56 @@ impl<T: Send + Sync + 'static> UIO<T> {
     pub fn eval(&self) -> &T {
         self.inner.cell.get_or_init(|| {
             self.inner.compute.lock().unwrap().take()
-                .expect("UIO: compute already consumed but OnceLock empty")()
+                .expect("ParRef: compute already consumed but OnceLock empty")()
         })
     }
 
     pub fn map<U: Send + Sync + 'static>(
         &self,
         f: impl Fn(&T) -> U + Send + Sync + 'static,
-    ) -> UIO<U> {
+    ) -> ParRef<U> {
         let upstream = self.clone();
-        UIO::new(move || f(upstream.eval()))
+        ParRef::new(move || f(upstream.eval()))
     }
 
     pub fn flat_map<U: Clone + Send + Sync + 'static>(
         &self,
-        f: impl Fn(&T) -> UIO<U> + Send + Sync + 'static,
-    ) -> UIO<U> {
+        f: impl Fn(&T) -> ParRef<U> + Send + Sync + 'static,
+    ) -> ParRef<U> {
         let upstream = self.clone();
-        UIO::new(move || f(upstream.eval()).eval().clone())
+        ParRef::new(move || f(upstream.eval()).eval().clone())
     }
 }
 
-impl<T: Send + Sync + Clone + 'static> UIO<T> {
+impl<T: Send + Sync + Clone + 'static> ParRef<T> {
     pub fn zip_par<U: Send + Sync + Clone + 'static>(
         &self,
-        other: &UIO<U>,
-    ) -> UIO<(T, U)> {
+        other: &ParRef<U>,
+    ) -> ParRef<(T, U)> {
         let a = self.clone();
         let b = other.clone();
-        UIO::new(move || {
+        ParRef::new(move || {
             rayon::join(|| a.eval().clone(), || b.eval().clone())
         })
     }
 
-    pub fn join_par(uios: Vec<UIO<T>>) -> UIO<Vec<T>> {
-        UIO::new(move || {
+    pub fn join_par(parrefs: Vec<ParRef<T>>) -> ParRef<Vec<T>> {
+        ParRef::new(move || {
             use rayon::prelude::*;
-            uios.par_iter().map(|u| u.eval().clone()).collect()
+            parrefs.par_iter().map(|u| u.eval().clone()).collect()
         })
     }
 }
 
-impl<T: Send + Sync> Clone for UIO<T> {
-    fn clone(&self) -> Self { UIO { inner: self.inner.clone() } }
+impl<T: Send + Sync> Clone for ParRef<T> {
+    fn clone(&self) -> Self { ParRef { inner: self.inner.clone() } }
 }
 
-impl<T: Send + Sync + std::fmt::Debug> std::fmt::Debug for UIO<T> {
+impl<T: Send + Sync + std::fmt::Debug> std::fmt::Debug for ParRef<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self.inner.cell.get() {
-            Some(v) => write!(f, "UIO({:?})", v),
-            None => write!(f, "UIO(<pending>)"),
+            Some(v) => write!(f, "ParRef({:?})", v),
+            None => write!(f, "ParRef(<pending>)"),
         }
     }
 }

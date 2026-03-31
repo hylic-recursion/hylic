@@ -4,7 +4,7 @@
 //! ([`graph::Treeish`]) and the executor ([`cata::Exec`]).
 //! Each piece is independently definable, transformable, and composable.
 
-pub mod uio;
+pub mod parref;
 
 pub mod graph;
 pub mod fold;

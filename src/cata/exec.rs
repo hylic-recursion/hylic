@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::graph::types::Treeish;
 use crate::fold::Fold;
+use super::Lift;
 
 /// How children are visited and their results delivered.
 /// The lambda encapsulates traversal mode (callback vs collect)
@@ -44,21 +45,22 @@ impl<N: 'static, R: 'static> Exec<N, R> {
         run_inner(&self.impl_visit_children, fold, graph, root)
     }
 
-    /// Lifted execution: transforms Treeish + Fold to another type domain,
-    /// runs the lifted computation with the Lift's inner executor, unwraps.
-    pub fn run_lifted<H: 'static, N2: 'static, H2: 'static, R2: 'static>(
+    /// Run a lifted computation: transform fold + treeish via the Lift,
+    /// execute with this executor, unwrap the result.
+    pub fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
-        fold: &Fold<N, H, R>,
-        graph: &Treeish<N>,
-        root: &N,
-        lift: &super::lift::Lift<N, H, R, N2, H2, R2>,
-    ) -> R {
+        lift: &Lift<N0, H0, R0, N, H, R>,
+        fold: &Fold<N0, H0, R0>,
+        graph: &Treeish<N0>,
+        root: &N0,
+    ) -> R0 {
         let lifted_treeish = lift.lift_treeish(graph.clone());
         let lifted_fold = lift.lift_fold(fold.clone());
         let lifted_root = lift.lift_root(root);
-        let inner_result = lift.inner_exec().run(&lifted_fold, &lifted_treeish, &lifted_root);
+        let inner_result = self.run(&lifted_fold, &lifted_treeish, &lifted_root);
         lift.unwrap(inner_result)
     }
+
 }
 
 impl<N: Clone + 'static, R: 'static> Exec<N, R> {
