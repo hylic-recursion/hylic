@@ -61,12 +61,12 @@ impl WorkPool {
         }
     }
 
-    pub(super) fn submit(&self, f: Box<dyn FnOnce() + Send>) {
+    pub fn submit(&self, f: Box<dyn FnOnce() + Send>) {
         self.queue.lock().unwrap().push(f);
         self.condvar.notify_one();
     }
 
-    pub(super) fn try_run_one(&self) -> bool {
+    pub fn try_run_one(&self) -> bool {
         let item = self.queue.lock().unwrap().pop();
         match item {
             Some(f) => { f(); true }

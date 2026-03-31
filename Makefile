@@ -1,4 +1,6 @@
-.PHONY: hylic-check hylic-test hylic-test-parallel hylic-test-all hylic-bench hylic-bench-report hylic-bench-full
+.PHONY: hylic-check hylic-test hylic-test-parallel hylic-test-all \
+       hylic-bench hylic-bench-modes hylic-bench-overhead hylic-bench-module \
+       hylic-bench-report hylic-bench-full
 
 # ── Quick checks ────────────────────────────────────────────
 hylic-check:
@@ -15,10 +17,19 @@ hylic-test-all: hylic-test hylic-test-parallel
 
 # ── Benchmarks ──────────────────────────────────────────────
 hylic-bench:
-	@bash Makefile-scripting/bench-run.sh
+	@bash Makefile-scripting/bench-run.sh all
+
+hylic-bench-modes:
+	@bash Makefile-scripting/bench-run.sh modes
+
+hylic-bench-overhead:
+	@bash Makefile-scripting/bench-run.sh overhead
+
+hylic-bench-module:
+	@bash Makefile-scripting/bench-run.sh module
 
 hylic-bench-report:
 	@python3 Makefile-scripting/bench-report.py
 
 hylic-bench-full: hylic-bench hylic-bench-report
-	@echo "Report: target/bench-report/bench-report.html"
+	@echo "Reports in target/bench-report/ and copied to docs"

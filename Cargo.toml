@@ -14,5 +14,13 @@ criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
 
 [[bench]]
-name = "par_bench"
+name = "bench_hylic_modes"
+harness = false
+
+[[bench]]
+name = "bench_vs_handrolled"
+harness = false
+
+[[bench]]
+name = "bench_module_sim"
 harness = false
