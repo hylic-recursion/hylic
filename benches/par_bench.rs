@@ -112,10 +112,10 @@ fn configs() -> Vec<BenchConfig> {
             graph_latency_us: 100, graph_compute: 0, fold_compute: 500,
             asymmetric: false,
         },
-        // Large tree, light work — stress allocation
+        // Larger tree, light work — more nodes, stress allocation
         BenchConfig {
             name: "large_light",
-            tree: TreeSpec { node_count: 1000, branch_factor: 10 },
+            tree: TreeSpec { node_count: 500, branch_factor: 10 },
             graph_latency_us: 0, graph_compute: 500, fold_compute: 500,
             asymmetric: false,
         },
