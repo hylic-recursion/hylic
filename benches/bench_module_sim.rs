@@ -9,10 +9,11 @@ use support::module_sim;
 fn bench_module_sim(c: &mut Criterion) {
     let mut group = c.benchmark_group("module-sim");
 
+    let modes = module_sim::all_modes();
     for spec in module_sim::all_module_scenarios(false) {
         let sim = module_sim::prepare(&spec);
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            for name in &module_sim::MODULE_MODES {
+            for name in &modes {
                 group.bench_with_input(
                     BenchmarkId::new(*name, &sim.name),
                     &(),

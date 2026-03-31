@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use hylic::graph::treeish;
 use hylic::fold;
-use hylic::cata::Exec;
-use hylic::prelude::{ParLazy, ParEager, WorkPool};
+use hylic::prelude::WorkPool;
 
 use super::work::{busy_work, spin_wait_us};
 
@@ -152,48 +151,31 @@ pub fn vanilla_rayon(sim: &PreparedModuleSim) -> u64 {
     result_value(&r)
 }
 
-// ── Hylic implementations ──────────────────────────────────
+// ── Hylic implementation (uses shared mode dispatch) ───────
 
-fn hylic_fold(parse_work: u64, parse_io_us: u64, acc_work: u64) -> fold::Fold<String, u64, u64> {
+pub fn hylic_fold(sim: &PreparedModuleSim) -> fold::Fold<String, u64, u64> {
+    let pw = sim.spec.parse_work;
+    let pio = sim.spec.parse_io_us;
+    let aw = sim.spec.accumulate_work;
     fold::fold(
-        move |_name: &String| -> u64 { simulate_parse(parse_work, parse_io_us) },
+        move |_name: &String| -> u64 { simulate_parse(pw, pio) },
         move |heap: &mut u64, child: &u64| {
-            if acc_work > 0 { *heap = heap.wrapping_add(busy_work(acc_work)); }
+            if aw > 0 { *heap = heap.wrapping_add(busy_work(aw)); }
             *heap = heap.wrapping_add(*child);
         },
         |heap: &u64| -> u64 { *heap },
     )
 }
 
-fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Treeish<String> {
+pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Treeish<String> {
     let reg = reg.clone();
-    treeish(move |name: &String| {
-        reg[name].deps.clone()
-    })
+    treeish(move |name: &String| { reg[name].deps.clone() })
 }
 
-pub fn hylic_fused(sim: &PreparedModuleSim) -> u64 {
-    let fold = hylic_fold(sim.spec.parse_work, sim.spec.parse_io_us, sim.spec.accumulate_work);
+pub fn run_hylic(mode: &str, sim: &PreparedModuleSim, pool: &Arc<WorkPool>) -> u64 {
+    let fold = hylic_fold(sim);
     let graph = hylic_treeish(&sim.registry);
-    Exec::fused().run(&fold, &graph, &sim.root_name)
-}
-
-pub fn hylic_rayon(sim: &PreparedModuleSim) -> u64 {
-    let fold = hylic_fold(sim.spec.parse_work, sim.spec.parse_io_us, sim.spec.accumulate_work);
-    let graph = hylic_treeish(&sim.registry);
-    Exec::rayon().run(&fold, &graph, &sim.root_name)
-}
-
-pub fn hylic_parref_rayon(sim: &PreparedModuleSim) -> u64 {
-    let fold = hylic_fold(sim.spec.parse_work, sim.spec.parse_io_us, sim.spec.accumulate_work);
-    let graph = hylic_treeish(&sim.registry);
-    Exec::rayon().run_lifted(&ParLazy::lift(), &fold, &graph, &sim.root_name)
-}
-
-pub fn hylic_eager(sim: &PreparedModuleSim, pool: &Arc<WorkPool>) -> u64 {
-    let fold = hylic_fold(sim.spec.parse_work, sim.spec.parse_io_us, sim.spec.accumulate_work);
-    let graph = hylic_treeish(&sim.registry);
-    Exec::fused().run_lifted(&ParEager::lift(pool), &fold, &graph, &sim.root_name)
+    super::hylic_runners::run_hylic_mode(mode, &fold, &graph, &sim.root_name, pool)
 }
 
 // ── Scenario definitions ───────────────────────────────────
@@ -212,18 +194,21 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
     ]
 }
 
-pub const MODULE_MODES: [&str; 6] = [
-    "vanilla-seq", "vanilla-rayon", "hylic-fused", "hylic-rayon", "hylic-parref", "hylic-eager",
-];
+pub const VANILLA_MODES: [&str; 2] = ["vanilla-seq", "vanilla-rayon"];
 
 pub fn run_module_mode(name: &str, sim: &PreparedModuleSim, pool: &Arc<WorkPool>) -> u64 {
     match name {
         "vanilla-seq"   => vanilla_seq(sim),
         "vanilla-rayon" => vanilla_rayon(sim),
-        "hylic-fused"   => hylic_fused(sim),
-        "hylic-rayon"   => hylic_rayon(sim),
-        "hylic-parref"  => hylic_parref_rayon(sim),
-        "hylic-eager"   => hylic_eager(sim, pool),
+        // All hylic-* modes dispatched through the shared runner
+        _ if name.starts_with("hylic-") => run_hylic(name, sim, pool),
         _ => panic!("unknown module mode: {name}"),
     }
+}
+
+/// All module sim modes: vanilla baselines + all 6 hylic modes.
+pub fn all_modes() -> Vec<&'static str> {
+    let mut v: Vec<&str> = VANILLA_MODES.to_vec();
+    v.extend_from_slice(&super::hylic_runners::HYLIC_MODES);
+    v
 }
