@@ -2,9 +2,11 @@ use std::sync::Arc;
 use either::Either;
 use crate::graph::visit::Visit;
 
+// ANCHOR: edgy_struct
 pub struct Edgy<NodeT, EdgeT> {
     impl_visit: Arc<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>,
 }
+// ANCHOR_END: edgy_struct
 
 impl<NodeT, EdgeT> Clone for Edgy<NodeT, EdgeT> {
     fn clone(&self) -> Self { Edgy { impl_visit: self.impl_visit.clone() } }
@@ -84,7 +86,9 @@ where NodeT: 'static,
     }
 }
 
+// ANCHOR: treeish_alias
 pub type Treeish<Node> = Edgy<Node, Node>;
+// ANCHOR_END: treeish_alias
 pub type VisitFn<NodeT, EdgeT> = Box<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>;
 
 // Direct callback constructor — zero allocation traversal

@@ -45,6 +45,7 @@ impl<N: 'static, R: 'static> Exec<N, R> {
         run_inner(&self.impl_visit_children, fold, graph, root)
     }
 
+    // ANCHOR: run_lifted
     /// Run a lifted computation: transform fold + treeish via the Lift,
     /// execute with this executor, unwrap the result.
     pub fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
@@ -60,6 +61,7 @@ impl<N: 'static, R: 'static> Exec<N, R> {
         let inner_result = self.run(&lifted_fold, &lifted_treeish, &lifted_root);
         lift.unwrap(inner_result)
     }
+    // ANCHOR_END: run_lifted
 
     /// Run lifted, returning both the unwrapped result and the lifted result.
     /// Useful for Explainer (get R + ExplainerResult) or any Lift where
@@ -109,13 +111,13 @@ impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> Exec<N, R> {
 
 // --- Internal: the single run implementation ---
 
+// ANCHOR: run_inner
 fn run_inner<N: 'static, H: 'static, R: 'static>(
     vc: &Arc<ChildVisitorFn<N, R>>,
     fold: &Fold<N, H, R>,
     graph: &Treeish<N>,
     node: &N,
 ) -> R {
-    // Stack-allocated closure — Send + Sync because captures are Arc-based.
     let vc_c = vc.clone();
     let f_c = fold.clone();
     let g_c = graph.clone();
@@ -127,3 +129,4 @@ fn run_inner<N: 'static, H: 'static, R: 'static>(
     vc(graph, node, &recurse, &mut |r: &R| fold.accumulate(&mut heap, r));
     fold.finalize(&heap)
 }
+// ANCHOR_END: run_inner

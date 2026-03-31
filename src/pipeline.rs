@@ -48,6 +48,7 @@ where
         exec.run(&self.fold_impl, &self.graph.treeish, node)
     }
 
+    // ANCHOR: pipeline_run
     pub fn run(&self, exec: &Exec<NodeT, ReturnT>, top: &Top) -> ReturnT {
         let mut heap = (self.impl_heap_of_top)(top);
         self.graph.top_edgy.visit(top, &mut |child| {
@@ -56,6 +57,7 @@ where
         });
         self.fold_impl.finalize(&heap)
     }
+    // ANCHOR_END: pipeline_run
 
     pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
     where F: FnOnce(HeapOfTopFn<Top, HeapT>) -> HeapOfTopFn<Top, HeapT> + 'static,

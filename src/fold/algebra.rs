@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use super::{InitFn, AccumulateFn, FinalizeFn};
 
+// ANCHOR: fold_struct
 pub struct Fold<N, H, R> {
     pub(crate) impl_init: Arc<dyn Fn(&N) -> H + Send + Sync>,
     pub(crate) impl_accumulate: Arc<dyn Fn(&mut H, &R) + Send + Sync>,
     pub(crate) impl_finalize: Arc<dyn Fn(&H) -> R + Send + Sync>,
 }
+// ANCHOR_END: fold_struct
 
 impl<N, H, R> Clone for Fold<N, H, R> {
     fn clone(&self) -> Self {
