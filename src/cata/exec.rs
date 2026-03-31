@@ -61,6 +61,24 @@ impl<N: 'static, R: 'static> Exec<N, R> {
         lift.unwrap(inner_result)
     }
 
+    /// Run lifted, returning both the unwrapped result and the lifted result.
+    /// Useful for Explainer (get R + ExplainerResult) or any Lift where
+    /// the intermediate form carries information you want to keep.
+    pub fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
+        &self,
+        lift: &Lift<N0, H0, R0, N, H, R>,
+        fold: &Fold<N0, H0, R0>,
+        graph: &Treeish<N0>,
+        root: &N0,
+    ) -> (R0, R) where R: Clone {
+        let lifted_treeish = lift.lift_treeish(graph.clone());
+        let lifted_fold = lift.lift_fold(fold.clone());
+        let lifted_root = lift.lift_root(root);
+        let inner_result = self.run(&lifted_fold, &lifted_treeish, &lifted_root);
+        let unwrapped = lift.unwrap(inner_result.clone());
+        (unwrapped, inner_result)
+    }
+
 }
 
 impl<N: Clone + 'static, R: 'static> Exec<N, R> {

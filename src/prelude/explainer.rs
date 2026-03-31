@@ -3,10 +3,15 @@
 //! Wraps a fold to record the full computation trace at every node —
 //! initial heap, each child result accumulated, and the final result.
 //! This is a histomorphism: each node sees its subtree's full history.
+//!
+//! Usage (all Exec-based):
+//!   Exec::fused().run_lifted(&Explainer::lift(), ...)         — trace discarded, get R
+//!   Exec::fused().run_lifted(&Explainer::lift_with(cb), ...)  — callback receives trace, get R
+//!   Exec::fused().run_lifted_zipped(&Explainer::lift(), ...)  — get (R, ExplainerResult)
 
 use crate::graph::{treeish, Treeish};
 use crate::fold::Fold;
-use crate::cata::{Exec, Lift};
+use crate::cata::Lift;
 
 // ── Trace data types ───────────────────────────────────────
 
@@ -52,13 +57,11 @@ type ER<N, H, R> = ExplainerResult<N, H, R>;
 
 // ── Explainer ──────────────────────────────────────────────
 
-/// Computation tracing. Records the full fold execution trace.
+/// Computation tracing as a Lift.
 pub struct Explainer;
 
 impl Explainer {
-    /// Lift: wraps a fold to record traces. Unwrap extracts the
-    /// original result — the trace is computed but discarded.
-    /// Use `explain()` to get the trace.
+    /// Lift that records traces. Unwrap extracts the original R.
     pub fn lift<N, H, R>() -> Lift<N, H, R, N, EH<N, H, R>, ER<N, H, R>>
     where
         N: Clone + 'static,
@@ -73,39 +76,25 @@ impl Explainer {
         )
     }
 
-    /// Run the fold with tracing, returning the full ExplainerResult.
-    pub fn explain<N, H, R>(
-        exec: &Exec<N, ER<N, H, R>>,
-        fold: &Fold<N, H, R>,
-        graph: &Treeish<N>,
-        root: &N,
-    ) -> ER<N, H, R>
+    /// Lift with callback: receives the full ExplainerResult before
+    /// unwrapping to R. Use this to inspect or store the trace.
+    pub fn lift_with<N, H, R>(
+        on_result: impl Fn(&ER<N, H, R>) + Send + Sync + 'static,
+    ) -> Lift<N, H, R, N, EH<N, H, R>, ER<N, H, R>>
     where
         N: Clone + 'static,
         H: Clone + 'static,
         R: Clone + 'static,
     {
-        exec.run(&Self::wrap_fold(fold.clone()), graph, root)
-    }
-
-    /// Run traced, then fold the trace tree with a second fold.
-    pub fn explain_and_fold<N, H, R, HEx: 'static, REx: Clone + 'static>(
-        exec: &Exec<N, ER<N, H, R>>,
-        exec_result: &Exec<ER<N, H, R>, REx>,
-        fold: &Fold<N, H, R>,
-        fold_explainer: &Fold<ER<N, H, R>, HEx, REx>,
-        graph: &Treeish<N>,
-        root: &N,
-    ) -> (R, REx)
-    where
-        N: Clone + 'static,
-        H: Clone + 'static,
-        R: Clone + 'static,
-    {
-        let result = Self::explain(exec, fold, graph, root);
-        let treeish = treeish_for_explres::<N, H, R>();
-        let folded = exec_result.run(fold_explainer, &treeish, &result);
-        (result.orig_result, folded)
+        Lift::new(
+            |treeish| treeish,
+            Self::wrap_fold,
+            |n: &N| n.clone(),
+            move |er: ER<N, H, R>| {
+                on_result(&er);
+                er.orig_result
+            },
+        )
     }
 
     fn wrap_fold<N, H, R>(original: Fold<N, H, R>) -> Fold<N, EH<N, H, R>, ER<N, H, R>>
