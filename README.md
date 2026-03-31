@@ -42,28 +42,47 @@ let (size, depth) = Exec::fused().run(&both, &graph, &root);
 
 ## Parallel execution
 
-Same fold, different executor:
+Same fold, different approaches — identical results:
 
 ```rust
-// Fused: callback-based, zero allocation
-let r1 = Exec::fused().run(&fold, &graph, &root);
+// Direct: rayon parallelizes child visiting
+let r1 = Exec::rayon().run(&fold, &graph, &root);
 
-// Rayon: parallel children, same result
-let r2 = Exec::rayon().run(&fold, &graph, &root);
+// Lifted: lazy ParRef tree, eval triggers parallel bottom-up
+let r2 = Exec::fused().run_lifted(&ParLazy::lift(), &fold, &graph, &root);
+
+// Lifted: eager fork-join with a scoped WorkPool
+ParEager::with(WorkPoolSpec::threads(3), |lift| {
+    let r3 = Exec::fused().run_lifted(lift, &fold, &graph, &root);
+});
 ```
+
+## Lifts
+
+`Lift` transforms a fold's type domain — enabling parallelism,
+tracing, or any enrichment — without rewriting the fold. The
+caller gets back the original result type transparently.
+
+```rust
+// Explainer: record computation trace as a Lift
+let r = Exec::fused().run_lifted(&Explainer::lift(), &fold, &graph, &root);
+```
+
+All three built-in Lifts (`Explainer`, `ParLazy`, `ParEager`) follow
+the same pattern: transform fold + treeish, run via `Exec::run_lifted`,
+unwrap the result.
 
 ## Structure
 
 | Module | Purpose |
 |--------|---------|
-| `graph` | Tree structure: `Edgy`, `Treeish`, `Graph` |
+| `graph` | Tree structure: `Edgy`, `Treeish`, `Graph`, `SeedGraph` |
 | `fold` | Fold algebra: `Fold`, `simple_fold`, type aliases |
 | `cata` | Execution: `Exec` (fused, sequential, rayon), `Lift` (type-domain transformation) |
+| `parref` | `ParRef<T>` — lazy memoized computation (`FnOnce`-based) |
 | `pipeline` | `GraphWithFold` — graph + fold + top-level entry = runnable pipeline |
-| `prelude` | `VecFold`, `Explainer`, `memoize`, `seeds_for_fallible`, `uio_parallel` |
-| `uio` | Lazy memoized computation (`UIO<T>`, `FnOnce`-based) |
+| `prelude` | `VecFold`, `Explainer`, `memoize`, `seeds_for_fallible`, `ParLazy`, `ParEager`, `WorkPool` |
 
-`graph` includes `SeedGraph` for seed-based graph construction.
 Core modules (`graph`, `fold`, `cata`) have no knowledge of higher
 layers. `pipeline` wires graph + fold into runnable pipelines.
 `prelude` provides batteries built on core.
