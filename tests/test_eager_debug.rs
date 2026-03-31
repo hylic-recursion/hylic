@@ -1,7 +1,7 @@
 use hylic::graph::treeish;
 use hylic::fold;
 use hylic::cata::Exec;
-use hylic::prelude::{par_eager, WorkPool};
+use hylic::prelude::{ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -46,10 +46,10 @@ fn no_hang_branching() {
         |a: &mut u64, c: &u64| { *a += c; },
     );
 
-    WorkPool::with(3, |pool| {
+    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
         for i in 0..20 {
             let t = Instant::now();
-            let r = Exec::fused().run_lifted(&par_eager(pool), &my_fold, &graph, &0usize);
+            let r = Exec::fused().run_lifted(&ParEager::lift(pool), &my_fold, &graph, &0usize);
             eprintln!("  iter {}: {}µs result={}", i, t.elapsed().as_micros(), r);
         }
     });

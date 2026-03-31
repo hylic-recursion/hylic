@@ -70,8 +70,9 @@ fn parallel_lifts() {
     let graph = treeish(|n: &N| n.children.clone());
     let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
 
-    assert_eq!(Exec::fused().run_lifted(&crate::prelude::parref_lazy(), &my_fold, &graph, &tree), 10);
-    crate::prelude::WorkPool::with(3, |pool| {
-        assert_eq!(Exec::fused().run_lifted(&crate::prelude::par_eager(pool), &my_fold, &graph, &tree), 10);
+    use crate::prelude::{ParLazy, ParEager, WorkPoolSpec};
+    assert_eq!(Exec::fused().run_lifted(&ParLazy::lift(), &my_fold, &graph, &tree), 10);
+    ParEager::with(WorkPoolSpec::threads(3), |lift| {
+        assert_eq!(Exec::fused().run_lifted(lift, &my_fold, &graph, &tree), 10);
     });
 }

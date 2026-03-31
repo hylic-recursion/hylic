@@ -6,8 +6,7 @@ pub mod traced;
 pub mod memoize;
 pub mod common_folds;
 pub mod fallible;
-pub mod parallelize;
-pub mod par_pool;
+pub mod parallel;
 
 pub use vec_fold::{vec_fold, VecFold, VecHeap};
 pub use explainer::Explainer;
@@ -16,5 +15,4 @@ pub use traced::{Traced, traced_treeish};
 pub use memoize::{memoize_treeish, memoize_treeish_by};
 pub use common_folds::{count_fold, depth_fold, pretty_print};
 pub use fallible::seeds_for_fallible;
-pub use parallelize::parref_lazy;
-pub use par_pool::{par_eager, WorkPool};
+pub use parallel::{ParLazy, ParEager, WorkPool, WorkPoolSpec};

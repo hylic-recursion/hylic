@@ -1,7 +1,7 @@
 use hylic::graph::treeish;
 use hylic::fold;
 use hylic::cata::Exec;
-use hylic::prelude::{parref_lazy, par_eager, WorkPool};
+use hylic::prelude::{ParLazy, ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::hint::black_box;
 use std::time::Instant;
@@ -63,11 +63,11 @@ fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) 
     eprintln!("\n=== {} ({} nodes, bf={}) ===", label, count, bf);
     timed("fused",        iters, expected, || Exec::fused().run(&fold, &graph, &0usize));
     timed("rayon",        iters, expected, || Exec::rayon().run(&fold, &graph, &0usize));
-    timed("parref+fused", iters, expected, || Exec::fused().run_lifted(&parref_lazy(), &fold, &graph, &0usize));
-    timed("parref+rayon", iters, expected, || Exec::rayon().run_lifted(&parref_lazy(), &fold, &graph, &0usize));
-    WorkPool::with(3, |pool| {
-        timed("eager+fused", iters, expected, || Exec::fused().run_lifted(&par_eager(pool), &fold, &graph, &0usize));
-        timed("eager+rayon", iters, expected, || Exec::rayon().run_lifted(&par_eager(pool), &fold, &graph, &0usize));
+    timed("parref+fused", iters, expected, || Exec::fused().run_lifted(&ParLazy::lift(), &fold, &graph, &0usize));
+    timed("parref+rayon", iters, expected, || Exec::rayon().run_lifted(&ParLazy::lift(), &fold, &graph, &0usize));
+    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+        timed("eager+fused", iters, expected, || Exec::fused().run_lifted(&ParEager::lift(pool), &fold, &graph, &0usize));
+        timed("eager+rayon", iters, expected, || Exec::rayon().run_lifted(&ParEager::lift(pool), &fold, &graph, &0usize));
     });
 }
 

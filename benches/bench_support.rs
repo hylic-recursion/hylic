@@ -3,25 +3,18 @@ use std::sync::Arc;
 use hylic::graph::{treeish, Treeish};
 use hylic::fold::{self, Fold};
 use hylic::cata::Exec;
-use hylic::prelude::{parref_lazy, par_eager, WorkPool};
-use std::sync::Arc;
+use hylic::prelude::{ParLazy, ParEager, WorkPool};
 
 // ── Tree generation ─────────────────────────────────────────
 
 pub type NodeId = usize;
-
-pub struct Tree {
-    pub children: Arc<Vec<Vec<NodeId>>>,
-    pub root: NodeId,
-    pub node_count: usize,
-}
 
 pub struct TreeSpec {
     pub node_count: usize,
     pub branch_factor: usize,
 }
 
-pub fn gen_tree(spec: &TreeSpec) -> Tree {
+pub fn gen_tree(spec: &TreeSpec) -> (Arc<Vec<Vec<NodeId>>>, usize) {
     let mut children: Vec<Vec<NodeId>> = Vec::new();
     children.push(vec![]);
     let mut next_id = 1usize;
@@ -49,7 +42,7 @@ pub fn gen_tree(spec: &TreeSpec) -> Tree {
     }
 
     let count = children.len();
-    Tree { children: Arc::new(children), root: 0, node_count: count }
+    (Arc::new(children), count)
 }
 
 // ── Work simulation ─────────────────────────────────────────
@@ -133,11 +126,10 @@ pub fn all_configs() -> Vec<WorkloadConfig> {
 // ── Build graph + fold from config ──────────────────────────
 
 pub fn prepare(cfg: &WorkloadConfig) -> (Treeish<NodeId>, Fold<NodeId, u64, u64>, NodeId) {
-    let tree = gen_tree(&cfg.tree);
+    let (ch, _count) = gen_tree(&cfg.tree);
     let gl = cfg.graph_latency_us;
     let gc = cfg.graph_compute;
     let fc = cfg.fold_compute;
-    let ch = tree.children.clone();
     let graph = treeish(move |n: &NodeId| {
         spin_wait_us(gl);
         if gc > 0 { black_box(busy_work(gc)); }
@@ -147,16 +139,15 @@ pub fn prepare(cfg: &WorkloadConfig) -> (Treeish<NodeId>, Fold<NodeId, u64, u64>
         move |_n: &NodeId| { if fc > 0 { busy_work(fc) } else { 0u64 } },
         |a: &mut u64, c: &u64| { *a = a.wrapping_add(*c); },
     );
-    (graph, my_fold, tree.root)
+    (graph, my_fold, 0)
 }
 
-// ── Execution modes: setup once, run many ───────────────────
+// ── Execution modes ─────────────────────────────────────────
 
 pub const MODE_NAMES: [&str; 6] = [
     "fused", "rayon", "parref+fused", "parref+rayon", "eager+fused", "eager+rayon",
 ];
 
-/// Run a single mode. Pool must be pre-allocated for eager modes.
 pub fn run_mode(
     name: &str,
     fold: &Fold<NodeId, u64, u64>,
@@ -167,10 +158,10 @@ pub fn run_mode(
     match name {
         "fused"        => Exec::fused().run(fold, graph, root),
         "rayon"        => Exec::rayon().run(fold, graph, root),
-        "parref+fused" => Exec::fused().run_lifted(&parref_lazy(), fold, graph, root),
-        "parref+rayon" => Exec::rayon().run_lifted(&parref_lazy(), fold, graph, root),
-        "eager+fused"  => Exec::fused().run_lifted(&par_eager(pool), fold, graph, root),
-        "eager+rayon"  => Exec::rayon().run_lifted(&par_eager(pool), fold, graph, root),
-        _ => panic!("unknown mode: {}", name),
+        "parref+fused" => Exec::fused().run_lifted(&ParLazy::lift(), fold, graph, root),
+        "parref+rayon" => Exec::rayon().run_lifted(&ParLazy::lift(), fold, graph, root),
+        "eager+fused"  => Exec::fused().run_lifted(&ParEager::lift(pool), fold, graph, root),
+        "eager+rayon"  => Exec::rayon().run_lifted(&ParEager::lift(pool), fold, graph, root),
+        _ => panic!("unknown mode: {name}"),
     }
 }
