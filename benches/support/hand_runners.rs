@@ -1,14 +1,24 @@
-//! Handrolled baselines that reuse the Fold's work but bypass
-//! hylic's Treeish/Exec abstractions.
+//! Handrolled baselines.
+//!
+//! Two families:
+//!
+//! "hand-*" — mirrors the Fold pattern (calls work.do_init/do_accumulate/do_finalize).
+//!   Shows hylic's framework overhead vs the same structured decomposition.
+//!
+//! "real-*" — what a developer would actually write: one flat recursive function,
+//!   all logic inlined. No init/accumulate/finalize separation, no WorkSpec methods.
+//!   The honest "could I just write this myself?" baseline.
 
 use std::sync::Arc;
+use std::hint::black_box;
 use hylic::prelude::WorkPool;
 
 use super::tree::NodeId;
-use super::work::WorkSpec;
+use super::work::{WorkSpec, busy_work, spin_wait_us};
 use super::scenario::PreparedScenario;
 
-/// Sequential recursion — plain function calls on the adjacency list.
+// ── "hand-*": structured baselines (mirror Fold pattern) ───
+
 pub fn handrolled_seq(s: &PreparedScenario) -> u64 {
     fn recurse(children: &[Vec<NodeId>], work: &WorkSpec, node: NodeId) -> u64 {
         work.do_graph();
@@ -22,7 +32,6 @@ pub fn handrolled_seq(s: &PreparedScenario) -> u64 {
     recurse(&s.children, &s.work, s.root)
 }
 
-/// Rayon par_iter on children — the "obvious" parallel version.
 pub fn handrolled_rayon(s: &PreparedScenario) -> u64 {
     use rayon::prelude::*;
 
@@ -46,8 +55,6 @@ pub fn handrolled_rayon(s: &PreparedScenario) -> u64 {
     recurse(&s.children, &s.work, s.root)
 }
 
-/// Manual fork-join using WorkPool — same scheduling as ParEager
-/// but without hylic's Lift/EagerNode abstraction.
 pub fn handrolled_pool(s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
     use std::cell::UnsafeCell;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -121,13 +128,99 @@ pub fn handrolled_pool(s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
     recurse(&s.children, &work, pool, s.root)
 }
 
-pub const HAND_MODES: [&str; 3] = ["hand-seq", "hand-rayon", "hand-pool"];
+// ── "real-*": what a developer would actually write ────────
+//
+// One flat recursive function. All work inlined — no WorkSpec
+// methods, no init/accumulate/finalize decomposition. Just
+// "process node, recurse children, combine results."
+
+pub fn realworld_seq(s: &PreparedScenario) -> u64 {
+    let iw = s.work.init_work;
+    let aw = s.work.accumulate_work;
+    let fw = s.work.finalize_work;
+    let gw = s.work.graph_work;
+    let gio = s.work.graph_io_us;
+
+    fn recurse(
+        children: &[Vec<NodeId>], node: NodeId,
+        iw: u64, aw: u64, fw: u64, gw: u64, gio: u64,
+    ) -> u64 {
+        // "discover children" (graph traversal cost)
+        spin_wait_us(gio);
+        if gw > 0 { black_box(busy_work(gw)); }
+
+        // "process this node"
+        let mut result = if iw > 0 { busy_work(iw) } else { 0 };
+
+        // "recurse and combine"
+        for &child in &children[node] {
+            let child_result = recurse(children, child, iw, aw, fw, gw, gio);
+            if aw > 0 { result = result.wrapping_add(busy_work(aw)); }
+            result = result.wrapping_add(child_result);
+        }
+
+        // "finalize"
+        if fw > 0 { result = result.wrapping_add(busy_work(fw)); }
+        result
+    }
+    recurse(&s.children, s.root, iw, aw, fw, gw, gio)
+}
+
+pub fn realworld_rayon(s: &PreparedScenario) -> u64 {
+    use rayon::prelude::*;
+
+    let iw = s.work.init_work;
+    let aw = s.work.accumulate_work;
+    let fw = s.work.finalize_work;
+    let gw = s.work.graph_work;
+    let gio = s.work.graph_io_us;
+
+    fn recurse(
+        children: &Arc<Vec<Vec<NodeId>>>, node: NodeId,
+        iw: u64, aw: u64, fw: u64, gw: u64, gio: u64,
+    ) -> u64 {
+        spin_wait_us(gio);
+        if gw > 0 { black_box(busy_work(gw)); }
+
+        let mut result = if iw > 0 { busy_work(iw) } else { 0 };
+        let ch = &children[node];
+
+        if ch.len() <= 1 {
+            for &child in ch {
+                let child_result = recurse(children, child, iw, aw, fw, gw, gio);
+                if aw > 0 { result = result.wrapping_add(busy_work(aw)); }
+                result = result.wrapping_add(child_result);
+            }
+        } else {
+            let results: Vec<u64> = ch.par_iter()
+                .map(|&c| recurse(children, c, iw, aw, fw, gw, gio))
+                .collect();
+            for r in &results {
+                if aw > 0 { result = result.wrapping_add(busy_work(aw)); }
+                result = result.wrapping_add(*r);
+            }
+        }
+
+        if fw > 0 { result = result.wrapping_add(busy_work(fw)); }
+        result
+    }
+    recurse(&s.children, s.root, iw, aw, fw, gw, gio)
+}
+
+// ── Mode dispatch ──────────────────────────────────────────
+
+pub const HAND_MODES: [&str; 5] = [
+    "hand-seq", "hand-rayon", "hand-pool",
+    "real-seq", "real-rayon",
+];
 
 pub fn run_hand(name: &str, s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
     match name {
-        "hand-seq"   => handrolled_seq(s),
-        "hand-rayon" => handrolled_rayon(s),
-        "hand-pool"  => handrolled_pool(s, pool),
+        "hand-seq"    => handrolled_seq(s),
+        "hand-rayon"  => handrolled_rayon(s),
+        "hand-pool"   => handrolled_pool(s, pool),
+        "real-seq"    => realworld_seq(s),
+        "real-rayon"  => realworld_rayon(s),
         _ => panic!("unknown hand mode: {name}"),
     }
 }
