@@ -1,24 +1,24 @@
-.PHONY: check test bench bench-report bench-full test-eager test-all
+.PHONY: hylic-check hylic-test hylic-test-parallel hylic-test-all hylic-bench hylic-bench-report hylic-bench-full
 
 # ── Quick checks ────────────────────────────────────────────
-check:
+hylic-check:
 	@cargo check --lib --tests --benches
 
 # ── Tests ───────────────────────────────────────────────────
-test:
+hylic-test:
 	@cargo test --lib -- --nocapture
 
-test-eager:
+hylic-test-parallel:
 	@cargo test --test test_eager --test test_eager_debug -- --nocapture
 
-test-all: test test-eager
+hylic-test-all: hylic-test hylic-test-parallel
 
 # ── Benchmarks ──────────────────────────────────────────────
-bench:
+hylic-bench:
 	@bash Makefile-scripting/bench-run.sh
 
-bench-report:
+hylic-bench-report:
 	@python3 Makefile-scripting/bench-report.py
 
-bench-full: bench bench-report
+hylic-bench-full: hylic-bench hylic-bench-report
 	@echo "Report: target/bench-report/bench-report.html"
