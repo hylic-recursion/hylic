@@ -39,4 +39,5 @@ hylic-docs-build:
 	@cd ../hylic-docs/book && mdbook build
 
 hylic-docs-serve:
+	@fuser -k 8321/tcp 2>/dev/null || true
 	@cd ../hylic-docs/book && mdbook serve -p 8321
