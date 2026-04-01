@@ -189,22 +189,34 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
     ]
 }
 
-/// Build all module sim modes: vanilla baselines + all 6 hylic modes.
-/// Takes a callback because fold/graph are constructed internally
-/// and must outlive the returned BenchModes.
+/// Build all module sim modes: vanilla baselines + 6 hylic Shared modes.
+/// Takes a callback because fold/graph are constructed internally.
 pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>, f: F)
 where F: FnOnce(&[super::hylic_runners::BenchMode<'_, u64>])
 {
     use super::hylic_runners::BenchMode;
+    use hylic::cata::exec::{self, Executor, ExecutorExt};
+    use hylic::prelude::{ParLazy, ParEager};
 
     let fold = hylic_fold(sim);
     let graph = hylic_treeish(&sim.registry);
+    let root = &sim.root_name;
 
-    let mut modes: Vec<BenchMode<u64>> = vec![
-        BenchMode { name: "vanilla-seq",   run: Box::new(|| vanilla_seq(sim)) },
-        BenchMode { name: "vanilla-rayon", run: Box::new(|| vanilla_rayon(sim)) },
+    let par_lazy = ParLazy::lift::<String, u64, u64>();
+    let par_lazy2 = par_lazy.clone();
+    let par_eager_fused = ParEager::lift::<String, u64, u64>(pool);
+    let par_eager_rayon = ParEager::lift::<String, u64, u64>(pool);
+
+    let modes: Vec<BenchMode<u64>> = vec![
+        BenchMode { name: "vanilla-seq",        run: Box::new(|| vanilla_seq(sim)) },
+        BenchMode { name: "vanilla-rayon",       run: Box::new(|| vanilla_rayon(sim)) },
+        BenchMode { name: "hylic-fused",         run: Box::new(|| exec::FUSED.run(&fold, &graph, root)) },
+        BenchMode { name: "hylic-rayon",         run: Box::new(|| exec::RAYON.run(&fold, &graph, root)) },
+        BenchMode { name: "hylic-parref+fused",  run: Box::new(|| exec::FUSED.run_lifted(&par_lazy, &fold, &graph, root)) },
+        BenchMode { name: "hylic-parref+rayon",  run: Box::new(|| exec::RAYON.run_lifted(&par_lazy2, &fold, &graph, root)) },
+        BenchMode { name: "hylic-eager+fused",   run: Box::new(|| exec::FUSED.run_lifted(&par_eager_fused, &fold, &graph, root)) },
+        BenchMode { name: "hylic-eager+rayon",   run: Box::new(|| exec::RAYON.run_lifted(&par_eager_rayon, &fold, &graph, root)) },
     ];
 
-    modes.extend(super::hylic_runners::build_all(&fold, &graph, &sim.root_name, pool));
     f(&modes);
 }

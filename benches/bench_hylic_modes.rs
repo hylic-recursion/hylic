@@ -10,10 +10,10 @@ use support::hylic_runners;
 fn bench_hylic_modes(c: &mut Criterion) {
     let mut group = c.benchmark_group("hylic-modes");
 
-    for def in scenario::all_scenarios(Scale::Small) {
+    for def in scenario::all_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            let modes = hylic_runners::build_all(&s.fold, &s.treeish, &s.root, pool);
+            let modes = hylic_runners::build_all(&s, pool);
             for mode in &modes {
                 group.bench_with_input(
                     BenchmarkId::new(mode.name, &s.name),

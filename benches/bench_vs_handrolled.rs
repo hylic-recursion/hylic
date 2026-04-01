@@ -10,11 +10,11 @@ use support::{hylic_runners, hand_runners};
 fn bench_vs_handrolled(c: &mut Criterion) {
     let mut group = c.benchmark_group("overhead");
 
-    for def in scenario::all_scenarios(Scale::Small) {
+    for def in scenario::all_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
             let hand_modes = hand_runners::build_all(&s, pool);
-            let hylic_modes = hylic_runners::build_all(&s.fold, &s.treeish, &s.root, pool);
+            let hylic_modes = hylic_runners::build_all(&s, pool);
 
             for mode in hand_modes.iter().chain(hylic_modes.iter()) {
                 group.bench_with_input(

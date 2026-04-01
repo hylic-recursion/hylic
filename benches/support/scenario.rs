@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use hylic::graph::{treeish_visit, Treeish};
 use hylic::fold::{self, Fold};
+use hylic::cata::exec::{self, Executor};
 
 use super::tree::{self, NodeId, TreeSpec};
 use super::work::WorkSpec;
@@ -13,7 +14,7 @@ pub struct ScenarioDef {
     pub work: WorkSpec,
 }
 
-/// Ready-to-run scenario with pre-built tree, fold, and treeish.
+/// Ready-to-run scenario with pre-built tree, fold, treeish, AND raw closures.
 pub struct PreparedScenario {
     pub name: String,
     pub children: Arc<Vec<Vec<NodeId>>>,
@@ -22,30 +23,61 @@ pub struct PreparedScenario {
     pub fold: Fold<NodeId, u64, u64>,
     pub treeish: Treeish<NodeId>,
     pub root: NodeId,
+    pub expected: u64,
+    // Raw closures for domain-variant construction
+    pub init_fn: Arc<dyn Fn(&NodeId) -> u64 + Send + Sync>,
+    pub acc_fn: Arc<dyn Fn(&mut u64, &u64) + Send + Sync>,
+    pub fin_fn: Arc<dyn Fn(&u64) -> u64 + Send + Sync>,
+    pub graph_fn: Arc<dyn Fn(&NodeId, &mut dyn FnMut(&NodeId)) + Send + Sync>,
 }
 
 impl PreparedScenario {
     pub fn from_def(def: &ScenarioDef, label: &str) -> Self {
         let (children, node_count) = tree::gen_tree(&def.tree);
+        let ch = children.clone();
         let w = def.work.clone();
         let w2 = def.work.clone();
-        let ch = children.clone();
 
-        let treeish = treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
-            w.do_graph();
-            for &child in &ch[*n] { cb(&child); }
-        });
+        let graph_fn: Arc<dyn Fn(&NodeId, &mut dyn FnMut(&NodeId)) + Send + Sync> = {
+            let ch = ch.clone();
+            let w = w.clone();
+            Arc::new(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+                w.do_graph();
+                for &child in &ch[*n] { cb(&child); }
+            })
+        };
 
-        let init = move |_node: &NodeId| -> u64 { w2.do_init() };
-        let acc = {
-            let w3 = def.work.clone();
-            move |heap: &mut u64, child: &u64| { w3.do_accumulate(heap, child); }
+        let init_fn: Arc<dyn Fn(&NodeId) -> u64 + Send + Sync> = {
+            let w = w2.clone();
+            Arc::new(move |_node: &NodeId| -> u64 { w.do_init() })
         };
-        let fin = {
-            let w4 = def.work.clone();
-            move |heap: &u64| -> u64 { w4.do_finalize(heap) }
+        let acc_fn: Arc<dyn Fn(&mut u64, &u64) + Send + Sync> = {
+            let w = def.work.clone();
+            Arc::new(move |heap: &mut u64, child: &u64| { w.do_accumulate(heap, child); })
         };
-        let fold = fold::fold(init, acc, fin);
+        let fin_fn: Arc<dyn Fn(&u64) -> u64 + Send + Sync> = {
+            let w = def.work.clone();
+            Arc::new(move |heap: &u64| -> u64 { w.do_finalize(heap) })
+        };
+
+        let treeish = {
+            let gf = graph_fn.clone();
+            treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| { gf(n, cb) })
+        };
+
+        let fold = {
+            let i = init_fn.clone();
+            let a = acc_fn.clone();
+            let f = fin_fn.clone();
+            fold::fold(
+                move |n: &NodeId| i(n),
+                move |h: &mut u64, c: &u64| a(h, c),
+                move |h: &u64| f(h),
+            )
+        };
+
+        // Correctness baseline — run fused once to get expected result
+        let expected = exec::FUSED.run(&fold, &treeish, &0);
 
         PreparedScenario {
             name: format!("{}/{}", def.moniker, label),
@@ -55,6 +87,11 @@ impl PreparedScenario {
             fold,
             treeish,
             root: 0,
+            expected,
+            init_fn,
+            acc_fn,
+            fin_fn,
+            graph_fn,
         }
     }
 }
@@ -81,6 +118,7 @@ pub fn all_scenarios(scale: Scale) -> Vec<ScenarioDef> {
         def("parse-heavy",  "parse-hv", TreeSpec { node_count: n, branch_factor: 8 },  w(200_000, 10_000, 10_000, 50_000, 0)),
         def("aggregate",    "aggr",     TreeSpec { node_count: n, branch_factor: 8 },  w(5_000, 100_000, 5_000, 5_000, 0)),
         def("transform",    "xform",    TreeSpec { node_count: n, branch_factor: 8 },  w(5_000, 5_000, 100_000, 5_000, 0)),
+        def("finalize-only","fin",      TreeSpec { node_count: n, branch_factor: 8 },  w(0, 0, 100_000, 0, 0)),
         def("balanced",     "bal",      TreeSpec { node_count: n, branch_factor: 8 },  w(50_000, 50_000, 50_000, 50_000, 0)),
         def("io-bound",     "io",       TreeSpec { node_count: n, branch_factor: 8 },  w(5_000, 0, 0, 0, 200)),
         def("wide-shallow", "wide",     TreeSpec { node_count: n, branch_factor: 20 }, w(50_000, 10_000, 10_000, 10_000, 0)),
@@ -91,3 +129,13 @@ pub fn all_scenarios(scale: Scale) -> Vec<ScenarioDef> {
 
 #[derive(Clone, Copy)]
 pub enum Scale { Small, Large }
+
+impl Scale {
+    /// Read from HYLIC_BENCH_SCALE env var. Defaults to Small.
+    pub fn from_env() -> Self {
+        match std::env::var("HYLIC_BENCH_SCALE").as_deref() {
+            Ok("large" | "Large" | "LARGE") => Scale::Large,
+            _ => Scale::Small,
+        }
+    }
+}
