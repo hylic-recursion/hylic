@@ -8,12 +8,14 @@
 //! result type in the same domain. Implemented by Shared and Local
 //! folds (both Clone). Not by Owned (no Clone).
 
+// ANCHOR: foldops_trait
 /// The three fold operations, independent of storage.
 pub trait FoldOps<N, H, R> {
     fn init(&self, node: &N) -> H;
     fn accumulate(&self, heap: &mut H, result: &R);
     fn finalize(&self, heap: &H) -> R;
 }
+// ANCHOR_END: foldops_trait
 
 /// Marker: this fold supports domain-preserving transformations.
 ///

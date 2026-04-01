@@ -21,12 +21,15 @@ use super::Lift;
 
 // ── Core trait ────────────────────────────────────
 
+// ANCHOR: executor_trait
 pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R;
 }
+// ANCHOR_END: executor_trait
 
 // ── Lift extension (Shared domain only) ───────────
 
+// ANCHOR: executor_ext_trait
 pub trait ExecutorExt<N: 'static, R: 'static>: Executor<N, R, Shared> {
     // ANCHOR: run_lifted
     fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
@@ -57,6 +60,7 @@ pub trait ExecutorExt<N: 'static, R: 'static>: Executor<N, R, Shared> {
         (lift.unwrap(inner.clone()), inner)
     }
 }
+// ANCHOR_END: executor_ext_trait
 
 impl<N: 'static, R: 'static, E: Executor<N, R, Shared>> ExecutorExt<N, R> for E {}
 
@@ -82,12 +86,14 @@ pub const RAYON:            Rayon           = RayonIn(PhantomData);
 
 // ── Exec enum: Shared-domain runtime dispatch ─────
 
+// ANCHOR: exec_enum
 pub enum Exec<N, R> {
     Fused(Fused),
     Sequential(Sequential),
     Rayon(Rayon),
     Custom(Custom<N, R>),
 }
+// ANCHOR_END: exec_enum
 
 impl<N: 'static, R: 'static> Executor<N, R, Shared> for Exec<N, R>
 where N: Clone + Send + Sync, R: Send + Sync,

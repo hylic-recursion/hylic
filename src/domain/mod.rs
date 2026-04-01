@@ -20,10 +20,12 @@ use crate::ops::{FoldOps, TreeOps};
 /// Each domain provides concrete types via GATs. Executors are
 /// parameterized by the domain, and each executor declares which
 /// domains it supports.
+// ANCHOR: domain_trait
 pub trait Domain<N: 'static>: 'static {
     type Fold<H: 'static, R: 'static>: FoldOps<N, H, R>;
     type Treeish: TreeOps<N>;
 }
+// ANCHOR_END: domain_trait
 
 /// Arc-based storage. Clone, Send+Sync. Required for Rayon, Lifts,
 /// and pipeline composition (GraphWithFold).

@@ -5,6 +5,7 @@
 //! (shared::Treeish, local::Treeish, owned::Treeish) implement
 //! this, as can user-defined structs (e.g. adjacency lists).
 
+// ANCHOR: treeops_trait
 /// Tree traversal operations, independent of storage.
 pub trait TreeOps<N> {
     /// Visit children of `node` via callback. Zero allocation.
@@ -17,3 +18,4 @@ pub trait TreeOps<N> {
         v
     }
 }
+// ANCHOR_END: treeops_trait
