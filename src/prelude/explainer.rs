@@ -4,10 +4,11 @@
 //! initial heap, each child result accumulated, and the final result.
 //! This is a histomorphism: each node sees its subtree's full history.
 //!
-//! Usage (all Exec-based):
-//!   Exec::fused().run_lifted(&Explainer::lift(), ...)         — trace discarded, get R
-//!   Exec::fused().run_lifted(&Explainer::lift_with(cb), ...)  — callback receives trace, get R
-//!   Exec::fused().run_lifted_zipped(&Explainer::lift(), ...)  — get (R, ExplainerResult)
+//! Usage:
+//!   Fused.run_lifted(&Explainer::lift(), ...)                 — trace discarded, get R
+//!   Fused.run_lifted(&Explainer::lift_with(cb), ...)          — callback receives trace, get R
+//!   Fused.run_lifted_zipped(&Explainer::lift(), ...)          — get (R, ExplainerResult)
+//!   Exec::fused().run_lifted(&Explainer::lift(), ...)         — same via runtime-dispatch wrapper
 
 use crate::graph::{treeish, Treeish};
 use crate::fold::Fold;

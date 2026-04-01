@@ -4,7 +4,7 @@ use crate::fold::Fold;
 
 /// A paired transformation that lifts Treeish + Fold to a different
 /// type domain. Purely a transformation — knows nothing about execution.
-/// Use `Exec::run_lifted` to execute a lifted computation.
+/// Use `Executor::run_lifted` to execute a lifted computation.
 // ANCHOR: lift_struct
 pub struct Lift<N, H, R, N2, H2, R2> {
     pub(crate) impl_lift_treeish: Arc<dyn Fn(Treeish<N>) -> Treeish<N2> + Send + Sync>,

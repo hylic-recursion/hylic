@@ -5,7 +5,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 use support::scenario::{self, Scale, PreparedScenario};
-use support::hylic_runners::{HYLIC_MODES, run_hylic_mode};
+use support::hylic_runners;
 
 fn bench_hylic_modes(c: &mut Criterion) {
     let mut group = c.benchmark_group("hylic-modes");
@@ -13,11 +13,12 @@ fn bench_hylic_modes(c: &mut Criterion) {
     for def in scenario::all_scenarios(Scale::Small) {
         let s = PreparedScenario::from_def(&def, "sm");
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            for mode in &HYLIC_MODES {
+            let modes = hylic_runners::build_all(&s.fold, &s.treeish, &s.root, pool);
+            for mode in &modes {
                 group.bench_with_input(
-                    BenchmarkId::new(*mode, &s.name),
+                    BenchmarkId::new(mode.name, &s.name),
                     &(),
-                    |b, _| { b.iter(|| black_box(run_hylic_mode(mode, &s.fold, &s.treeish, &s.root, pool))); },
+                    |b, _| b.iter(|| black_box((mode.run)())),
                 );
             }
         });

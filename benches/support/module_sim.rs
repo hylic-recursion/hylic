@@ -174,12 +174,6 @@ pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Tre
     })
 }
 
-pub fn run_hylic(mode: &str, sim: &PreparedModuleSim, pool: &Arc<WorkPool>) -> u64 {
-    let fold = hylic_fold(sim);
-    let graph = hylic_treeish(&sim.registry);
-    super::hylic_runners::run_hylic_mode(mode, &fold, &graph, &sim.root_name, pool)
-}
-
 // ── Scenario definitions ───────────────────────────────────
 
 pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
@@ -196,21 +190,18 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
     ]
 }
 
-pub const VANILLA_MODES: [&str; 2] = ["vanilla-seq", "vanilla-rayon"];
+/// Build all module sim modes: vanilla baselines + all 6 hylic modes.
+pub fn build_all<'a>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>) -> Vec<super::hylic_runners::BenchMode<'a, u64>> {
+    use super::hylic_runners::BenchMode;
 
-pub fn run_module_mode(name: &str, sim: &PreparedModuleSim, pool: &Arc<WorkPool>) -> u64 {
-    match name {
-        "vanilla-seq"   => vanilla_seq(sim),
-        "vanilla-rayon" => vanilla_rayon(sim),
-        // All hylic-* modes dispatched through the shared runner
-        _ if name.starts_with("hylic-") => run_hylic(name, sim, pool),
-        _ => panic!("unknown module mode: {name}"),
-    }
-}
+    let fold = hylic_fold(sim);
+    let graph = hylic_treeish(&sim.registry);
 
-/// All module sim modes: vanilla baselines + all 6 hylic modes.
-pub fn all_modes() -> Vec<&'static str> {
-    let mut v: Vec<&str> = VANILLA_MODES.to_vec();
-    v.extend_from_slice(&super::hylic_runners::HYLIC_MODES);
-    v
+    let mut modes: Vec<BenchMode<u64>> = vec![
+        BenchMode { name: "vanilla-seq",   run: Box::new(|| vanilla_seq(sim)) },
+        BenchMode { name: "vanilla-rayon", run: Box::new(|| vanilla_rayon(sim)) },
+    ];
+
+    modes.extend(super::hylic_runners::build_all(&fold, &graph, &sim.root_name, pool));
+    modes
 }

@@ -7,7 +7,6 @@
 //!
 //! "real-*" — what a developer would actually write: one flat recursive function,
 //!   all logic inlined. No init/accumulate/finalize separation, no WorkSpec methods.
-//!   The honest "could I just write this myself?" baseline.
 
 use std::sync::Arc;
 use std::hint::black_box;
@@ -16,23 +15,23 @@ use hylic::prelude::WorkPool;
 use super::tree::NodeId;
 use super::work::{WorkSpec, busy_work, spin_wait_us};
 use super::scenario::PreparedScenario;
+use super::hylic_runners::BenchMode;
 
 // ── "hand-*": structured baselines (mirror Fold pattern) ───
 
-pub fn handrolled_seq(s: &PreparedScenario) -> u64 {
+fn handrolled_seq(s: &PreparedScenario) -> u64 {
     fn recurse(children: &[Vec<NodeId>], work: &WorkSpec, node: NodeId) -> u64 {
         work.do_graph();
         let mut heap = work.do_init();
         for &child in &children[node] {
-            let r = recurse(children, work, child);
-            work.do_accumulate(&mut heap, &r);
+            work.do_accumulate(&mut heap, &recurse(children, work, child));
         }
         work.do_finalize(&heap)
     }
     recurse(&s.children, &s.work, s.root)
 }
 
-pub fn handrolled_rayon(s: &PreparedScenario) -> u64 {
+fn handrolled_rayon(s: &PreparedScenario) -> u64 {
     use rayon::prelude::*;
 
     fn recurse(children: &Arc<Vec<Vec<NodeId>>>, work: &WorkSpec, node: NodeId) -> u64 {
@@ -41,8 +40,7 @@ pub fn handrolled_rayon(s: &PreparedScenario) -> u64 {
         let ch = &children[node];
         if ch.len() <= 1 {
             for &child in ch {
-                let r = recurse(children, work, child);
-                work.do_accumulate(&mut heap, &r);
+                work.do_accumulate(&mut heap, &recurse(children, work, child));
             }
         } else {
             let results: Vec<u64> = ch.par_iter()
@@ -55,7 +53,12 @@ pub fn handrolled_rayon(s: &PreparedScenario) -> u64 {
     recurse(&s.children, &s.work, s.root)
 }
 
-pub fn handrolled_pool(s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
+fn handrolled_pool(
+    children: &Arc<Vec<Vec<NodeId>>>,
+    work: &Arc<WorkSpec>,
+    pool: &Arc<WorkPool>,
+    root: NodeId,
+) -> u64 {
     use std::cell::UnsafeCell;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -95,8 +98,7 @@ pub fn handrolled_pool(s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
 
         if n <= 1 {
             for &child in ch {
-                let r = recurse(children, work, pool, child);
-                work.do_accumulate(&mut heap, &r);
+                work.do_accumulate(&mut heap, &recurse(children, work, pool, child));
             }
         } else {
             let results = Arc::new(ForkResults::new(n - 1));
@@ -116,25 +118,19 @@ pub fn handrolled_pool(s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
                 if !pool.try_run_one() { std::hint::spin_loop(); }
             }
             for i in 0..n - 1 {
-                let r = unsafe { results.get(i) };
-                work.do_accumulate(&mut heap, &r);
+                work.do_accumulate(&mut heap, unsafe { &results.get(i) });
             }
             work.do_accumulate(&mut heap, &last_r);
         }
         work.do_finalize(&heap)
     }
 
-    let work = Arc::new(s.work.clone());
-    recurse(&s.children, &work, pool, s.root)
+    recurse(children, work, pool, root)
 }
 
 // ── "real-*": what a developer would actually write ────────
-//
-// One flat recursive function. All work inlined — no WorkSpec
-// methods, no init/accumulate/finalize decomposition. Just
-// "process node, recurse children, combine results."
 
-pub fn realworld_seq(s: &PreparedScenario) -> u64 {
+fn realworld_seq(s: &PreparedScenario) -> u64 {
     let iw = s.work.init_work;
     let aw = s.work.accumulate_work;
     let fw = s.work.finalize_work;
@@ -145,28 +141,21 @@ pub fn realworld_seq(s: &PreparedScenario) -> u64 {
         children: &[Vec<NodeId>], node: NodeId,
         iw: u64, aw: u64, fw: u64, gw: u64, gio: u64,
     ) -> u64 {
-        // "discover children" (graph traversal cost)
         spin_wait_us(gio);
         if gw > 0 { black_box(busy_work(gw)); }
-
-        // "process this node"
         let mut result = if iw > 0 { busy_work(iw) } else { 0 };
-
-        // "recurse and combine"
         for &child in &children[node] {
             let child_result = recurse(children, child, iw, aw, fw, gw, gio);
             if aw > 0 { result = result.wrapping_add(busy_work(aw)); }
             result = result.wrapping_add(child_result);
         }
-
-        // "finalize"
         if fw > 0 { result = result.wrapping_add(busy_work(fw)); }
         result
     }
     recurse(&s.children, s.root, iw, aw, fw, gw, gio)
 }
 
-pub fn realworld_rayon(s: &PreparedScenario) -> u64 {
+fn realworld_rayon(s: &PreparedScenario) -> u64 {
     use rayon::prelude::*;
 
     let iw = s.work.init_work;
@@ -181,10 +170,8 @@ pub fn realworld_rayon(s: &PreparedScenario) -> u64 {
     ) -> u64 {
         spin_wait_us(gio);
         if gw > 0 { black_box(busy_work(gw)); }
-
         let mut result = if iw > 0 { busy_work(iw) } else { 0 };
         let ch = &children[node];
-
         if ch.len() <= 1 {
             for &child in ch {
                 let child_result = recurse(children, child, iw, aw, fw, gw, gio);
@@ -200,27 +187,23 @@ pub fn realworld_rayon(s: &PreparedScenario) -> u64 {
                 result = result.wrapping_add(*r);
             }
         }
-
         if fw > 0 { result = result.wrapping_add(busy_work(fw)); }
         result
     }
     recurse(&s.children, s.root, iw, aw, fw, gw, gio)
 }
 
-// ── Mode dispatch ──────────────────────────────────────────
+// ── Mode construction ─────────────────────────────────────
 
-pub const HAND_MODES: [&str; 5] = [
-    "hand-seq", "hand-rayon", "hand-pool",
-    "real-seq", "real-rayon",
-];
+/// Build all 5 hand modes for a given scenario.
+pub fn build_all<'a>(s: &'a PreparedScenario, pool: &'a Arc<WorkPool>) -> Vec<BenchMode<'a, u64>> {
+    let work = Arc::new(s.work.clone());
 
-pub fn run_hand(name: &str, s: &PreparedScenario, pool: &Arc<WorkPool>) -> u64 {
-    match name {
-        "hand-seq"    => handrolled_seq(s),
-        "hand-rayon"  => handrolled_rayon(s),
-        "hand-pool"   => handrolled_pool(s, pool),
-        "real-seq"    => realworld_seq(s),
-        "real-rayon"  => realworld_rayon(s),
-        _ => panic!("unknown hand mode: {name}"),
-    }
+    vec![
+        BenchMode { name: "hand-seq",   run: Box::new(|| handrolled_seq(s)) },
+        BenchMode { name: "hand-rayon", run: Box::new(|| handrolled_rayon(s)) },
+        BenchMode { name: "hand-pool",  run: Box::new(move || handrolled_pool(&s.children, &work, pool, s.root)) },
+        BenchMode { name: "real-seq",   run: Box::new(|| realworld_seq(s)) },
+        BenchMode { name: "real-rayon", run: Box::new(|| realworld_rayon(s)) },
+    ]
 }

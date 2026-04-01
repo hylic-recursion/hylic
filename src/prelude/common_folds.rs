@@ -2,7 +2,7 @@
 
 use crate::fold::{Fold, simple_fold};
 use crate::graph::Treeish;
-use crate::cata::Exec;
+use crate::cata::exec::Executor;
 use crate::prelude::vec_fold::{vec_fold, VecHeap};
 use crate::prelude::utils::push_indent;
 
@@ -21,7 +21,7 @@ pub fn depth_fold<N: 'static>() -> Fold<N, usize, usize> {
 
 /// Format a tree as an indented string.
 pub fn pretty_print<N: Clone + 'static>(
-    exec: &Exec<N, String>,
+    exec: &impl Executor<N, String>,
     graph: &Treeish<N>,
     root: &N,
     format_node: impl Fn(&N) -> String + Send + Sync + 'static,
