@@ -89,15 +89,30 @@ where NodeT: 'static,
 // ANCHOR: treeish_alias
 pub type Treeish<Node> = Edgy<Node, Node>;
 // ANCHOR_END: treeish_alias
-pub type VisitFn<NodeT, EdgeT> = Box<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>;
 
+/// The tree traversal operations — visit children via callback,
+/// or collect to Vec.
+///
+/// `Treeish<N>` (= `Edgy<N, N>`) implements this. So can any
+/// user-defined struct for zero-boxing traversal.
+pub trait TreeOps<N> {
+    fn visit(&self, node: &N, cb: &mut dyn FnMut(&N));
+    fn apply(&self, node: &N) -> Vec<N> where N: Clone;
+}
+
+impl<N: 'static> TreeOps<N> for Treeish<N> {
+    fn visit(&self, node: &N, cb: &mut dyn FnMut(&N)) {
+        Edgy::visit(self, node, cb)
+    }
+    fn apply(&self, node: &N) -> Vec<N> where N: Clone {
+        Edgy::apply(self, node)
+    }
+}
 // Direct callback constructor — zero allocation traversal
 pub fn edgy_visit<NodeT, EdgeT>(
     func: impl Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync + 'static,
 ) -> Edgy<NodeT, EdgeT> {
-    Edgy { impl_visit: Arc::from(
-        Box::new(func) as VisitFn<NodeT, EdgeT>
-    )}
+    Edgy { impl_visit: Arc::new(func) }
 }
 
 pub fn treeish_visit<NodeT>(

@@ -12,14 +12,15 @@ fn bench_module_sim(c: &mut Criterion) {
     for spec in module_sim::all_module_scenarios(false) {
         let sim = module_sim::prepare(&spec);
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            let modes = module_sim::build_all(&sim, pool);
-            for mode in &modes {
-                group.bench_with_input(
-                    BenchmarkId::new(mode.name, &sim.name),
-                    &(),
-                    |b, _| b.iter(|| black_box((mode.run)())),
-                );
-            }
+            module_sim::with_all_modes(&sim, pool, |modes| {
+                for mode in modes {
+                    group.bench_with_input(
+                        BenchmarkId::new(mode.name, &sim.name),
+                        &(),
+                        |b, _| b.iter(|| black_box((mode.run)())),
+                    );
+                }
+            });
         });
     }
 

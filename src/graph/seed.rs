@@ -36,7 +36,7 @@ where Node: 'static, Seed: 'static, Top: 'static,
     ) -> Self {
         SeedGraph {
             impl_seeds_from_node: seeds_from_node,
-            impl_grow: Arc::from(Box::new(grow) as Box<dyn Fn(&Seed) -> Node + Send + Sync>),
+            impl_grow: Arc::new(grow),
             impl_seeds_from_top: seeds_from_top,
         }
     }

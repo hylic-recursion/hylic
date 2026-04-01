@@ -1,30 +1,37 @@
 //! Fused executor: zero-overhead sequential recursive traversal.
 //!
-//! Recursion and accumulation interleave inside `graph.visit` —
-//! no collection, no allocation, no Arc clones. The fold and graph
-//! are passed by reference through the entire recursion.
+//! Recursion and accumulation interleave inside the tree visit callback —
+//! no collection, no allocation, no Arc clones. Fold and graph are
+//! accessed only through the operations traits (FoldOps, TreeOps).
+//!
+//! No Send, Sync, or Arc in this module.
 
-use crate::fold::Fold;
-use crate::graph::Treeish;
+use crate::fold::FoldOps;
+use crate::graph::types::TreeOps;
 use super::super::Executor;
 
 /// Fused sequential executor.
 ///
 /// The simplest, fastest executor for single-threaded use.
-/// No thread boundary is ever crossed — Send, Sync, Arc are
-/// absent from this module entirely.
+/// No thread boundary is ever crossed.
 #[derive(Clone, Copy, Debug)]
 pub struct Fused;
 
 impl<N: 'static, R: 'static> Executor<N, R> for Fused {
-    fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
+    fn run<H: 'static>(
+        &self,
+        fold: &(impl FoldOps<N, H, R> + ?Sized),
+        graph: &(impl TreeOps<N> + ?Sized),
+        root: &N,
+    ) -> R {
         recurse(fold, graph, root)
     }
 }
 
-fn recurse<N: 'static, H: 'static, R: 'static>(
-    fold: &Fold<N, H, R>,
-    graph: &Treeish<N>,
+// ANCHOR: run_inner
+fn recurse<N, H, R>(
+    fold: &(impl FoldOps<N, H, R> + ?Sized),
+    graph: &(impl TreeOps<N> + ?Sized),
     node: &N,
 ) -> R {
     let mut heap = fold.init(node);
@@ -34,3 +41,4 @@ fn recurse<N: 'static, H: 'static, R: 'static>(
     });
     fold.finalize(&heap)
 }
+// ANCHOR_END: run_inner

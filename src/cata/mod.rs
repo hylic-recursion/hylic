@@ -4,5 +4,5 @@ pub mod lift;
 #[cfg(test)]
 mod tests;
 
-pub use exec::{Executor, Exec, Fused, Sequential, Rayon, Custom, ChildVisitorFn};
+pub use exec::{Executor, Exec, Fused, Sequential, Rayon, Custom};
 pub use lift::Lift;

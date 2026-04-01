@@ -31,12 +31,6 @@ impl<N, R> Custom<N, R> {
     }
 }
 
-impl<N, R> Clone for Custom<N, R> {
-    fn clone(&self) -> Self {
-        Custom { visitor: self.visitor.clone() }
-    }
-}
-
 impl<N: 'static, R: 'static> Executor<N, R> for Custom<N, R> {
     fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
         recurse(&self.visitor, fold, graph, root)

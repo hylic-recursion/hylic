@@ -35,7 +35,7 @@ where
     ) -> Self {
         GraphWithFold {
             graph: graph.clone(),
-            impl_heap_of_top: Arc::from(Box::new(heap_of_top_fn) as HeapOfTopFn<Top, HeapT>),
+            impl_heap_of_top: Arc::new(heap_of_top_fn),
             fold_impl: fold_impl.clone(),
         }
     }

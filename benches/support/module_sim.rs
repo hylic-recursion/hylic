@@ -191,7 +191,11 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
 }
 
 /// Build all module sim modes: vanilla baselines + all 6 hylic modes.
-pub fn build_all<'a>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>) -> Vec<super::hylic_runners::BenchMode<'a, u64>> {
+/// Takes a callback because fold/graph are constructed internally
+/// and must outlive the returned BenchModes.
+pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>, f: F)
+where F: FnOnce(&[super::hylic_runners::BenchMode<'_, u64>])
+{
     use super::hylic_runners::BenchMode;
 
     let fold = hylic_fold(sim);
@@ -203,5 +207,5 @@ pub fn build_all<'a>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>) -> Vec
     ];
 
     modes.extend(super::hylic_runners::build_all(&fold, &graph, &sim.root_name, pool));
-    modes
+    f(&modes);
 }

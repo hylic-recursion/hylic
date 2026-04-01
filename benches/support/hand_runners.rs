@@ -118,7 +118,8 @@ fn handrolled_pool(
                 if !pool.try_run_one() { std::hint::spin_loop(); }
             }
             for i in 0..n - 1 {
-                work.do_accumulate(&mut heap, unsafe { &results.get(i) });
+                let r = unsafe { results.get(i) };
+                work.do_accumulate(&mut heap, &r);
             }
             work.do_accumulate(&mut heap, &last_r);
         }

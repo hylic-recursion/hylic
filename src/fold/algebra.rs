@@ -29,9 +29,9 @@ where N: 'static, H: 'static, R: 'static,
         F3: Fn(&H) -> R + Send + Sync + 'static,
     {
         Fold {
-            impl_init: Arc::from(Box::new(init) as InitFn<N, H>),
-            impl_accumulate: Arc::from(Box::new(accumulate) as AccumulateFn<H, R>),
-            impl_finalize: Arc::from(Box::new(finalize) as FinalizeFn<H, R>),
+            impl_init: Arc::new(init),
+            impl_accumulate: Arc::new(accumulate),
+            impl_finalize: Arc::new(finalize),
         }
     }
 

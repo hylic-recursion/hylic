@@ -37,6 +37,7 @@ pub trait Executor<N: 'static, R: 'static> {
     /// Execute a fold over a tree rooted at `root`.
     fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R;
 
+    // ANCHOR: run_lifted
     /// Lift fold + graph into a different type domain, execute, unwrap.
     fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
@@ -50,6 +51,7 @@ pub trait Executor<N: 'static, R: 'static> {
         let lifted_root = lift.lift_root(root);
         lift.unwrap(self.run(&lifted_fold, &lifted_treeish, &lifted_root))
     }
+    // ANCHOR_END: run_lifted
 
     /// Like `run_lifted`, but also returns the inner (lifted-domain) result.
     fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
@@ -78,17 +80,6 @@ pub enum Exec<N, R> {
     Sequential(Sequential),
     Rayon(Rayon),
     Custom(Custom<N, R>),
-}
-
-impl<N, R> Clone for Exec<N, R> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Fused(e)      => Self::Fused(*e),
-            Self::Sequential(e) => Self::Sequential(*e),
-            Self::Rayon(e)      => Self::Rayon(*e),
-            Self::Custom(e)     => Self::Custom(e.clone()),
-        }
-    }
 }
 
 impl<N: 'static, R: 'static> Executor<N, R> for Exec<N, R>
