@@ -1,6 +1,6 @@
 use crate::graph::treeish;
 use crate::fold;
-use crate::cata::Exec;
+use crate::cata::exec;
 use crate::parref::ParRef;
 
 #[test]
@@ -32,9 +32,11 @@ fn all_executors_match() {
         N { val: 3, children: vec![] },
     ]};
     let graph = treeish(|n: &N| n.children.clone());
-    let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
+    let init = |n: &N| n.val as u64;
+    let acc = |a: &mut u64, c: &u64| { *a += c; };
+    let my_fold = fold::simple_fold(init, acc);
 
-    for exec in [Exec::fused(), Exec::rayon()] {
+    for exec in [exec::Exec::fused(), exec::Exec::rayon()] {
         assert_eq!(exec.run(&my_fold, &graph, &tree), 10);
     }
 }
@@ -51,12 +53,13 @@ fn all_executors_vec_fold() {
     let tree = T::branch("a", vec![T::branch("b", vec![T::leaf("d"), T::leaf("e")]), T::leaf("c")]);
     let graph = treeish(|n: &T| n.children.clone());
     use crate::prelude::{vec_fold, VecHeap};
-    let my_fold = vec_fold(|heap: &VecHeap<T, String>| {
+    let format = |heap: &VecHeap<T, String>| {
         let ch = heap.childresults.join(", ");
         if ch.is_empty() { heap.node.name.clone() } else { format!("{}[{}]", heap.node.name, ch) }
-    });
+    };
+    let my_fold = vec_fold(format);
 
-    for exec in [Exec::fused(), Exec::rayon()] {
+    for exec in [exec::Exec::fused(), exec::Exec::rayon()] {
         assert_eq!(exec.run(&my_fold, &graph, &tree), "a[b[d, e], c]");
     }
 }
@@ -68,11 +71,14 @@ fn parallel_lifts() {
         N { val: 3, children: vec![] },
     ]};
     let graph = treeish(|n: &N| n.children.clone());
-    let my_fold = fold::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
+    let init = |n: &N| n.val as u64;
+    let acc = |a: &mut u64, c: &u64| { *a += c; };
+    let my_fold = fold::simple_fold(init, acc);
 
+    use crate::cata::exec::ExecutorExt;
     use crate::prelude::{ParLazy, ParEager, WorkPoolSpec};
-    assert_eq!(Exec::fused().run_lifted(&ParLazy::lift(), &my_fold, &graph, &tree), 10);
+    assert_eq!(exec::FUSED.run_lifted(&ParLazy::lift(), &my_fold, &graph, &tree), 10);
     ParEager::with(WorkPoolSpec::threads(3), |lift| {
-        assert_eq!(Exec::fused().run_lifted(lift, &my_fold, &graph, &tree), 10);
+        assert_eq!(exec::FUSED.run_lifted(lift, &my_fold, &graph, &tree), 10);
     });
 }

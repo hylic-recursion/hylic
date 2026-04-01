@@ -90,15 +90,7 @@ where NodeT: 'static,
 pub type Treeish<Node> = Edgy<Node, Node>;
 // ANCHOR_END: treeish_alias
 
-/// The tree traversal operations — visit children via callback,
-/// or collect to Vec.
-///
-/// `Treeish<N>` (= `Edgy<N, N>`) implements this. So can any
-/// user-defined struct for zero-boxing traversal.
-pub trait TreeOps<N> {
-    fn visit(&self, node: &N, cb: &mut dyn FnMut(&N));
-    fn apply(&self, node: &N) -> Vec<N> where N: Clone;
-}
+use crate::ops::TreeOps;
 
 impl<N: 'static> TreeOps<N> for Treeish<N> {
     fn visit(&self, node: &N, cb: &mut dyn FnMut(&N)) {

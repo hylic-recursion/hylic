@@ -1,18 +1,19 @@
-//! Custom child-visiting executor — escape hatch.
+//! Custom child-visiting executor — Shared-domain escape hatch.
 //!
-//! For user-defined traversal strategies that don't fit the built-in
-//! executors (Fused, Sequential, Rayon). Wraps a ChildVisitorFn that
-//! controls how children are traversed and results delivered.
+//! For user-defined traversal strategies. Wraps a ChildVisitorFn
+//! that controls child traversal. Shared-only because the recurse
+//! closure captures cloned fold/graph/visitor (requires Clone +
+//! Send+Sync, which Arc-based Shared types provide).
 //!
-//! Pays 5 Arc clones per node in recursion (fold×3, graph, visitor).
-//! Prefer the built-in zero-sized variants when possible.
+//! For other domains, implement Executor directly — it's one method.
 
 use std::sync::Arc;
 use crate::fold::Fold;
 use crate::graph::Treeish;
+use crate::domain::Shared;
 use super::super::Executor;
 
-/// Visitor function controlling child traversal and parallelism.
+/// Visitor function controlling child traversal.
 pub type ChildVisitorFn<N, R> = dyn Fn(
     &Treeish<N>,
     &N,
@@ -31,7 +32,7 @@ impl<N, R> Custom<N, R> {
     }
 }
 
-impl<N: 'static, R: 'static> Executor<N, R> for Custom<N, R> {
+impl<N: 'static, R: 'static> Executor<N, R, Shared> for Custom<N, R> {
     fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
         recurse(&self.visitor, fold, graph, root)
     }

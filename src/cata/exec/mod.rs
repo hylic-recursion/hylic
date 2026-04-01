@@ -1,44 +1,34 @@
 //! Executor: the strategy for recursive tree computation.
 //!
-//! Four built-in variants, each in its own module under `variant/`:
-//!
-//! | Variant | Traversal | Parallelism | Size | Arc/node |
-//! |---------|-----------|-------------|------|----------|
-//! | [`Fused`] | callback | none | 0 | 0 |
-//! | [`Sequential`] | Vec collect | none | 0 | 0 |
-//! | [`Rayon`] | Vec collect | rayon par_iter | 0 | 0 |
-//! | [`Custom`] | user-defined | user-defined | Arc | 5 |
-//!
-//! All implement the [`Executor`] trait. The [`Exec`] enum wraps them
-//! for runtime dispatch with an unchanged public API.
-//!
-//! For zero-overhead static dispatch, use variant types directly:
 //! ```ignore
-//! Fused.run(&fold, &graph, &root)
-//! Rayon.run(&fold, &graph, &root)
+//! use hylic::cata::exec::{self, Executor};
+//! exec::FUSED.run(&fold, &graph, &root);
+//! exec::RAYON.run(&fold, &graph, &root);
 //! ```
 
 pub mod variant;
 
-pub use variant::fused::Fused;
-pub use variant::sequential::Sequential;
-pub use variant::rayon::Rayon;
-pub use variant::custom::{Custom, ChildVisitorFn};
+pub use variant::fused::FusedIn;
+pub use variant::sequential::SequentialIn;
+pub use variant::rayon::RayonIn;
+pub use variant::custom::Custom;
 
+use std::marker::PhantomData;
 use crate::graph::Treeish;
 use crate::fold::Fold;
+use crate::domain::{Domain, Shared, Local, Owned};
 use super::Lift;
 
-// ── Trait ──────────────────────────────────────────
+// ── Core trait ────────────────────────────────────
 
-/// The executor contract. Implementors define `run` — the recursive
-/// traversal strategy. Lift integration is provided automatically.
-pub trait Executor<N: 'static, R: 'static> {
-    /// Execute a fold over a tree rooted at `root`.
-    fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R;
+pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R;
+}
 
+// ── Lift extension (Shared domain only) ───────────
+
+pub trait ExecutorExt<N: 'static, R: 'static>: Executor<N, R, Shared> {
     // ANCHOR: run_lifted
-    /// Lift fold + graph into a different type domain, execute, unwrap.
     fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
         lift: &Lift<N0, H0, R0, N, H, R>,
@@ -53,7 +43,6 @@ pub trait Executor<N: 'static, R: 'static> {
     }
     // ANCHOR_END: run_lifted
 
-    /// Like `run_lifted`, but also returns the inner (lifted-domain) result.
     fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
         lift: &Lift<N0, H0, R0, N, H, R>,
@@ -69,12 +58,30 @@ pub trait Executor<N: 'static, R: 'static> {
     }
 }
 
-// ── Exec enum ─────────────────────────────────────
+impl<N: 'static, R: 'static, E: Executor<N, R, Shared>> ExecutorExt<N, R> for E {}
 
-/// Runtime-polymorphic executor wrapping all built-in variants.
-///
-/// Use `Exec::fused()`, `Exec::rayon()`, etc. — the API is unchanged.
-/// For zero-overhead static dispatch, use `Fused`, `Rayon`, etc. directly.
+// ── Type aliases ──────────────────────────────────
+
+pub type Fused           = FusedIn<Shared>;
+pub type FusedLocal      = FusedIn<Local>;
+pub type FusedOwned      = FusedIn<Owned>;
+pub type Sequential      = SequentialIn<Shared>;
+pub type SequentialLocal = SequentialIn<Local>;
+pub type SequentialOwned = SequentialIn<Owned>;
+pub type Rayon           = RayonIn<Shared>;
+
+// ── Constants ─────────────────────────────────────
+
+pub const FUSED:            Fused           = FusedIn(PhantomData);
+pub const FUSED_LOCAL:      FusedLocal      = FusedIn(PhantomData);
+pub const FUSED_OWNED:      FusedOwned      = FusedIn(PhantomData);
+pub const SEQUENTIAL:       Sequential      = SequentialIn(PhantomData);
+pub const SEQUENTIAL_LOCAL: SequentialLocal = SequentialIn(PhantomData);
+pub const SEQUENTIAL_OWNED: SequentialOwned = SequentialIn(PhantomData);
+pub const RAYON:            Rayon           = RayonIn(PhantomData);
+
+// ── Exec enum: Shared-domain runtime dispatch ─────
+
 pub enum Exec<N, R> {
     Fused(Fused),
     Sequential(Sequential),
@@ -82,86 +89,52 @@ pub enum Exec<N, R> {
     Custom(Custom<N, R>),
 }
 
-impl<N: 'static, R: 'static> Executor<N, R> for Exec<N, R>
-where
-    N: Clone + Send + Sync,
-    R: Send + Sync,
+impl<N: 'static, R: 'static> Executor<N, R, Shared> for Exec<N, R>
+where N: Clone + Send + Sync, R: Send + Sync,
 {
     fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
         match self {
-            Self::Fused(e)      => e.run(fold, graph, root),
-            Self::Sequential(e) => e.run(fold, graph, root),
-            Self::Rayon(e)      => e.run(fold, graph, root),
-            Self::Custom(e)     => e.run(fold, graph, root),
+            Self::Fused(e)      => <Fused as Executor<N, R, Shared>>::run(e, fold, graph, root),
+            Self::Sequential(e) => <Sequential as Executor<N, R, Shared>>::run(e, fold, graph, root),
+            Self::Rayon(e)      => <Rayon as Executor<N, R, Shared>>::run(e, fold, graph, root),
+            Self::Custom(e)     => <Custom<N, R> as Executor<N, R, Shared>>::run(e, fold, graph, root),
         }
     }
 }
 
-// ── Inherent methods: usable without importing Executor ──
-
+// Exec inherent methods — N and R ARE in the self type, so this works.
 impl<N: 'static, R: 'static> Exec<N, R>
-where
-    N: Clone + Send + Sync,
-    R: Send + Sync,
+where N: Clone + Send + Sync, R: Send + Sync,
 {
     pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
-        match self {
-            Self::Fused(e)      => e.run(fold, graph, root),
-            Self::Sequential(e) => e.run(fold, graph, root),
-            Self::Rayon(e)      => e.run(fold, graph, root),
-            Self::Custom(e)     => e.run(fold, graph, root),
-        }
+        <Self as Executor<N, R, Shared>>::run(self, fold, graph, root)
     }
 
     pub fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
-        &self,
-        lift: &Lift<N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>,
-        graph: &Treeish<N0>,
-        root: &N0,
+        &self, lift: &Lift<N0, H0, R0, N, H, R>,
+        fold: &Fold<N0, H0, R0>, graph: &Treeish<N0>, root: &N0,
     ) -> R0 {
-        <Self as Executor<N, R>>::run_lifted(self, lift, fold, graph, root)
+        <Self as ExecutorExt<N, R>>::run_lifted(self, lift, fold, graph, root)
     }
 
     pub fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
-        &self,
-        lift: &Lift<N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>,
-        graph: &Treeish<N0>,
-        root: &N0,
+        &self, lift: &Lift<N0, H0, R0, N, H, R>,
+        fold: &Fold<N0, H0, R0>, graph: &Treeish<N0>, root: &N0,
     ) -> (R0, R) where R: Clone {
-        <Self as Executor<N, R>>::run_lifted_zipped(self, lift, fold, graph, root)
+        <Self as ExecutorExt<N, R>>::run_lifted_zipped(self, lift, fold, graph, root)
     }
 }
 
-// ── Convenience constructors ──────────────────────
+// ── Exec constructors ─────────────────────────────
 
 impl<N: 'static, R: 'static> Exec<N, R> {
-    pub fn fused() -> Self { Exec::Fused(Fused) }
+    pub fn fused() -> Self { Exec::Fused(FUSED) }
 }
 
 impl<N: Clone + 'static, R: 'static> Exec<N, R> {
-    pub fn sequential() -> Self { Exec::Sequential(Sequential) }
+    pub fn sequential() -> Self { Exec::Sequential(SEQUENTIAL) }
 }
 
 impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> Exec<N, R> {
-    pub fn rayon() -> Self { Exec::Rayon(Rayon) }
-}
-
-// ── From conversions ──────────────────────────────
-
-impl<N, R> From<Fused> for Exec<N, R> {
-    fn from(e: Fused) -> Self { Exec::Fused(e) }
-}
-
-impl<N, R> From<Sequential> for Exec<N, R> {
-    fn from(e: Sequential) -> Self { Exec::Sequential(e) }
-}
-
-impl<N, R> From<Rayon> for Exec<N, R> {
-    fn from(e: Rayon) -> Self { Exec::Rayon(e) }
-}
-
-impl<N, R> From<Custom<N, R>> for Exec<N, R> {
-    fn from(e: Custom<N, R>) -> Self { Exec::Custom(e) }
+    pub fn rayon() -> Self { Exec::Rayon(RAYON) }
 }

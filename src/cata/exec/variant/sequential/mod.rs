@@ -1,33 +1,30 @@
-//! Sequential executor: collect children, iterate.
+//! Sequential executor: collect children to Vec, iterate.
 //!
-//! Like Fused but uses TreeOps::apply (Vec collection) instead of
-//! TreeOps::visit (callback). Exists as a reference for the unfused
-//! traversal pattern. Prefer Fused for performance.
-//!
-//! No Send, Sync, or Arc in this module.
+//! Supports ALL domains — it borrows fold/graph, never clones them.
 
-use crate::fold::FoldOps;
-use crate::graph::types::TreeOps;
+use std::marker::PhantomData;
+use crate::ops::{FoldOps, TreeOps};
+use crate::domain::Domain;
 use super::super::Executor;
 
-/// Unfused sequential executor.
-#[derive(Clone, Copy, Debug)]
-pub struct Sequential;
+/// Unfused sequential executor, parameterized by domain.
+pub struct SequentialIn<D>(pub(crate) PhantomData<D>);
 
-impl<N: Clone + 'static, R: 'static> Executor<N, R> for Sequential {
-    fn run<H: 'static>(
-        &self,
-        fold: &(impl FoldOps<N, H, R> + ?Sized),
-        graph: &(impl TreeOps<N> + ?Sized),
-        root: &N,
-    ) -> R {
+impl<D> Clone for SequentialIn<D> { fn clone(&self) -> Self { *self } }
+impl<D> Copy for SequentialIn<D> {}
+impl<D> std::fmt::Debug for SequentialIn<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "Sequential") }
+}
+
+impl<N: Clone + 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for SequentialIn<D> {
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         recurse(fold, graph, root)
     }
 }
 
 fn recurse<N: Clone, H, R>(
-    fold: &(impl FoldOps<N, H, R> + ?Sized),
-    graph: &(impl TreeOps<N> + ?Sized),
+    fold: &impl FoldOps<N, H, R>,
+    graph: &impl TreeOps<N>,
     node: &N,
 ) -> R {
     let mut heap = fold.init(node);

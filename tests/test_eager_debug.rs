@@ -1,11 +1,12 @@
 use hylic::graph::treeish;
 use hylic::fold;
-use hylic::cata::Exec;
+use hylic::cata::exec::{self, ExecutorExt};
 use hylic::prelude::{ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::time::Instant;
 
 type NodeId = usize;
+const ROOT: NodeId = 0;
 
 fn gen_tree(node_count: usize, branch_factor: usize) -> (Arc<Vec<Vec<NodeId>>>, usize) {
     let mut children: Vec<Vec<NodeId>> = vec![vec![]];
@@ -41,15 +42,14 @@ fn no_hang_branching() {
     eprintln!("Tree: {} nodes", count);
 
     let graph = treeish(move |n: &NodeId| ch[*n].clone());
-    let my_fold = fold::simple_fold(
-        |_: &NodeId| 0u64,
-        |a: &mut u64, c: &u64| { *a += c; },
-    );
+    let init = |_: &NodeId| 0u64;
+    let acc = |a: &mut u64, c: &u64| { *a += c; };
+    let my_fold = fold::simple_fold(init, acc);
 
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
         for i in 0..20 {
             let t = Instant::now();
-            let r = Exec::fused().run_lifted(&ParEager::lift(pool), &my_fold, &graph, &0usize);
+            let r = exec::FUSED.run_lifted(&ParEager::lift(pool), &my_fold, &graph, &ROOT);
             eprintln!("  iter {}: {}µs result={}", i, t.elapsed().as_micros(), r);
         }
     });

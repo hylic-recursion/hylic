@@ -1,37 +1,31 @@
 //! Fused executor: zero-overhead sequential recursive traversal.
 //!
-//! Recursion and accumulation interleave inside the tree visit callback —
-//! no collection, no allocation, no Arc clones. Fold and graph are
-//! accessed only through the operations traits (FoldOps, TreeOps).
-//!
-//! No Send, Sync, or Arc in this module.
+//! Supports ALL domains — it never clones the fold or graph.
 
-use crate::fold::FoldOps;
-use crate::graph::types::TreeOps;
+use std::marker::PhantomData;
+use crate::ops::{FoldOps, TreeOps};
+use crate::domain::Domain;
 use super::super::Executor;
 
-/// Fused sequential executor.
-///
-/// The simplest, fastest executor for single-threaded use.
-/// No thread boundary is ever crossed.
-#[derive(Clone, Copy, Debug)]
-pub struct Fused;
+/// Fused sequential executor, parameterized by domain.
+pub struct FusedIn<D>(pub(crate) PhantomData<D>);
 
-impl<N: 'static, R: 'static> Executor<N, R> for Fused {
-    fn run<H: 'static>(
-        &self,
-        fold: &(impl FoldOps<N, H, R> + ?Sized),
-        graph: &(impl TreeOps<N> + ?Sized),
-        root: &N,
-    ) -> R {
+impl<D> Clone for FusedIn<D> { fn clone(&self) -> Self { *self } }
+impl<D> Copy for FusedIn<D> {}
+impl<D> std::fmt::Debug for FusedIn<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "Fused") }
+}
+
+impl<N: 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for FusedIn<D> {
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         recurse(fold, graph, root)
     }
 }
 
 // ANCHOR: run_inner
 fn recurse<N, H, R>(
-    fold: &(impl FoldOps<N, H, R> + ?Sized),
-    graph: &(impl TreeOps<N> + ?Sized),
+    fold: &impl FoldOps<N, H, R>,
+    graph: &impl TreeOps<N>,
     node: &N,
 ) -> R {
     let mut heap = fold.init(node);

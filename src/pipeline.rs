@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use crate::graph::Graph;
 use crate::fold::Fold;
-use crate::cata::exec::Executor;
+use crate::cata::exec;
+use crate::domain::Shared;
 
 pub type HeapOfTopFn<Top, HeapT> = Box<dyn Fn(&Top) -> HeapT + Send + Sync>;
 
@@ -44,12 +45,12 @@ where
         (self.impl_heap_of_top)(top)
     }
 
-    pub fn run_node(&self, exec: &impl Executor<NodeT, ReturnT>, node: &NodeT) -> ReturnT {
+    pub fn run_node(&self, exec: &impl exec::Executor<NodeT, ReturnT, Shared>, node: &NodeT) -> ReturnT {
         exec.run(&self.fold_impl, &self.graph.treeish, node)
     }
 
     // ANCHOR: pipeline_run
-    pub fn run(&self, exec: &impl Executor<NodeT, ReturnT>, top: &Top) -> ReturnT {
+    pub fn run(&self, exec: &impl exec::Executor<NodeT, ReturnT, Shared>, top: &Top) -> ReturnT {
         let mut heap = (self.impl_heap_of_top)(top);
         self.graph.top_edgy.visit(top, &mut |child| {
             let result = exec.run(&self.fold_impl, &self.graph.treeish, child);
@@ -124,7 +125,7 @@ impl<NodeE, NodeV, Top, HeapT, ReturnT> GraphWithFold<either::Either<NodeE, Node
 where
     NodeE: 'static, NodeV: Clone + 'static, Top: 'static, HeapT: 'static, ReturnT: 'static,
 {
-    pub fn run_valid(&self, exec: &impl Executor<either::Either<NodeE, NodeV>, ReturnT>, node: &NodeV) -> ReturnT {
+    pub fn run_valid(&self, exec: &impl exec::Executor<either::Either<NodeE, NodeV>, ReturnT, Shared>, node: &NodeV) -> ReturnT {
         self.run_node(exec, &either::Either::Right(node.clone()))
     }
 }

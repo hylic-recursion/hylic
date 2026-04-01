@@ -1,12 +1,16 @@
 use hylic::graph::treeish;
 use hylic::fold;
-use hylic::cata::Exec;
+use hylic::cata::exec::{self, Executor, ExecutorExt};
+// exec::FUSED, exec::RAYON — const executor values
+// Executor — trait, needed for .run()
+// ExecutorExt — for .run_lifted()
 use hylic::prelude::{ParLazy, ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::hint::black_box;
 use std::time::Instant;
 
 type NodeId = usize;
+const ROOT: NodeId = 0;
 
 fn gen_tree(node_count: usize, branch_factor: usize) -> (Arc<Vec<Vec<NodeId>>>, usize) {
     let mut children: Vec<Vec<NodeId>> = vec![vec![]];
@@ -54,20 +58,19 @@ fn timed(name: &str, iters: u32, expected: u64, f: impl Fn() -> u64) {
 fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) {
     let (ch, count) = gen_tree(nodes, bf);
     let graph = treeish(move |n: &NodeId| { if gc > 0 { black_box(busy_work(gc)); } ch[*n].clone() });
-    let fold = fold::simple_fold(
-        move |_: &NodeId| { if fc > 0 { busy_work(fc) } else { 0u64 } },
-        |a: &mut u64, c: &u64| { *a = a.wrapping_add(*c); },
-    );
-    let expected = Exec::fused().run(&fold, &graph, &0usize);
+    let init = move |_: &NodeId| { if fc > 0 { busy_work(fc) } else { 0u64 } };
+    let acc = |a: &mut u64, c: &u64| { *a = a.wrapping_add(*c); };
+    let fold = fold::simple_fold(init, acc);
+    let expected = exec::FUSED.run(&fold, &graph, &ROOT);
 
     eprintln!("\n=== {} ({} nodes, bf={}) ===", label, count, bf);
-    timed("fused",        iters, expected, || Exec::fused().run(&fold, &graph, &0usize));
-    timed("rayon",        iters, expected, || Exec::rayon().run(&fold, &graph, &0usize));
-    timed("parref+fused", iters, expected, || Exec::fused().run_lifted(&ParLazy::lift(), &fold, &graph, &0usize));
-    timed("parref+rayon", iters, expected, || Exec::rayon().run_lifted(&ParLazy::lift(), &fold, &graph, &0usize));
+    timed("fused",        iters, expected, || exec::FUSED.run(&fold, &graph, &ROOT));
+    timed("rayon",        iters, expected, || exec::RAYON.run(&fold, &graph, &ROOT));
+    timed("parref+fused", iters, expected, || exec::FUSED.run_lifted(&ParLazy::lift(), &fold, &graph, &ROOT));
+    timed("parref+rayon", iters, expected, || exec::RAYON.run_lifted(&ParLazy::lift(), &fold, &graph, &ROOT));
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-        timed("eager+fused", iters, expected, || Exec::fused().run_lifted(&ParEager::lift(pool), &fold, &graph, &0usize));
-        timed("eager+rayon", iters, expected, || Exec::rayon().run_lifted(&ParEager::lift(pool), &fold, &graph, &0usize));
+        timed("eager+fused", iters, expected, || exec::FUSED.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
+        timed("eager+rayon", iters, expected, || exec::RAYON.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
     });
 }
 

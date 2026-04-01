@@ -36,17 +36,16 @@ impl PreparedScenario {
             for &child in &ch[*n] { cb(&child); }
         });
 
-        let fold = fold::fold(
-            move |_node: &NodeId| -> u64 { w2.do_init() },
-            {
-                let w3 = def.work.clone();
-                move |heap: &mut u64, child: &u64| { w3.do_accumulate(heap, child); }
-            },
-            {
-                let w4 = def.work.clone();
-                move |heap: &u64| -> u64 { w4.do_finalize(heap) }
-            },
-        );
+        let init = move |_node: &NodeId| -> u64 { w2.do_init() };
+        let acc = {
+            let w3 = def.work.clone();
+            move |heap: &mut u64, child: &u64| { w3.do_accumulate(heap, child); }
+        };
+        let fin = {
+            let w4 = def.work.clone();
+            move |heap: &u64| -> u64 { w4.do_finalize(heap) }
+        };
+        let fold = fold::fold(init, acc, fin);
 
         PreparedScenario {
             name: format!("{}/{}", def.moniker, label),

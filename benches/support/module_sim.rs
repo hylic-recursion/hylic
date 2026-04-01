@@ -157,14 +157,13 @@ pub fn hylic_fold(sim: &PreparedModuleSim) -> fold::Fold<String, u64, u64> {
     let pw = sim.spec.parse_work;
     let pio = sim.spec.parse_io_us;
     let aw = sim.spec.accumulate_work;
-    fold::fold(
-        move |_name: &String| -> u64 { simulate_parse(pw, pio) },
-        move |heap: &mut u64, child: &u64| {
-            if aw > 0 { *heap = heap.wrapping_add(busy_work(aw)); }
-            *heap = heap.wrapping_add(*child);
-        },
-        |heap: &u64| -> u64 { *heap },
-    )
+    let init = move |_name: &String| -> u64 { simulate_parse(pw, pio) };
+    let acc = move |heap: &mut u64, child: &u64| {
+        if aw > 0 { *heap = heap.wrapping_add(busy_work(aw)); }
+        *heap = heap.wrapping_add(*child);
+    };
+    let fin = |heap: &u64| -> u64 { *heap };
+    fold::fold(init, acc, fin)
 }
 
 pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Treeish<String> {
