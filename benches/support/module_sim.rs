@@ -192,9 +192,9 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
 /// Build all module sim modes: vanilla baselines + 6 hylic Shared modes.
 /// Takes a callback because fold/graph are constructed internally.
 pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>, f: F)
-where F: FnOnce(&[super::hylic_runners::BenchMode<'_, u64>])
+where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
 {
-    use super::hylic_runners::BenchMode;
+    use super::modes::BenchMode;
     use hylic::cata::exec::{self, Executor, ExecutorExt};
     use hylic::prelude::{ParLazy, ParEager};
 

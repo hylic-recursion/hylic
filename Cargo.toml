@@ -14,11 +14,11 @@ criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
 
 [[bench]]
-name = "bench_hylic_modes"
+name = "bench_sequential"
 harness = false
 
 [[bench]]
-name = "bench_vs_handrolled"
+name = "bench_parallel"
 harness = false
 
 [[bench]]

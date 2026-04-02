@@ -1,23 +1,138 @@
-//! Handrolled baselines.
+//! Benchmark modes — sequential and parallel, DRY.
 //!
-//! Two families:
-//!
-//! "hand-*" — mirrors the Fold pattern (calls work.do_init/do_accumulate/do_finalize).
-//!   Shows hylic's framework overhead vs the same structured decomposition.
-//!
-//! "real-*" — what a developer would actually write: one flat recursive function,
-//!   all logic inlined. No init/accumulate/finalize separation, no WorkSpec methods.
+//! Two builder functions: `sequential_modes` and `parallel_modes`.
+//! Each returns a Vec<BenchMode> with pre-built closures.
+//! Hylic modes and handrolled baselines are grouped by parallelism,
+//! not by framework.
 
 use std::sync::Arc;
 use std::hint::black_box;
-use hylic::prelude::WorkPool;
+use hylic::cata::exec::{self, Executor, ExecutorExt};
+use hylic::prelude::{ParLazy, ParEager, WorkPool};
 
 use super::tree::NodeId;
 use super::work::{WorkSpec, busy_work, spin_wait_us};
 use super::scenario::PreparedScenario;
-use super::hylic_runners::BenchMode;
 
-// ── "hand-*": structured baselines (mirror Fold pattern) ───
+/// A pre-built benchmark mode: name + runner closure.
+pub struct BenchMode<'a, R> {
+    pub name: &'static str,
+    pub run: Box<dyn Fn() -> R + 'a>,
+}
+
+// ══════════════════════════════════════════════════
+// Sequential modes — no threads, no pool, no rayon
+// ══════════════════════════════════════════════════
+
+pub fn sequential_modes<'a>(s: &'a PreparedScenario) -> Vec<BenchMode<'a, u64>> {
+    let fold = &s.fold;
+    let treeish = &s.treeish;
+    let root = &s.root;
+
+    // Local domain: single layer of Rc, from WorkSpec
+    let local_fold = {
+        let w1 = s.work.clone();
+        let w2 = s.work.clone();
+        let w3 = s.work.clone();
+        hylic::domain::local::fold(
+            move |_: &NodeId| w1.do_init(),
+            move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
+            move |h: &u64| w3.do_finalize(h),
+        )
+    };
+    let local_treeish = {
+        let w = s.work.clone();
+        let ch = s.children.clone();
+        hylic::domain::local::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+            w.do_graph();
+            for &child in &ch[*n] { cb(&child); }
+        })
+    };
+
+    // Owned domain: single layer of Box, pre-built
+    let owned_fold = {
+        let w1 = s.work.clone();
+        let w2 = s.work.clone();
+        let w3 = s.work.clone();
+        hylic::domain::owned::fold(
+            move |_: &NodeId| w1.do_init(),
+            move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
+            move |h: &u64| w3.do_finalize(h),
+        )
+    };
+    let owned_treeish = {
+        let w = s.work.clone();
+        let ch = s.children.clone();
+        hylic::domain::owned::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+            w.do_graph();
+            for &child in &ch[*n] { cb(&child); }
+        })
+    };
+
+    vec![
+        // ── hylic sequential ───────────────────────
+        BenchMode { name: "hylic-fused",
+            run: Box::new(move || exec::FUSED.run(fold, treeish, root)) },
+        BenchMode { name: "hylic-fused-local",
+            run: Box::new(move || exec::FUSED_LOCAL.run(&local_fold, &local_treeish, root)) },
+        BenchMode { name: "hylic-fused-owned",
+            run: Box::new(move || exec::FUSED_OWNED.run(&owned_fold, &owned_treeish, root)) },
+        BenchMode { name: "hylic-sequential",
+            run: Box::new(move || exec::SEQUENTIAL.run(fold, treeish, root)) },
+
+        // ── handrolled sequential ──────────────────
+        BenchMode { name: "hand-seq",
+            run: Box::new(|| handrolled_seq(s)) },
+        BenchMode { name: "real-seq",
+            run: Box::new(|| realworld_seq(s)) },
+    ]
+}
+
+// ══════════════════════════════════════════════════
+// Parallel modes — rayon, lifts, WorkPool
+// ══════════════════════════════════════════════════
+
+pub fn parallel_modes<'a>(
+    s: &'a PreparedScenario,
+    pool: &'a Arc<WorkPool>,
+) -> Vec<BenchMode<'a, u64>> {
+    let fold = &s.fold;
+    let treeish = &s.treeish;
+    let root = &s.root;
+
+    let par_lazy = ParLazy::lift::<NodeId, u64, u64>();
+    let par_lazy2 = par_lazy.clone();
+    let par_eager_fused = ParEager::lift::<NodeId, u64, u64>(pool);
+    let par_eager_rayon = ParEager::lift::<NodeId, u64, u64>(pool);
+
+    let work = Arc::new(s.work.clone());
+
+    vec![
+        // ── hylic parallel ─────────────────────────
+        BenchMode { name: "hylic-rayon",
+            run: Box::new(move || exec::RAYON.run(fold, treeish, root)) },
+        BenchMode { name: "hylic-parref+fused",
+            run: Box::new(move || exec::FUSED.run_lifted(&par_lazy, fold, treeish, root)) },
+        BenchMode { name: "hylic-parref+rayon",
+            run: Box::new(move || exec::RAYON.run_lifted(&par_lazy2, fold, treeish, root)) },
+        BenchMode { name: "hylic-eager+fused",
+            run: Box::new(move || exec::FUSED.run_lifted(&par_eager_fused, fold, treeish, root)) },
+        BenchMode { name: "hylic-eager+rayon",
+            run: Box::new(move || exec::RAYON.run_lifted(&par_eager_rayon, fold, treeish, root)) },
+
+        // ── handrolled parallel ────────────────────
+        BenchMode { name: "hand-rayon",
+            run: Box::new(|| handrolled_rayon(s)) },
+        BenchMode { name: "hand-pool",
+            run: Box::new(move || handrolled_pool(&s.children, &work, pool, s.root)) },
+        BenchMode { name: "real-rayon",
+            run: Box::new(|| realworld_rayon(s)) },
+    ]
+}
+
+// ══════════════════════════════════════════════════
+// Handrolled recursion engines (private)
+// ══════════════════════════════════════════════════
 
 fn handrolled_seq(s: &PreparedScenario) -> u64 {
     fn recurse(children: &[Vec<NodeId>], work: &WorkSpec, node: NodeId) -> u64 {
@@ -33,7 +148,6 @@ fn handrolled_seq(s: &PreparedScenario) -> u64 {
 
 fn handrolled_rayon(s: &PreparedScenario) -> u64 {
     use rayon::prelude::*;
-
     fn recurse(children: &Arc<Vec<Vec<NodeId>>>, work: &WorkSpec, node: NodeId) -> u64 {
         work.do_graph();
         let mut heap = work.do_init();
@@ -67,7 +181,6 @@ fn handrolled_pool(
         remaining: AtomicUsize,
     }
     unsafe impl Sync for ForkResults {}
-
     impl ForkResults {
         fn new(n: usize) -> Self {
             ForkResults {
@@ -86,16 +199,13 @@ fn handrolled_pool(
     }
 
     fn recurse(
-        children: &Arc<Vec<Vec<NodeId>>>,
-        work: &Arc<WorkSpec>,
-        pool: &Arc<WorkPool>,
-        node: NodeId,
+        children: &Arc<Vec<Vec<NodeId>>>, work: &Arc<WorkSpec>,
+        pool: &Arc<WorkPool>, node: NodeId,
     ) -> u64 {
         work.do_graph();
         let mut heap = work.do_init();
         let ch = &children[node];
         let n = ch.len();
-
         if n <= 1 {
             for &child in ch {
                 work.do_accumulate(&mut heap, &recurse(children, work, pool, child));
@@ -125,11 +235,8 @@ fn handrolled_pool(
         }
         work.do_finalize(&heap)
     }
-
     recurse(children, work, pool, root)
 }
-
-// ── "real-*": what a developer would actually write ────────
 
 fn realworld_seq(s: &PreparedScenario) -> u64 {
     let iw = s.work.init_work;
@@ -137,7 +244,6 @@ fn realworld_seq(s: &PreparedScenario) -> u64 {
     let fw = s.work.finalize_work;
     let gw = s.work.graph_work;
     let gio = s.work.graph_io_us;
-
     fn recurse(
         children: &[Vec<NodeId>], node: NodeId,
         iw: u64, aw: u64, fw: u64, gw: u64, gio: u64,
@@ -158,13 +264,11 @@ fn realworld_seq(s: &PreparedScenario) -> u64 {
 
 fn realworld_rayon(s: &PreparedScenario) -> u64 {
     use rayon::prelude::*;
-
     let iw = s.work.init_work;
     let aw = s.work.accumulate_work;
     let fw = s.work.finalize_work;
     let gw = s.work.graph_work;
     let gio = s.work.graph_io_us;
-
     fn recurse(
         children: &Arc<Vec<Vec<NodeId>>>, node: NodeId,
         iw: u64, aw: u64, fw: u64, gw: u64, gio: u64,
@@ -192,19 +296,4 @@ fn realworld_rayon(s: &PreparedScenario) -> u64 {
         result
     }
     recurse(&s.children, s.root, iw, aw, fw, gw, gio)
-}
-
-// ── Mode construction ─────────────────────────────────────
-
-/// Build all 5 hand modes for a given scenario.
-pub fn build_all<'a>(s: &'a PreparedScenario, pool: &'a Arc<WorkPool>) -> Vec<BenchMode<'a, u64>> {
-    let work = Arc::new(s.work.clone());
-
-    vec![
-        BenchMode { name: "hand-seq",   run: Box::new(|| handrolled_seq(s)) },
-        BenchMode { name: "hand-rayon", run: Box::new(|| handrolled_rayon(s)) },
-        BenchMode { name: "hand-pool",  run: Box::new(move || handrolled_pool(&s.children, &work, pool, s.root)) },
-        BenchMode { name: "real-seq",   run: Box::new(|| realworld_seq(s)) },
-        BenchMode { name: "real-rayon", run: Box::new(|| realworld_rayon(s)) },
-    ]
 }
