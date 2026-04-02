@@ -166,7 +166,7 @@ pub fn hylic_fold(sim: &PreparedModuleSim) -> dom::Fold<String, u64, u64> {
     dom::fold(init, acc, fin)
 }
 
-pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Treeish<String> {
+pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::domain::shared::Treeish<String> {
     let reg = reg.clone();
     dom::treeish_visit(move |name: &String, cb: &mut dyn FnMut(&String)| {
         for dep in &reg[name].deps { cb(dep); }
@@ -202,8 +202,8 @@ where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
     let graph = hylic_treeish(&sim.registry);
     let root = &sim.root_name;
 
-    let par_lazy = ParLazy::lift::<String, u64, u64>();
-    let par_lazy2 = ParLazy::lift::<String, u64, u64>();
+    let par_lazy = ParLazy::lift::<String, u64, u64>(pool);
+    let par_lazy2 = ParLazy::lift::<String, u64, u64>(pool);
     let par_eager_fused = ParEager::lift::<String, u64, u64>(pool);
     let par_eager_rayon = ParEager::lift::<String, u64, u64>(pool);
 

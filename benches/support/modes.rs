@@ -100,8 +100,8 @@ pub fn parallel_modes<'a>(
     let treeish = &s.treeish;
     let root = &s.root;
 
-    let par_lazy = ParLazy::lift::<NodeId, u64, u64>();
-    let par_lazy2 = ParLazy::lift::<NodeId, u64, u64>();
+    let par_lazy = ParLazy::lift::<NodeId, u64, u64>(pool);
+    let par_lazy2 = ParLazy::lift::<NodeId, u64, u64>(pool);
     let par_eager_fused = ParEager::lift::<NodeId, u64, u64>(pool);
     let par_eager_rayon = ParEager::lift::<NodeId, u64, u64>(pool);
 

@@ -71,6 +71,11 @@ impl WorkPool {
         self.condvar.notify_one();
     }
 
+    /// Returns true if the task queue is empty.
+    pub fn is_idle(&self) -> bool {
+        self.queue.lock().unwrap().is_empty()
+    }
+
     pub fn try_run_one(&self) -> bool {
         let item = self.queue.lock().unwrap().pop();
         match item {
@@ -149,12 +154,42 @@ impl WorkPool {
     }
 }
 
+/// A reference safe to share across scoped threads.
+///
+/// SAFETY: WorkPool uses std::thread::scope — all workers join before
+/// the scope exits. SyncRef borrows from within the scope. Workers
+/// only deref + call (read-only). No Rc cloning, no mutation of
+/// refcounts. The !Sync on Rc protects against concurrent clone/drop,
+/// which doesn't happen through SyncRef.
+pub struct SyncRef<'a, T: ?Sized>(pub &'a T);
+unsafe impl<T: ?Sized> Sync for SyncRef<'_, T> {}
+unsafe impl<T: ?Sized> Send for SyncRef<'_, T> {}
+impl<T: ?Sized> std::ops::Deref for SyncRef<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T { self.0 }
+}
+
 /// Binary-split fork-join over a slice. Recursively halves the work,
 /// using pool.join() at each level. Sequential below max_depth or
 /// when only one item remains.
-pub fn fork_join_map<T: Sync, R: Send>(
+///
+/// No `T: Sync` bound — the slice is wrapped in SyncRef internally.
+/// Safe because pool.join() uses scoped threads (the slice outlives
+/// all workers) and workers only read elements via `&T`.
+pub fn fork_join_map<T, R: Send>(
     pool: &WorkPool,
     items: &[T],
+    f: &(dyn Fn(&T) -> R + Send + Sync),
+    depth: usize,
+    max_depth: usize,
+) -> Vec<R> {
+    let items = SyncRef(items);
+    fork_join_map_inner(pool, &items, f, depth, max_depth)
+}
+
+fn fork_join_map_inner<T, R: Send>(
+    pool: &WorkPool,
+    items: &SyncRef<'_, [T]>,
     f: &(dyn Fn(&T) -> R + Send + Sync),
     depth: usize,
     max_depth: usize,
@@ -163,9 +198,11 @@ pub fn fork_join_map<T: Sync, R: Send>(
         return items.iter().map(f).collect();
     }
     let mid = items.len() / 2;
+    let left_items = SyncRef(&items[..mid]);
+    let right_items = SyncRef(&items[mid..]);
     let (left, right) = pool.join(
-        || fork_join_map(pool, &items[..mid], f, depth + 1, max_depth),
-        || fork_join_map(pool, &items[mid..], f, depth + 1, max_depth),
+        || fork_join_map_inner(pool, &left_items, f, depth + 1, max_depth),
+        || fork_join_map_inner(pool, &right_items, f, depth + 1, max_depth),
     );
     let mut result = left;
     result.extend(right);

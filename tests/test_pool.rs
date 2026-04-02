@@ -63,7 +63,7 @@ fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) 
     timed("fused",  iters, expected, || dom::FUSED.run(&fold, &graph, &ROOT));
     timed("rayon",  iters, expected, || dom::RAYON.run(&fold, &graph, &ROOT));
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-        let pool_exec = PoolIn::new(pool, PoolSpec::default_for(3));
+        let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
         timed("pool", iters, expected, || pool_exec.run(&fold, &graph, &ROOT));
     });
 }

@@ -1,26 +1,30 @@
 //! Lazy ParRef-based fold parallelization as a Lift.
 
+use std::sync::Arc;
 use crate::cata::Lift;
 use crate::domain::Shared;
 use crate::fold;
 use crate::parref::ParRef;
+use super::pool::WorkPool;
 
 /// Lazy parallel strategy. Builds a ParRef tree during traversal;
 /// `eval()` triggers parallel bottom-up evaluation via `join_par`.
 pub struct ParLazy;
 
 impl ParLazy {
-    pub fn lift<N, H, R>() -> Lift<Shared, N, H, R, N, (H, Vec<ParRef<R>>), ParRef<R>>
+    pub fn lift<N, H, R>(pool: &Arc<WorkPool>) -> Lift<Shared, N, H, R, N, (H, Vec<ParRef<R>>), ParRef<R>>
     where
         N: Clone + 'static,
         H: Clone + Send + Sync + 'static,
         R: Clone + Send + Sync + 'static,
     {
+        let pool = pool.clone();
         Lift::new(
             |treeish| treeish,
             move |original_fold: fold::Fold<N, H, R>| {
                 let f_init = original_fold.clone();
                 let f_fin = original_fold.clone();
+                let pool = pool.clone();
                 fold::fold(
                     move |node: &N| -> (H, Vec<ParRef<R>>) {
                         (f_init.init(node), Vec::new())
@@ -32,12 +36,13 @@ impl ParLazy {
                         let heap = state.0.clone();
                         let children = state.1.clone();
                         let fold = f_fin.clone();
+                        let pool = pool.clone();
                         ParRef::new(move || {
                             let mut h = heap;
                             if children.len() <= 1 {
                                 for c in &children { fold.accumulate(&mut h, c.eval()); }
                             } else {
-                                for r in ParRef::join_par(children).eval() {
+                                for r in ParRef::join_par(children, &pool).eval() {
                                     fold.accumulate(&mut h, &r);
                                 }
                             }

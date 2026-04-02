@@ -1,4 +1,8 @@
 use std::sync::{Arc, Mutex, OnceLock};
+use crate::prelude::parallel::pool::{WorkPool, fork_join_map};
+
+// Arc<WorkPool> used by zip_par / join_par closures. The Arc is cloned
+// into each ParRef closure so it can outlive the immediate scope.
 
 pub struct ParRef<T: Send + Sync + 'static> {
     inner: Arc<ParRefInner<T>>,
@@ -51,21 +55,25 @@ impl<T: Send + Sync + 'static> ParRef<T> {
 }
 
 impl<T: Send + Sync + Clone + 'static> ParRef<T> {
+    /// Evaluate both ParRefs in parallel using the WorkPool, return pair.
     pub fn zip_par<U: Send + Sync + Clone + 'static>(
         &self,
         other: &ParRef<U>,
+        pool: &Arc<WorkPool>,
     ) -> ParRef<(T, U)> {
         let a = self.clone();
         let b = other.clone();
+        let pool = pool.clone();
         ParRef::new(move || {
-            rayon::join(|| a.eval().clone(), || b.eval().clone())
+            pool.join(|| a.eval().clone(), || b.eval().clone())
         })
     }
 
-    pub fn join_par(parrefs: Vec<ParRef<T>>) -> ParRef<Vec<T>> {
+    /// Evaluate all ParRefs in parallel using the WorkPool, return Vec.
+    pub fn join_par(parrefs: Vec<ParRef<T>>, pool: &Arc<WorkPool>) -> ParRef<Vec<T>> {
+        let pool = pool.clone();
         ParRef::new(move || {
-            use rayon::prelude::*;
-            parrefs.par_iter().map(|u| u.eval().clone()).collect()
+            fork_join_map(&pool, &parrefs, &|pr| pr.eval().clone(), 0, 8)
         })
     }
 }

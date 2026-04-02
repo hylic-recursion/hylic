@@ -62,9 +62,9 @@ fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) 
     eprintln!("\n=== {} ({} nodes, bf={}) ===", label, count, bf);
     timed("fused",        iters, expected, || dom::FUSED.run(&fold, &graph, &ROOT));
     timed("rayon",        iters, expected, || dom::RAYON.run(&fold, &graph, &ROOT));
-    timed("parref+fused", iters, expected, || dom::FUSED.run_lifted(&ParLazy::lift(), &fold, &graph, &ROOT));
-    timed("parref+rayon", iters, expected, || dom::RAYON.run_lifted(&ParLazy::lift(), &fold, &graph, &ROOT));
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+        timed("parref+fused", iters, expected, || dom::FUSED.run_lifted(&ParLazy::lift(pool), &fold, &graph, &ROOT));
+        timed("parref+rayon", iters, expected, || dom::RAYON.run_lifted(&ParLazy::lift(pool), &fold, &graph, &ROOT));
         timed("eager+fused", iters, expected, || dom::FUSED.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
         timed("eager+rayon", iters, expected, || dom::RAYON.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
     });

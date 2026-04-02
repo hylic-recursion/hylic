@@ -1,5 +1,6 @@
 use crate::domain::shared as dom;
 use crate::parref::ParRef;
+use crate::prelude::{WorkPool, WorkPoolSpec};
 
 #[test]
 fn uio_basic() {
@@ -16,8 +17,10 @@ fn uio_map() {
 
 #[test]
 fn uio_join_par() {
-    let uios: Vec<ParRef<i32>> = (0..5).map(|i| ParRef::new(move || i * i)).collect();
-    assert_eq!(*ParRef::join_par(uios).eval(), vec![0, 1, 4, 9, 16]);
+    WorkPool::with(WorkPoolSpec::threads(2), |pool| {
+        let uios: Vec<ParRef<i32>> = (0..5).map(|i| ParRef::new(move || i * i)).collect();
+        assert_eq!(*ParRef::join_par(uios, pool).eval(), vec![0, 1, 4, 9, 16]);
+    });
 }
 
 #[derive(Clone)]
@@ -73,9 +76,11 @@ fn parallel_lifts() {
     let acc = |a: &mut u64, c: &u64| { *a += c; };
     let my_fold = dom::simple_fold(init, acc);
 
-    use crate::prelude::{ParLazy, ParEager, WorkPoolSpec};
-    assert_eq!(dom::FUSED.run_lifted(&ParLazy::lift(), &my_fold, &graph, &tree), 10);
-    ParEager::with(WorkPoolSpec::threads(3), |lift| {
-        assert_eq!(dom::FUSED.run_lifted(lift, &my_fold, &graph, &tree), 10);
+    use crate::prelude::{ParLazy, ParEager};
+    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+        assert_eq!(dom::FUSED.run_lifted(&ParLazy::lift(pool), &my_fold, &graph, &tree), 10);
+        assert!(pool.is_idle(), "pool not idle after ParLazy");
+        assert_eq!(dom::FUSED.run_lifted(&ParEager::lift(pool), &my_fold, &graph, &tree), 10);
+        assert!(pool.is_idle(), "pool not idle after ParEager");
     });
 }
