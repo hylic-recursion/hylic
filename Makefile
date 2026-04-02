@@ -19,11 +19,11 @@ hylic-test-all: hylic-test hylic-test-parallel
 hylic-bench:
 	@bash Makefile-scripting/bench-run.sh all
 
-hylic-bench-modes:
-	@bash Makefile-scripting/bench-run.sh modes
+hylic-bench-seq:
+	@bash Makefile-scripting/bench-run.sh seq
 
-hylic-bench-overhead:
-	@bash Makefile-scripting/bench-run.sh overhead
+hylic-bench-par:
+	@bash Makefile-scripting/bench-run.sh par
 
 hylic-bench-module:
 	@bash Makefile-scripting/bench-run.sh module
