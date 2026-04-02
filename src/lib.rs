@@ -9,7 +9,6 @@
 
 pub mod ops;
 pub mod domain;
-pub(crate) mod parref;
 
 pub(crate) mod graph;
 pub(crate) mod fold;

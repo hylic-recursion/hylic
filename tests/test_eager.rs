@@ -1,6 +1,6 @@
 use hylic::domain::shared as dom;
 // Executor — trait, needed for .run()
-use hylic::prelude::{ParLazy, ParEager, WorkPool, WorkPoolSpec};
+use hylic::prelude::{ParLazy, ParEager, EagerSpec, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::hint::black_box;
 use std::time::Instant;
@@ -65,8 +65,8 @@ fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) 
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
         timed("parref+fused", iters, expected, || dom::FUSED.run_lifted(&ParLazy::lift(pool), &fold, &graph, &ROOT));
         timed("parref+rayon", iters, expected, || dom::RAYON.run_lifted(&ParLazy::lift(pool), &fold, &graph, &ROOT));
-        timed("eager+fused", iters, expected, || dom::FUSED.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
-        timed("eager+rayon", iters, expected, || dom::RAYON.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
+        timed("eager+fused", iters, expected, || dom::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &fold, &graph, &ROOT));
+        timed("eager+rayon", iters, expected, || dom::RAYON.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &fold, &graph, &ROOT));
     });
 }
 

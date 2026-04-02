@@ -1,5 +1,5 @@
 use hylic::domain::shared as dom;
-use hylic::prelude::{ParEager, WorkPool, WorkPoolSpec};
+use hylic::prelude::{ParEager, EagerSpec, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -47,7 +47,7 @@ fn no_hang_branching() {
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
         for i in 0..20 {
             let t = Instant::now();
-            let r = dom::FUSED.run_lifted(&ParEager::lift(pool), &my_fold, &graph, &ROOT);
+            let r = dom::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &my_fold, &graph, &ROOT);
             eprintln!("  iter {}: {}µs result={}", i, t.elapsed().as_micros(), r);
         }
     });

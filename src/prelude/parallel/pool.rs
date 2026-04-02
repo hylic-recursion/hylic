@@ -1,9 +1,88 @@
 //! WorkPool: fixed-size thread pool with scoped lifecycle.
+//!
+//! Uses crossbeam-deque's lock-free Injector for task distribution.
+//! join() uses stack-allocated jobs — no heap allocation in the hot path.
+//! Workers steal from the shared Injector (lock-free), sleeping on a
+//! condvar only when no work is available.
 
 use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use crossbeam_deque::{Injector, Steal};
+use super::sync_unsafe::SyncRef;
+
+// ── Task reference ───────────────────────────────────
+//
+// Type-erased handle to a unit of work. Two words: data pointer +
+// monomorphized execute function. For stack-allocated jobs (join),
+// `data` points into the caller's frame. For boxed closures (submit),
+// `data` points to a heap-allocated wrapper.
+
+struct TaskRef {
+    data: *const (),
+    execute: unsafe fn(*const ()),
+}
+
+// SAFETY: TaskRef is a raw function-pointer pair. The creator guarantees
+// the pointed-to data outlives the task (join blocks, submit heap-allocs).
+unsafe impl Send for TaskRef {}
+
+impl TaskRef {
+    #[inline]
+    unsafe fn run(self) {
+        unsafe { (self.execute)(self.data); }
+    }
+}
+
+// ── Stack-allocated job ──────────────────────────────
+//
+// Rayon's StackJob pattern: the closure lives on the caller's stack.
+// join() blocks until done, guaranteeing the frame outlives execution.
+// No heap allocation — the Injector stores a two-word TaskRef that
+// points back to this stack-local struct.
+
+struct StackJob<F, R> {
+    func: UnsafeCell<Option<F>>,
+    result: UnsafeCell<Option<Result<R, Box<dyn std::any::Any + Send>>>>,
+    done: AtomicBool,
+}
+
+impl<F: FnOnce() -> R + Send, R: Send> StackJob<F, R> {
+    fn new(f: F) -> Self {
+        StackJob {
+            func: UnsafeCell::new(Some(f)),
+            result: UnsafeCell::new(None),
+            done: AtomicBool::new(false),
+        }
+    }
+
+    fn as_task_ref(&self) -> TaskRef {
+        TaskRef {
+            data: self as *const _ as *const (),
+            execute: Self::execute_fn,
+        }
+    }
+
+    /// Monomorphized execute function — called via function pointer but
+    /// the body knows the concrete type F, so the closure call is direct.
+    unsafe fn execute_fn(ptr: *const ()) {
+        unsafe {
+            let this = &*(ptr as *const Self);
+            let f = (*this.func.get()).take().unwrap();
+            let r = catch_unwind(AssertUnwindSafe(f));
+            *this.result.get() = Some(r);
+            this.done.store(true, Ordering::Release);
+        }
+    }
+
+    #[inline]
+    fn is_done(&self) -> bool {
+        self.done.load(Ordering::Acquire)
+    }
+}
+
+// ── WorkPool ─────────────────────────────────────────
 
 /// Configuration for creating a WorkPool.
 pub struct WorkPoolSpec {
@@ -18,9 +97,14 @@ impl WorkPoolSpec {
 
 /// Fixed-size thread pool for fork-join parallelism.
 /// No public constructor — use `WorkPool::with` for scoped access.
+///
+/// Task queue: crossbeam-deque Injector (lock-free MPMC).
+/// Workers steal from the Injector on the fast path. The condvar is
+/// only for sleep/wake when no work is available — never for queue access.
 pub struct WorkPool {
-    queue: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
+    injector: Injector<TaskRef>,
     condvar: Condvar,
+    wake_lock: Mutex<()>,
     shutdown: AtomicBool,
 }
 
@@ -30,8 +114,9 @@ impl WorkPool {
     /// guaranteed joined on return, even on panic.
     pub fn with<R>(spec: WorkPoolSpec, f: impl FnOnce(&Arc<Self>) -> R) -> R {
         let pool = Arc::new(WorkPool {
-            queue: Mutex::new(Vec::new()),
+            injector: Injector::new(),
             condvar: Condvar::new(),
+            wake_lock: Mutex::new(()),
             shutdown: AtomicBool::new(false),
         });
         std::thread::scope(|s| {
@@ -54,132 +139,130 @@ impl WorkPool {
 
     fn worker_loop(&self) {
         loop {
-            let item = {
-                let mut q = self.queue.lock().unwrap();
-                loop {
-                    if self.shutdown.load(Ordering::Acquire) { return; }
-                    if let Some(item) = q.pop() { break item; }
-                    q = self.condvar.wait(q).unwrap();
-                }
-            };
-            item();
+            // Fast path: lock-free steal from injector
+            if let Some(task) = self.try_steal() {
+                unsafe { task.run(); }
+                continue;
+            }
+            // Slow path: no work available, sleep on condvar.
+            // The wake_lock is only for the sleep/wake protocol,
+            // never for queue access.
+            let guard = self.wake_lock.lock().unwrap();
+            if self.shutdown.load(Ordering::Acquire) { return; }
+            // Double-check after lock — work may have arrived between
+            // the failed steal and the lock acquisition
+            if let Some(task) = self.try_steal() {
+                drop(guard);
+                unsafe { task.run(); }
+                continue;
+            }
+            let _guard = self.condvar.wait(guard).unwrap();
+            if self.shutdown.load(Ordering::Acquire) { return; }
         }
     }
 
-    pub fn submit(&self, f: Box<dyn FnOnce() + Send>) {
-        self.queue.lock().unwrap().push(f);
+    fn try_steal(&self) -> Option<TaskRef> {
+        loop {
+            match self.injector.steal() {
+                Steal::Success(task) => return Some(task),
+                Steal::Empty => return None,
+                Steal::Retry => continue,
+            }
+        }
+    }
+
+    fn wake_one(&self) {
         self.condvar.notify_one();
+    }
+
+    /// Submit a boxed closure to the pool.
+    /// For fork-join, prefer join() — it avoids heap allocation.
+    pub fn submit(&self, f: Box<dyn FnOnce() + Send>) {
+        // Box the fat pointer into a thin pointer for TaskRef
+        let wrapper = Box::into_raw(Box::new(f));
+        let task = TaskRef {
+            data: wrapper as *const (),
+            execute: Self::execute_boxed,
+        };
+        self.injector.push(task);
+        self.wake_one();
+    }
+
+    unsafe fn execute_boxed(ptr: *const ()) {
+        unsafe {
+            let wrapper = Box::from_raw(ptr as *mut Box<dyn FnOnce() + Send>);
+            (*wrapper)();
+        }
     }
 
     /// Returns true if the task queue is empty.
     pub fn is_idle(&self) -> bool {
-        self.queue.lock().unwrap().is_empty()
+        self.injector.is_empty()
     }
 
+    /// Try to steal and execute one task. Returns true if work was found.
     pub fn try_run_one(&self) -> bool {
-        let item = self.queue.lock().unwrap().pop();
-        match item {
-            Some(f) => { f(); true }
-            None => false,
+        if let Some(task) = self.try_steal() {
+            unsafe { task.run(); }
+            true
+        } else {
+            false
         }
     }
 
-    /// Scoped fork-join: submit f2 to the pool, run f1 on the current
+    /// Scoped fork-join: push f2 to the pool, run f1 on the current
     /// thread, then spin-help until f2 completes.
     ///
-    /// Both closures may borrow from the caller's stack — the lifetime
-    /// is erased via transmute. Safe because join() blocks until f2
-    /// completes, so the stack frame outlives both closures.
+    /// Both closures may borrow from the caller's stack. The closure
+    /// for f2 is stored on the stack (StackJob pattern) — no heap
+    /// allocation. Safe because join() blocks until f2 completes.
     pub fn join<A: Send, B: Send>(
         &self,
         f1: impl FnOnce() -> A + Send,
         f2: impl FnOnce() -> B + Send,
     ) -> (A, B) {
-        /// Raw pointers to the caller's stack, bundled as Send.
-        /// SAFETY: join() blocks until the closure completes, so the
-        /// stack frame outlives these pointers.
-        struct JoinSlot<B> {
-            result: *mut Option<Result<B, Box<dyn std::any::Any + Send>>>,
-            done: *const AtomicBool,
-        }
-        unsafe impl<B> Send for JoinSlot<B> {}
+        let job = StackJob::new(f2);
 
-        impl<B> JoinSlot<B> {
-            /// Write result and signal done. Method call ensures Rust 2021
-            /// precise captures grabs the whole struct (which is Send),
-            /// not the individual raw pointer fields (which aren't).
-            unsafe fn complete(&self, r: Result<B, Box<dyn std::any::Any + Send>>) {
-                unsafe {
-                    self.result.write(Some(r));
-                    (*self.done).store(true, Ordering::Release);
-                }
+        // SAFETY: job lives on this stack frame. join() blocks until
+        // the job completes, guaranteeing the frame outlives execution.
+        // The TaskRef holds a raw pointer to job — valid for the
+        // duration of this function.
+        self.injector.push(job.as_task_ref());
+        self.wake_one();
+
+        // Execute f1, catching panics so we still wait for f2
+        let result_a = catch_unwind(AssertUnwindSafe(f1));
+
+        // Must wait for f2 regardless of f1's outcome — the StackJob
+        // is on our stack and must not unwind while a worker executes it
+        while !job.is_done() {
+            if !self.try_run_one() {
+                std::hint::spin_loop();
             }
         }
 
-        let result_slot: UnsafeCell<Option<Result<B, Box<dyn std::any::Any + Send>>>> =
-            UnsafeCell::new(None);
-        let done = AtomicBool::new(false);
+        // SAFETY: done flag guarantees result is written (Acquire/Release)
+        let result_b = unsafe { (*job.result.get()).take().unwrap() };
 
-        let slot = JoinSlot { result: result_slot.get(), done: &done };
-
-        // SAFETY: join() spin-loops until `done` is set. result_slot
-        // and done live on this stack frame, which outlives the closure.
-        // The transmute erases the non-'static lifetime bound so the
-        // closure can enter the 'static task queue.
-        unsafe {
-            let closure: Box<dyn FnOnce() + Send + '_> = Box::new(move || {
-                let r = catch_unwind(AssertUnwindSafe(f2));
-                slot.complete(r);
-            });
-
-            let closure: Box<dyn FnOnce() + Send + 'static> =
-                std::mem::transmute(closure);
-
-            self.submit(closure);
-        }
-
-        let a = f1();
-
-        while !done.load(Ordering::Acquire) {
-            if !self.try_run_one() { std::hint::spin_loop(); }
-        }
-
-        // SAFETY: done is set only after result is written.
-        // Acquire/Release pair ensures visibility.
-        let b = unsafe { (*result_slot.get()).take().unwrap() };
-        match b {
-            Ok(val) => (a, val),
-            Err(payload) => resume_unwind(payload),
+        match (result_a, result_b) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(e), _) | (_, Err(e)) => resume_unwind(e),
         }
     }
 }
 
-/// A reference safe to share across scoped threads.
-///
-/// SAFETY: WorkPool uses std::thread::scope — all workers join before
-/// the scope exits. SyncRef borrows from within the scope. Workers
-/// only deref + call (read-only). No Rc cloning, no mutation of
-/// refcounts. The !Sync on Rc protects against concurrent clone/drop,
-/// which doesn't happen through SyncRef.
-pub struct SyncRef<'a, T: ?Sized>(pub &'a T);
-unsafe impl<T: ?Sized> Sync for SyncRef<'_, T> {}
-unsafe impl<T: ?Sized> Send for SyncRef<'_, T> {}
-impl<T: ?Sized> std::ops::Deref for SyncRef<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &T { self.0 }
-}
+// ── fork_join_map ────────────────────────────────────
 
 /// Binary-split fork-join over a slice. Recursively halves the work,
 /// using pool.join() at each level. Sequential below max_depth or
 /// when only one item remains.
 ///
-/// No `T: Sync` bound — the slice is wrapped in SyncRef internally.
-/// Safe because pool.join() uses scoped threads (the slice outlives
-/// all workers) and workers only read elements via `&T`.
-pub fn fork_join_map<T, R: Send>(
+/// Generic in F — the closure is monomorphized, not dispatched through
+/// a vtable. No `T: Sync` bound — the slice is wrapped in SyncRef.
+pub fn fork_join_map<T, R: Send, F: Fn(&T) -> R + Send + Sync>(
     pool: &WorkPool,
     items: &[T],
-    f: &(dyn Fn(&T) -> R + Send + Sync),
+    f: &F,
     depth: usize,
     max_depth: usize,
 ) -> Vec<R> {
@@ -187,15 +270,15 @@ pub fn fork_join_map<T, R: Send>(
     fork_join_map_inner(pool, &items, f, depth, max_depth)
 }
 
-fn fork_join_map_inner<T, R: Send>(
+fn fork_join_map_inner<T, R: Send, F: Fn(&T) -> R + Send + Sync>(
     pool: &WorkPool,
     items: &SyncRef<'_, [T]>,
-    f: &(dyn Fn(&T) -> R + Send + Sync),
+    f: &F,
     depth: usize,
     max_depth: usize,
 ) -> Vec<R> {
     if items.len() <= 1 || depth >= max_depth {
-        return items.iter().map(f).collect();
+        return items.iter().map(|x| f(x)).collect();
     }
     let mid = items.len() / 2;
     let left_items = SyncRef(&items[..mid]);

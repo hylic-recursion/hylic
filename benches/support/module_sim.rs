@@ -189,33 +189,50 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
     ]
 }
 
-/// Build all module sim modes: vanilla baselines + 6 hylic Shared modes.
+/// Build all module sim modes: vanilla baselines + hylic Shared modes.
 /// Takes a callback because fold/graph are constructed internally.
 pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>, f: F)
 where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
 {
+    use super::config as id;
     use super::modes::BenchMode;
-    // (no trait imports needed — inherent methods)
+    use hylic::cata::exec::{PoolIn, PoolSpec};
     use hylic::prelude::{ParLazy, ParEager};
 
     let fold = hylic_fold(sim);
     let graph = hylic_treeish(&sim.registry);
     let root = &sim.root_name;
 
-    let par_lazy = ParLazy::lift::<String, u64, u64>(pool);
-    let par_lazy2 = ParLazy::lift::<String, u64, u64>(pool);
-    let par_eager_fused = ParEager::lift::<String, u64, u64>(pool);
-    let par_eager_rayon = ParEager::lift::<String, u64, u64>(pool);
+    let par_lazy_fused  = ParLazy::lift::<hylic::domain::Shared, String, u64, u64>(pool);
+    let par_lazy_rayon  = ParLazy::lift::<hylic::domain::Shared, String, u64, u64>(pool);
+    let par_lazy_pool   = ParLazy::lift::<hylic::domain::Shared, String, u64, u64>(pool);
+    let par_eager_fused = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+
+    let pool_exec  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_exec2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_exec3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
 
     let modes: Vec<BenchMode<u64>> = vec![
-        BenchMode { name: "vanilla-seq",        run: Box::new(|| vanilla_seq(sim)) },
-        BenchMode { name: "vanilla-rayon",       run: Box::new(|| vanilla_rayon(sim)) },
-        BenchMode { name: "hylic-fused",         run: Box::new(|| dom::FUSED.run(&fold, &graph, root)) },
-        BenchMode { name: "hylic-rayon",         run: Box::new(|| dom::RAYON.run(&fold, &graph, root)) },
-        BenchMode { name: "hylic-parref+fused",  run: Box::new(|| dom::FUSED.run_lifted(&par_lazy, &fold, &graph, root)) },
-        BenchMode { name: "hylic-parref+rayon",  run: Box::new(|| dom::RAYON.run_lifted(&par_lazy2, &fold, &graph, root)) },
-        BenchMode { name: "hylic-eager+fused",   run: Box::new(|| dom::FUSED.run_lifted(&par_eager_fused, &fold, &graph, root)) },
-        BenchMode { name: "hylic-eager+rayon",   run: Box::new(|| dom::RAYON.run_lifted(&par_eager_rayon, &fold, &graph, root)) },
+        // ── baselines ─────────────────────────────────
+        BenchMode { name: id::VANILLA_SEQ,          run: Box::new(|| vanilla_seq(sim)) },
+        BenchMode { name: id::VANILLA_RAYON,         run: Box::new(|| vanilla_rayon(sim)) },
+
+        // ── hylic direct executors ────────────────────
+        BenchMode { name: id::FUSED_SHARED,          run: Box::new(|| dom::FUSED.run(&fold, &graph, root)) },
+        BenchMode { name: id::RAYON_SHARED,          run: Box::new(|| dom::RAYON.run(&fold, &graph, root)) },
+        BenchMode { name: id::POOL_SHARED,           run: Box::new(|| pool_exec.run(&fold, &graph, root)) },
+
+        // ── hylic ParLazy lift ────────────────────────
+        BenchMode { name: id::PARREF_FUSED_SHARED,   run: Box::new(|| dom::FUSED.run_lifted(&par_lazy_fused, &fold, &graph, root)) },
+        BenchMode { name: id::PARREF_RAYON_SHARED,   run: Box::new(|| dom::RAYON.run_lifted(&par_lazy_rayon, &fold, &graph, root)) },
+        BenchMode { name: id::PARREF_POOL_SHARED,    run: Box::new(|| pool_exec2.run_lifted(&par_lazy_pool, &fold, &graph, root)) },
+
+        // ── hylic ParEager lift ───────────────────────
+        BenchMode { name: id::EAGER_FUSED_SHARED,    run: Box::new(|| dom::FUSED.run_lifted(&par_eager_fused, &fold, &graph, root)) },
+        BenchMode { name: id::EAGER_RAYON_SHARED,    run: Box::new(|| dom::RAYON.run_lifted(&par_eager_rayon, &fold, &graph, root)) },
+        BenchMode { name: id::EAGER_POOL_SHARED,     run: Box::new(|| pool_exec3.run_lifted(&par_eager_pool, &fold, &graph, root)) },
     ];
 
     f(&modes);

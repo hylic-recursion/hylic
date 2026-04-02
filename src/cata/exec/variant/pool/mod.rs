@@ -7,7 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Domain;
-use crate::prelude::parallel::pool::{WorkPool, SyncRef, fork_join_map};
+use crate::prelude::parallel::pool::{WorkPool, fork_join_map};
+use crate::prelude::parallel::sync_unsafe::SyncRef;
 use super::super::Executor;
 
 /// Fork-join policy for the pool executor.

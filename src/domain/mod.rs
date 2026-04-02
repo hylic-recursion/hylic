@@ -39,6 +39,24 @@ pub struct Local;
 /// with Fused only (no cloning needed for fused recursion).
 pub struct Owned;
 
+/// Construct a domain fold from three closures.
+///
+/// SAFETY: For Shared domain, closures must actually be Send+Sync
+/// (the trait signature doesn't enforce this; the concrete Shared impl
+/// uses AssertSend to bridge the gap). Callers must ensure closures
+/// only capture domain-compatible data.
+///
+/// pub(crate) — only used by lift constructors (ParLazy, ParEager).
+pub trait ConstructFold<N: 'static>: Domain<N> {
+    /// # Safety
+    /// For Shared: closures must be Send+Sync (they'll be stored in Arc).
+    unsafe fn make_fold<H: 'static, R: 'static>(
+        init: impl Fn(&N) -> H + 'static,
+        acc: impl Fn(&mut H, &R) + 'static,
+        fin: impl Fn(&H) -> R + 'static,
+    ) -> Self::Fold<H, R>;
+}
+
 impl<N: 'static> Domain<N> for Shared {
     type Fold<H: 'static, R: 'static> = crate::fold::Fold<N, H, R>;
     type Treeish = crate::graph::Treeish<N>;
@@ -52,4 +70,36 @@ impl<N: 'static> Domain<N> for Local {
 impl<N: 'static> Domain<N> for Owned {
     type Fold<H: 'static, R: 'static> = owned::Fold<N, H, R>;
     type Treeish = owned::Treeish<N>;
+}
+
+impl<N: 'static> ConstructFold<N> for Shared {
+    unsafe fn make_fold<H: 'static, R: 'static>(
+        init: impl Fn(&N) -> H + 'static,
+        acc: impl Fn(&mut H, &R) + 'static,
+        fin: impl Fn(&H) -> R + 'static,
+    ) -> crate::fold::Fold<N, H, R> {
+        // SAFETY: caller guarantees closures are Send+Sync.
+        // AssertSend bridges the type gap. Method call (.get())
+        // forces Rust 2021 precise captures to grab the whole wrapper.
+        use crate::prelude::parallel::sync_unsafe::AssertSend;
+        let init = AssertSend(init);
+        let acc = AssertSend(acc);
+        let fin = AssertSend(fin);
+        crate::fold::fold(
+            move |n: &N| init.get()(n),
+            move |h: &mut H, r: &R| acc.get()(h, r),
+            move |h: &H| fin.get()(h),
+        )
+    }
+}
+
+impl<N: 'static> ConstructFold<N> for Local {
+    unsafe fn make_fold<H: 'static, R: 'static>(
+        init: impl Fn(&N) -> H + 'static,
+        acc: impl Fn(&mut H, &R) + 'static,
+        fin: impl Fn(&H) -> R + 'static,
+    ) -> local::Fold<N, H, R> {
+        // No Send+Sync needed — Rc storage. Safe for all closures.
+        local::fold(init, acc, fin)
+    }
 }

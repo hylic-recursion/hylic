@@ -4,6 +4,8 @@
 //! Each returns a Vec<BenchMode> with pre-built closures.
 //! Hylic modes and handrolled baselines are grouped by parallelism,
 //! not by framework.
+//!
+//! Config IDs are defined in config.rs — single source of truth.
 
 use std::sync::Arc;
 use std::hint::black_box;
@@ -11,6 +13,7 @@ use hylic::domain::shared as dom;
 use hylic::cata::exec::{PoolIn, PoolSpec};
 use hylic::prelude::{ParLazy, ParEager, WorkPool};
 
+use super::config as id;
 use super::tree::NodeId;
 use super::work::{WorkSpec, busy_work, spin_wait_us};
 use super::scenario::PreparedScenario;
@@ -19,6 +22,48 @@ use super::scenario::PreparedScenario;
 pub struct BenchMode<'a, R> {
     pub name: &'static str,
     pub run: Box<dyn Fn() -> R + 'a>,
+}
+
+// ── Domain fold/treeish constructors ─────────────
+
+fn make_local_fold(work: &WorkSpec) -> hylic::domain::local::Fold<NodeId, u64, u64> {
+    let w1 = work.clone();
+    let w2 = work.clone();
+    let w3 = work.clone();
+    hylic::domain::local::fold(
+        move |_: &NodeId| w1.do_init(),
+        move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
+        move |h: &u64| w3.do_finalize(h),
+    )
+}
+
+fn make_local_treeish(work: &WorkSpec, children: &Arc<Vec<Vec<NodeId>>>) -> hylic::domain::local::Treeish<NodeId> {
+    let w = work.clone();
+    let ch = children.clone();
+    hylic::domain::local::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+        w.do_graph();
+        for &child in &ch[*n] { cb(&child); }
+    })
+}
+
+fn make_owned_fold(work: &WorkSpec) -> hylic::domain::owned::Fold<NodeId, u64, u64> {
+    let w1 = work.clone();
+    let w2 = work.clone();
+    let w3 = work.clone();
+    hylic::domain::owned::fold(
+        move |_: &NodeId| w1.do_init(),
+        move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
+        move |h: &u64| w3.do_finalize(h),
+    )
+}
+
+fn make_owned_treeish(work: &WorkSpec, children: &Arc<Vec<Vec<NodeId>>>) -> hylic::domain::owned::Treeish<NodeId> {
+    let w = work.clone();
+    let ch = children.clone();
+    hylic::domain::owned::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+        w.do_graph();
+        for &child in &ch[*n] { cb(&child); }
+    })
 }
 
 // ══════════════════════════════════════════════════
@@ -30,61 +75,39 @@ pub fn sequential_modes<'a>(s: &'a PreparedScenario) -> Vec<BenchMode<'a, u64>> 
     let treeish = &s.treeish;
     let root = &s.root;
 
-    // Local domain: single layer of Rc, from WorkSpec
-    let local_fold = {
-        let w1 = s.work.clone();
-        let w2 = s.work.clone();
-        let w3 = s.work.clone();
-        hylic::domain::local::fold(
-            move |_: &NodeId| w1.do_init(),
-            move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
-            move |h: &u64| w3.do_finalize(h),
-        )
-    };
-    let local_treeish = {
-        let w = s.work.clone();
-        let ch = s.children.clone();
-        hylic::domain::local::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
-            w.do_graph();
-            for &child in &ch[*n] { cb(&child); }
-        })
-    };
+    // Local: Clone is cheap (Rc increment)
+    let local_fold_1 = make_local_fold(&s.work);
+    let local_fold_2 = local_fold_1.clone();
+    let local_tree_1 = make_local_treeish(&s.work, &s.children);
+    let local_tree_2 = local_tree_1.clone();
 
-    // Owned domain: single layer of Box, pre-built
-    let owned_fold = {
-        let w1 = s.work.clone();
-        let w2 = s.work.clone();
-        let w3 = s.work.clone();
-        hylic::domain::owned::fold(
-            move |_: &NodeId| w1.do_init(),
-            move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
-            move |h: &u64| w3.do_finalize(h),
-        )
-    };
-    let owned_treeish = {
-        let w = s.work.clone();
-        let ch = s.children.clone();
-        hylic::domain::owned::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
-            w.do_graph();
-            for &child in &ch[*n] { cb(&child); }
-        })
-    };
+    // Owned: not Clone, construct each separately
+    let owned_fold_1 = make_owned_fold(&s.work);
+    let owned_tree_1 = make_owned_treeish(&s.work, &s.children);
+    let owned_fold_2 = make_owned_fold(&s.work);
+    let owned_tree_2 = make_owned_treeish(&s.work, &s.children);
 
     vec![
-        // ── hylic sequential ───────────────────────
-        BenchMode { name: "hylic.fused.shared",
+        // ── hylic fused (all domains) ─────────────────
+        BenchMode { name: id::FUSED_SHARED,
             run: Box::new(move || dom::FUSED.run(fold, treeish, root)) },
-        BenchMode { name: "hylic.fused.local",
-            run: Box::new(move || hylic::domain::local::FUSED.run(&local_fold, &local_treeish, root)) },
-        BenchMode { name: "hylic.fused.owned",
-            run: Box::new(move || hylic::domain::owned::FUSED.run(&owned_fold, &owned_treeish, root)) },
-        BenchMode { name: "hylic.sequential.shared",
-            run: Box::new(move || dom::SEQUENTIAL.run(fold, treeish, root)) },
+        BenchMode { name: id::FUSED_LOCAL,
+            run: Box::new(move || hylic::domain::local::FUSED.run(&local_fold_1, &local_tree_1, root)) },
+        BenchMode { name: id::FUSED_OWNED,
+            run: Box::new(move || hylic::domain::owned::FUSED.run(&owned_fold_1, &owned_tree_1, root)) },
 
-        // ── handrolled sequential ──────────────────
-        BenchMode { name: "hand.seq",
+        // ── hylic sequential (all domains) ────────────
+        BenchMode { name: id::SEQUENTIAL_SHARED,
+            run: Box::new(move || dom::SEQUENTIAL.run(fold, treeish, root)) },
+        BenchMode { name: id::SEQUENTIAL_LOCAL,
+            run: Box::new(move || hylic::domain::local::SEQUENTIAL.run(&local_fold_2, &local_tree_2, root)) },
+        BenchMode { name: id::SEQUENTIAL_OWNED,
+            run: Box::new(move || hylic::domain::owned::SEQUENTIAL.run(&owned_fold_2, &owned_tree_2, root)) },
+
+        // ── handrolled sequential ─────────────────────
+        BenchMode { name: id::HAND_SEQ,
             run: Box::new(|| handrolled_seq(s)) },
-        BenchMode { name: "real.seq",
+        BenchMode { name: id::REAL_SEQ,
             run: Box::new(|| realworld_seq(s)) },
     ]
 }
@@ -101,45 +124,91 @@ pub fn parallel_modes<'a>(
     let treeish = &s.treeish;
     let root = &s.root;
 
-    let par_lazy_fused = ParLazy::lift::<NodeId, u64, u64>(pool);
-    let par_lazy_rayon = ParLazy::lift::<NodeId, u64, u64>(pool);
-    let par_eager_fused = ParEager::lift::<NodeId, u64, u64>(pool);
-    let par_eager_rayon = ParEager::lift::<NodeId, u64, u64>(pool);
-    let par_eager_pool = ParEager::lift::<NodeId, u64, u64>(pool);
+    // Local domain for Pool.Local + lift variants
+    let local_fold = make_local_fold(&s.work);
+    let local_tree = make_local_treeish(&s.work, &s.children);
+    let local_fold_plf = local_fold.clone();
+    let local_tree_plf = local_tree.clone();
+    let local_fold_pll = local_fold.clone();
+    let local_tree_pll = local_tree.clone();
+    let local_fold_elf = local_fold.clone();
+    let local_tree_elf = local_tree.clone();
+    let local_fold_ell = local_fold.clone();
+    let local_tree_ell = local_tree.clone();
 
-    let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-    let pool_exec2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    // Owned domain for Pool.Owned
+    let owned_fold = make_owned_fold(&s.work);
+    let owned_tree = make_owned_treeish(&s.work, &s.children);
+
+    // Lifts (Shared domain)
+    let par_lazy_fused = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
+    let par_lazy_rayon = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
+    let par_lazy_pool  = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
+    let par_eager_fused = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+
+    // Lifts (Local domain)
+    let par_lazy_fused_local  = ParLazy::lift::<hylic::domain::Local, NodeId, u64, u64>(pool);
+    let par_lazy_pool_local   = ParLazy::lift::<hylic::domain::Local, NodeId, u64, u64>(pool);
+    let par_eager_fused_local = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_pool_local  = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+
+    // Pool executors
+    let pool_shared  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_shared2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_shared3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_local   = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
+    let pool_local2  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
+    let pool_local3  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
+    let pool_owned   = PoolIn::<hylic::domain::Owned>::new(pool, PoolSpec::default_for(3));
     let work = Arc::new(s.work.clone());
 
     vec![
-        // ── hylic parallel (rayon) ─────────────────
-        BenchMode { name: "hylic.rayon.shared",
+        // ── hylic rayon (Shared only) ─────────────────
+        BenchMode { name: id::RAYON_SHARED,
             run: Box::new(move || dom::RAYON.run(fold, treeish, root)) },
 
-        // ── hylic parallel (our pool) ──────────────
-        BenchMode { name: "hylic.pool.shared",
-            run: Box::new(move || pool_exec.run(fold, treeish, root)) },
+        // ── hylic pool (all domains) ──────────────────
+        BenchMode { name: id::POOL_SHARED,
+            run: Box::new(move || pool_shared.run(fold, treeish, root)) },
+        BenchMode { name: id::POOL_LOCAL,
+            run: Box::new(move || pool_local.run(&local_fold, &local_tree, root)) },
+        BenchMode { name: id::POOL_OWNED,
+            run: Box::new(move || pool_owned.run(&owned_fold, &owned_tree, root)) },
 
-        // ── hylic ParLazy lift ─────────────────────
-        BenchMode { name: "hylic.parref.fused.shared",
+        // ── hylic ParLazy lift ──────────────────────────
+        BenchMode { name: id::PARREF_FUSED_SHARED,
             run: Box::new(move || dom::FUSED.run_lifted(&par_lazy_fused, fold, treeish, root)) },
-        BenchMode { name: "hylic.parref.rayon.shared",
+        BenchMode { name: id::PARREF_RAYON_SHARED,
             run: Box::new(move || dom::RAYON.run_lifted(&par_lazy_rayon, fold, treeish, root)) },
+        BenchMode { name: id::PARREF_POOL_SHARED,
+            run: Box::new(move || pool_shared2.run_lifted(&par_lazy_pool, fold, treeish, root)) },
 
-        // ── hylic ParEager lift ────────────────────
-        BenchMode { name: "hylic.eager.fused.shared",
+        // ── hylic ParEager lift ─────────────────────────
+        BenchMode { name: id::EAGER_FUSED_SHARED,
             run: Box::new(move || dom::FUSED.run_lifted(&par_eager_fused, fold, treeish, root)) },
-        BenchMode { name: "hylic.eager.rayon.shared",
+        BenchMode { name: id::EAGER_RAYON_SHARED,
             run: Box::new(move || dom::RAYON.run_lifted(&par_eager_rayon, fold, treeish, root)) },
-        BenchMode { name: "hylic.eager.pool.shared",
-            run: Box::new(move || pool_exec2.run_lifted(&par_eager_pool, fold, treeish, root)) },
+        BenchMode { name: id::EAGER_POOL_SHARED,
+            run: Box::new(move || pool_shared3.run_lifted(&par_eager_pool, fold, treeish, root)) },
 
-        // ── handrolled parallel ────────────────────
-        BenchMode { name: "hand.rayon",
+        // ── hylic lifts (Local domain) ────────────────
+        BenchMode { name: id::PARREF_FUSED_LOCAL,
+            run: Box::new(move || hylic::domain::local::FUSED.run_lifted(&par_lazy_fused_local, &local_fold_plf, &local_tree_plf, root)) },
+        BenchMode { name: id::PARREF_POOL_LOCAL,
+            run: Box::new(move || pool_local2.run_lifted(&par_lazy_pool_local, &local_fold_pll, &local_tree_pll, root)) },
+        BenchMode { name: id::EAGER_FUSED_LOCAL,
+            run: Box::new(move || hylic::domain::local::FUSED.run_lifted(&par_eager_fused_local, &local_fold_elf, &local_tree_elf, root)) },
+        BenchMode { name: id::EAGER_POOL_LOCAL,
+            run: Box::new(move || pool_local3.run_lifted(&par_eager_pool_local, &local_fold_ell, &local_tree_ell, root)) },
+
+        // ── handrolled parallel ───────────────────────
+        BenchMode { name: id::HAND_RAYON,
             run: Box::new(|| handrolled_rayon(s)) },
-        BenchMode { name: "hand.pool",
+        BenchMode { name: id::HAND_POOL,
             run: Box::new(move || handrolled_pool(&s.children, &work, pool, s.root)) },
-        BenchMode { name: "real.rayon",
+        BenchMode { name: id::REAL_RAYON,
             run: Box::new(|| realworld_rayon(s)) },
     ]
 }
