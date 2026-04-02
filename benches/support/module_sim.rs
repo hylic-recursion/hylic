@@ -2,7 +2,7 @@
 //!
 //! Two implementations of the same problem:
 //! - "vanilla": written as a day-to-day Rust developer would, no hylic
-//! - "hylic": using SeedGraph + Fold + Exec
+//! - "hylic": using SeedGraph + Fold + dom:: executor
 
 use std::collections::HashMap;
 use std::sync::Arc;

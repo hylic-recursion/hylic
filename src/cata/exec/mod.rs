@@ -96,10 +96,10 @@ pub const SEQUENTIAL_LOCAL: SequentialLocal = SequentialIn(PhantomData);
 pub const SEQUENTIAL_OWNED: SequentialOwned = SequentialIn(PhantomData);
 pub const RAYON:            Rayon           = RayonIn(PhantomData);
 
-// ── Exec enum: Shared-domain runtime dispatch ─────
+// ── DynExec: Shared-domain runtime dispatch ───────
 
 // ANCHOR: exec_enum
-pub enum Exec<N, R> {
+pub enum DynExec<N, R> {
     Fused(Fused),
     Sequential(Sequential),
     Rayon(Rayon),
@@ -107,7 +107,7 @@ pub enum Exec<N, R> {
 }
 // ANCHOR_END: exec_enum
 
-impl<N: 'static, R: 'static> Executor<N, R, Shared> for Exec<N, R>
+impl<N: 'static, R: 'static> Executor<N, R, Shared> for DynExec<N, R>
 where N: Clone + Send + Sync, R: Send + Sync,
 {
     fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
@@ -120,7 +120,7 @@ where N: Clone + Send + Sync, R: Send + Sync,
     }
 }
 
-impl<N: 'static, R: 'static> Exec<N, R>
+impl<N: 'static, R: 'static> DynExec<N, R>
 where N: Clone + Send + Sync, R: Send + Sync,
 {
     pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
@@ -148,16 +148,16 @@ where N: Clone + Send + Sync, R: Send + Sync,
     }
 }
 
-// ── Exec constructors ─────────────────────────────
+// ── DynExec constructors ──────────────────────────
 
-impl<N: 'static, R: 'static> Exec<N, R> {
-    pub fn fused() -> Self { Exec::Fused(FUSED) }
+impl<N: 'static, R: 'static> DynExec<N, R> {
+    pub fn fused() -> Self { DynExec::Fused(FUSED) }
 }
 
-impl<N: Clone + 'static, R: 'static> Exec<N, R> {
-    pub fn sequential() -> Self { Exec::Sequential(SEQUENTIAL) }
+impl<N: Clone + 'static, R: 'static> DynExec<N, R> {
+    pub fn sequential() -> Self { DynExec::Sequential(SEQUENTIAL) }
 }
 
-impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> Exec<N, R> {
-    pub fn rayon() -> Self { Exec::Rayon(RAYON) }
+impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> DynExec<N, R> {
+    pub fn rayon() -> Self { DynExec::Rayon(RAYON) }
 }

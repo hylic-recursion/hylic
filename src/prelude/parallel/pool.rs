@@ -38,9 +38,12 @@ impl WorkPool {
             for _ in 0..spec.n_workers {
                 s.spawn(|| pool.worker_loop());
             }
-            let result = f(&pool);
-            pool.shutdown();
-            result
+            struct ShutdownGuard<'a>(&'a WorkPool);
+            impl Drop for ShutdownGuard<'_> {
+                fn drop(&mut self) { self.0.shutdown(); }
+            }
+            let _guard = ShutdownGuard(&pool);
+            f(&pool)
         })
     }
 

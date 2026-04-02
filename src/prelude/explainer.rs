@@ -8,7 +8,7 @@
 //!   Fused.run_lifted(&Explainer::lift(), ...)                 — trace discarded, get R
 //!   Fused.run_lifted(&Explainer::lift_with(cb), ...)          — callback receives trace, get R
 //!   Fused.run_lifted_zipped(&Explainer::lift(), ...)          — get (R, ExplainerResult)
-//!   Exec::fused().run_lifted(&Explainer::lift(), ...)         — same via runtime-dispatch wrapper
+//!   dom::DynExec::fused().run_lifted(&Explainer::lift(), ...) — same via runtime-dispatch wrapper
 
 use crate::graph::{treeish, Treeish};
 use crate::fold::Fold;

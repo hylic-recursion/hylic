@@ -34,7 +34,7 @@ fn all_executors_match() {
     let acc = |a: &mut u64, c: &u64| { *a += c; };
     let my_fold = dom::simple_fold(init, acc);
 
-    for exec in [dom::Exec::fused(), dom::Exec::rayon()] {
+    for exec in [dom::DynExec::<N, u64>::fused(), dom::DynExec::rayon()] {
         assert_eq!(exec.run(&my_fold, &graph, &tree), 10);
     }
 }
@@ -57,7 +57,7 @@ fn all_executors_vec_fold() {
     };
     let my_fold = vec_fold(format);
 
-    for exec in [dom::Exec::fused(), dom::Exec::rayon()] {
+    for exec in [dom::DynExec::<T, String>::fused(), dom::DynExec::rayon()] {
         assert_eq!(exec.run(&my_fold, &graph, &tree), "a[b[d, e], c]");
     }
 }
