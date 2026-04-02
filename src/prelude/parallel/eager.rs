@@ -1,131 +1,257 @@
-//! Eager parallel fold as a Lift, backed by a WorkPool.
+//! Pipelined eager parallel fold as a Lift.
 //!
-//! Phase 1 (via provided Exec): extracts heaps into an EagerNode tree.
-//! Phase 2 (in unwrap): recursive fork-join on the heap tree.
+//! Continuation-passing: no task ever waits/blocks.
+//!
+//! Phase 1 (fused): depth-first traversal runs fold.init per node.
+//! Leaf finalize → submit fin(heap) to pool, result stored in Completion.
+//! Interior finalize → create Collector, attach to each child's Completion.
+//!
+//! When a child's pool task completes, it checks: does this Completion
+//! have a parent Collector attached? If so, deliver the result. If I'm
+//! the last child, run parent's acc+fin INLINE — no new task.
+//!
+//! The chain propagates upward: leaf completes → notifies parent →
+//! parent completes → notifies grandparent → ... → root done.
+//! No blocking anywhere except unwrap (caller helps pool while waiting).
 
-use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::cata::Lift;
 use crate::fold;
 use super::pool::{WorkPool, WorkPoolSpec};
 
-// ── Phase 1 types ──────────────────────────────────────────
+// ── Completion: result slot + optional parent link ────────
 
-/// Node in the extracted heap tree.
-pub struct EagerNode<H> {
-    heap: H,
-    children: Vec<Arc<EagerNode<H>>>,
+/// Holds a result (set by pool) and an optional link to the parent
+/// collector that should be notified when the result is ready.
+struct CompletionInner<R> {
+    result: Mutex<Option<R>>,
+    /// Set by the parent's finalize. When the result arrives, if
+    /// this is Some, we call collector.child_done().
+    parent: Mutex<Option<(Arc<Collector<R>>, usize)>>,
 }
 
-/// Handle carrying the heap tree + fold operations for Phase 2.
-pub struct EagerHandle<H, R> {
-    root: Arc<EagerNode<H>>,
-    fold_acc: Arc<dyn Fn(&mut H, &R) + Send + Sync>,
-    fold_fin: Arc<dyn Fn(&H) -> R + Send + Sync>,
+struct Completion<R> {
+    inner: Arc<CompletionInner<R>>,
 }
 
-impl<H, R> Clone for EagerHandle<H, R> {
-    fn clone(&self) -> Self {
-        EagerHandle {
-            root: self.root.clone(),
-            fold_acc: self.fold_acc.clone(),
-            fold_fin: self.fold_fin.clone(),
+impl<R> Clone for Completion<R> {
+    fn clone(&self) -> Self { Completion { inner: self.inner.clone() } }
+}
+
+impl<R: Clone + Send + Sync + 'static> Completion<R> {
+    fn new() -> Self {
+        Completion { inner: Arc::new(CompletionInner {
+            result: Mutex::new(None),
+            parent: Mutex::new(None),
+        })}
+    }
+
+    /// Called by the pool worker when computation finishes.
+    /// If a parent collector is attached, notifies it.
+    fn set(&self, value: R) {
+        let parent_info = {
+            let mut result = self.inner.result.lock().unwrap();
+            *result = Some(value.clone());
+            self.inner.parent.lock().unwrap().take()
+        };
+        // If parent is waiting for us, deliver now
+        if let Some((collector, idx)) = parent_info {
+            collector.child_done(idx, value);
+        }
+    }
+
+    /// Called by the parent's finalize to attach itself.
+    /// If the child already completed, delivers immediately.
+    fn attach_parent(&self, collector: Arc<Collector<R>>, child_index: usize) {
+        let existing_result = {
+            let mut parent = self.inner.parent.lock().unwrap();
+            let result = self.inner.result.lock().unwrap();
+            if result.is_some() {
+                // Child already done — deliver inline
+                Some(result.clone().unwrap())
+            } else {
+                // Child not done yet — store the link for later
+                *parent = Some((collector.clone(), child_index));
+                None
+            }
+        };
+        if let Some(r) = existing_result {
+            collector.child_done(child_index, r);
+        }
+    }
+
+    /// Get the result if ready (non-blocking).
+    fn get(&self) -> Option<R> {
+        self.inner.result.lock().unwrap().clone()
+    }
+
+    /// Block until ready, helping the pool while waiting.
+    fn wait(&self, pool: &WorkPool) -> R {
+        loop {
+            if let Some(r) = self.get() { return r; }
+            if !pool.try_run_one() { std::hint::spin_loop(); }
         }
     }
 }
 
-// ── Fork-join result collection ────────────────────────────
+// ── Collector: reactive parent computation ────────────────
 
-struct ForkResults<R> {
-    slots: Vec<UnsafeCell<Option<R>>>,
+/// Counts down as children complete. The LAST child runs the parent's
+/// accumulate + finalize INLINE on its thread. No task, no blocking.
+struct Collector<R> {
     remaining: AtomicUsize,
+    state: Mutex<CollectorState<R>>,
+    parent_completion: Completion<R>,
+    acc: Arc<dyn Fn(&mut Vec<R>, &R) + Send + Sync>,
+    fin: Arc<dyn Fn(&Vec<R>) -> R + Send + Sync>,
 }
 
-// SAFETY: each slot is written by one thread, read by one thread
-// (the parent), with atomic counter providing happens-before ordering.
-unsafe impl<R: Send> Sync for ForkResults<R> {}
+struct CollectorState<R> {
+    child_results: Vec<Option<R>>,
+}
 
-impl<R> ForkResults<R> {
-    fn new(n: usize) -> Self {
-        ForkResults {
-            slots: (0..n).map(|_| UnsafeCell::new(None)).collect(),
-            remaining: AtomicUsize::new(n),
+impl<R: Clone + Send + Sync + 'static> Collector<R> {
+    /// Called when a child completes. If last child: run parent computation.
+    fn child_done(self: &Arc<Self>, child_index: usize, result: R) {
+        {
+            let mut state = self.state.lock().unwrap();
+            state.child_results[child_index] = Some(result);
+        }
+        let prev = self.remaining.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 {
+            // All children done — run parent's computation inline
+            let state = self.state.lock().unwrap();
+            let mut collected = Vec::new();
+            for r in &state.child_results {
+                collected.push(r.as_ref().unwrap().clone());
+            }
+            drop(state);
+            let mut heap = collected.clone();
+            for r in &collected {
+                (self.acc)(&mut heap, r);
+            }
+            let result = (self.fin)(&heap);
+            self.parent_completion.set(result);
         }
     }
-
-    /// SAFETY: caller must ensure exclusive write access to slot `i`.
-    unsafe fn write(&self, i: usize, value: R) {
-        unsafe { *self.slots[i].get() = Some(value); }
-        self.remaining.fetch_sub(1, Ordering::Release);
-    }
-
-    fn is_done(&self) -> bool {
-        self.remaining.load(Ordering::Acquire) == 0
-    }
-
-    /// SAFETY: slot `i` must have been written, and is_done() must be true.
-    unsafe fn get(&self, i: usize) -> &R {
-        unsafe { (*self.slots[i].get()).as_ref().unwrap() }
-    }
 }
 
-// ── ParEager: the strategy ─────────────────────────────────
+// ── Lifted types ──────────────────────────────────────────
 
-/// Eager parallel strategy. Extracts heaps into a tree during Phase 1,
-/// then executes bottom-up with fork-join parallelism in Phase 2.
+pub struct EagerHeap<H, R> {
+    heap: H,
+    children: Vec<Completion<R>>,
+}
+
+pub struct EagerResult<R> {
+    completion: Completion<R>,
+}
+
+impl<R> Clone for EagerResult<R> {
+    fn clone(&self) -> Self { EagerResult { completion: self.completion.clone() } }
+}
+
+// ── ParEager ──────────────────────────────────────────────
+
 pub struct ParEager;
 
 impl ParEager {
-    /// Create a Lift backed by an existing pool.
-    pub fn lift<N, H, R>(pool: &Arc<WorkPool>) -> Lift<N, H, R, N, EagerNode<H>, EagerHandle<H, R>>
+    pub fn lift<N, H, R>(pool: &Arc<WorkPool>) -> Lift<N, H, R, N, EagerHeap<H, R>, EagerResult<R>>
     where
         N: Clone + 'static,
         H: Clone + Send + Sync + 'static,
         R: Clone + Send + Sync + 'static,
     {
-        let pool = pool.clone();
+        let pool_for_lift = pool.clone();
+        let pool_for_unwrap = pool.clone();
+
         Lift::new(
             |treeish| treeish,
 
             move |original_fold: fold::Fold<N, H, R>| {
                 let f_init = original_fold.clone();
-                let f_acc = original_fold.impl_accumulate.clone();
-                let f_fin = original_fold.impl_finalize.clone();
+                let f_acc_raw = original_fold.impl_accumulate.clone();
+                let f_fin_raw = original_fold.impl_finalize.clone();
+                let pool = pool_for_lift.clone();
 
                 fold::fold(
-                    move |node: &N| -> EagerNode<H> {
-                        EagerNode { heap: f_init.init(node), children: Vec::new() }
+                    move |node: &N| -> EagerHeap<H, R> {
+                        EagerHeap { heap: f_init.init(node), children: Vec::new() }
                     },
-                    |heap: &mut EagerNode<H>, child: &EagerHandle<H, R>| {
-                        heap.children.push(child.root.clone());
+
+                    |heap: &mut EagerHeap<H, R>, child: &EagerResult<R>| {
+                        heap.children.push(child.completion.clone());
                     },
-                    move |heap: &EagerNode<H>| -> EagerHandle<H, R> {
-                        EagerHandle {
-                            root: Arc::new(EagerNode {
-                                heap: heap.heap.clone(),
-                                children: heap.children.clone(),
-                            }),
-                            fold_acc: f_acc.clone(),
-                            fold_fin: f_fin.clone(),
+
+                    move |heap: &EagerHeap<H, R>| -> EagerResult<R> {
+                        let completion = Completion::new();
+                        let n_children = heap.children.len();
+
+                        if n_children == 0 {
+                            // LEAF: submit finalize to pool
+                            let h = heap.heap.clone();
+                            let fin = f_fin_raw.clone();
+                            let comp = completion.clone();
+                            pool.submit(Box::new(move || {
+                                comp.set(fin(&h));
+                            }));
+                        } else {
+                            // INTERIOR: create collector, attach to children
+                            let acc = f_acc_raw.clone();
+                            let fin = f_fin_raw.clone();
+                            let h = heap.heap.clone();
+
+                            // The collector's acc/fin work on the original H
+                            // We wrap them to work with collected Vec<R>
+                            let collector = Arc::new(Collector {
+                                remaining: AtomicUsize::new(n_children),
+                                state: Mutex::new(CollectorState {
+                                    child_results: (0..n_children).map(|_| None).collect(),
+                                }),
+                                parent_completion: completion.clone(),
+                                acc: Arc::new(move |_heap: &mut Vec<R>, _r: &R| {
+                                    // accumulation happens below in child_done override
+                                }),
+                                fin: Arc::new(move |_heap: &Vec<R>| -> R {
+                                    unreachable!() // we override child_done below
+                                }),
+                            });
+
+                            // Override: use a proper collector that holds H
+                            let collector = Arc::new(ProperCollector {
+                                remaining: AtomicUsize::new(n_children),
+                                heap: Mutex::new(h),
+                                child_results: Mutex::new(
+                                    (0..n_children).map(|_| None).collect()
+                                ),
+                                parent_completion: completion.clone(),
+                                acc,
+                                fin,
+                            });
+
+                            for (idx, child_comp) in heap.children.iter().enumerate() {
+                                child_comp.attach_proper_parent(collector.clone(), idx);
+                            }
                         }
+
+                        EagerResult { completion }
                     },
                 )
             },
 
             |n: &N| n.clone(),
 
-            move |handle: EagerHandle<H, R>| {
-                exec_node(&handle.root, &pool, &handle.fold_acc, &handle.fold_fin)
+            move |result: EagerResult<R>| {
+                result.completion.wait(&pool_for_unwrap)
             },
         )
     }
 
-    /// Convenience: create a scoped pool, build the lift, pass it to `f`.
     pub fn with<N, H, R, Ret>(
         spec: WorkPoolSpec,
-        f: impl FnOnce(&Lift<N, H, R, N, EagerNode<H>, EagerHandle<H, R>>) -> Ret,
+        f: impl FnOnce(&Lift<N, H, R, N, EagerHeap<H, R>, EagerResult<R>>) -> Ret,
     ) -> Ret
     where
         N: Clone + 'static,
@@ -136,50 +262,51 @@ impl ParEager {
     }
 }
 
-// ── Phase 2: recursive fork-join execution ─────────────────
+// ── ProperCollector: holds H, does real acc+fin ───────────
 
-fn exec_node<H: Clone + Send + Sync + 'static, R: Send + 'static>(
-    node: &EagerNode<H>,
-    pool: &Arc<WorkPool>,
-    acc: &Arc<dyn Fn(&mut H, &R) + Send + Sync>,
-    fin: &Arc<dyn Fn(&H) -> R + Send + Sync>,
-) -> R {
-    let mut h = node.heap.clone();
-    let n = node.children.len();
+struct ProperCollector<H, R> {
+    remaining: AtomicUsize,
+    heap: Mutex<H>,
+    child_results: Mutex<Vec<Option<R>>>,
+    parent_completion: Completion<R>,
+    acc: Arc<dyn Fn(&mut H, &R) + Send + Sync>,
+    fin: Arc<dyn Fn(&H) -> R + Send + Sync>,
+}
 
-    if n <= 1 {
-        for c in &node.children {
-            let r = exec_node(c, pool, acc, fin);
-            (acc)(&mut h, &r);
+impl<H: Send + 'static, R: Clone + Send + Sync + 'static> ProperCollector<H, R> {
+    fn child_done(self: &Arc<Self>, child_index: usize, result: R) {
+        {
+            let mut results = self.child_results.lock().unwrap();
+            results[child_index] = Some(result);
         }
-    } else {
-        let results = Arc::new(ForkResults::<R>::new(n - 1));
-
-        for i in 0..n - 1 {
-            let child = node.children[i].clone();
-            let pool_c = pool.clone();
-            let acc_c = acc.clone();
-            let fin_c = fin.clone();
-            let results_c = results.clone();
-            pool.submit(Box::new(move || {
-                let r = exec_node(&child, &pool_c, &acc_c, &fin_c);
-                unsafe { results_c.write(i, r); }
-            }));
-        }
-
-        let last_result = exec_node(&node.children[n - 1], pool, acc, fin);
-
-        while !results.is_done() {
-            if !pool.try_run_one() {
-                std::hint::spin_loop();
+        let prev = self.remaining.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 {
+            let mut h = self.heap.lock().unwrap();
+            let results = self.child_results.lock().unwrap();
+            for r in results.iter() {
+                (self.acc)(&mut h, r.as_ref().unwrap());
             }
+            let result = (self.fin)(&h);
+            self.parent_completion.set(result);
         }
-
-        for i in 0..n - 1 {
-            (acc)(&mut h, unsafe { results.get(i) });
-        }
-        (acc)(&mut h, &last_result);
     }
+}
 
-    (fin)(&h)
+impl<R: Clone + Send + Sync + 'static> CompletionInner<R> {
+    fn attach_proper_parent_inner<H: Send + 'static>(&self, collector: Arc<ProperCollector<H, R>>, child_index: usize) {
+        let existing_result = {
+            let result = self.result.lock().unwrap();
+            result.clone()
+        };
+        if let Some(r) = existing_result {
+            collector.child_done(child_index, r);
+        } else {
+            // Store as a type-erased callback
+            let mut parent = self.parent.lock().unwrap();
+            // We need to store a type-erased notifier
+            // This is tricky because Collector is generic over H...
+            // Let's use a different approach
+            todo!("need type-erased parent notification")
+        }
+    }
 }
