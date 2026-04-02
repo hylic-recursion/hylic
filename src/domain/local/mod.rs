@@ -5,8 +5,16 @@
 //!
 //! Supports the full transformation API (map, zipmap, contramap, product).
 
+use std::marker::PhantomData;
 use std::rc::Rc;
 use crate::ops::{FoldOps, FoldConstruct, TreeOps};
+use crate::cata::exec::{FusedIn, SequentialIn};
+use super::Local;
+
+// ── Executor consts for this domain ───────────────
+
+pub const FUSED:      FusedIn<Local>      = FusedIn(PhantomData);
+pub const SEQUENTIAL: SequentialIn<Local>  = SequentialIn(PhantomData);
 
 // ── Fold ──────────────────────────────────────────
 

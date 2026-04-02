@@ -3,7 +3,15 @@
 //! Not Clone, not Send+Sync. The lightest domain — zero refcount.
 //! Works with Fused and Sequential (they borrow, never clone).
 
+use std::marker::PhantomData;
 use crate::ops::{FoldOps, TreeOps};
+use crate::cata::exec::{FusedIn, SequentialIn};
+use super::Owned;
+
+// ── Executor consts for this domain ───────────────
+
+pub const FUSED:      FusedIn<Owned>      = FusedIn(PhantomData);
+pub const SEQUENTIAL: SequentialIn<Owned>  = SequentialIn(PhantomData);
 
 // ── Fold ──────────────────────────────────────────
 
