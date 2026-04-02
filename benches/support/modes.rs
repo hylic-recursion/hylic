@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::hint::black_box;
 use hylic::domain::shared as dom;
+use hylic::cata::exec::{PoolIn, PoolSpec};
 use hylic::prelude::{ParLazy, ParEager, WorkPool};
 
 use super::tree::NodeId;
@@ -71,19 +72,19 @@ pub fn sequential_modes<'a>(s: &'a PreparedScenario) -> Vec<BenchMode<'a, u64>> 
 
     vec![
         // ── hylic sequential ───────────────────────
-        BenchMode { name: "hylic-fused",
+        BenchMode { name: "hylic.fused.shared",
             run: Box::new(move || dom::FUSED.run(fold, treeish, root)) },
-        BenchMode { name: "hylic-fused-local",
+        BenchMode { name: "hylic.fused.local",
             run: Box::new(move || hylic::domain::local::FUSED.run(&local_fold, &local_treeish, root)) },
-        BenchMode { name: "hylic-fused-owned",
+        BenchMode { name: "hylic.fused.owned",
             run: Box::new(move || hylic::domain::owned::FUSED.run(&owned_fold, &owned_treeish, root)) },
-        BenchMode { name: "hylic-sequential",
+        BenchMode { name: "hylic.sequential.shared",
             run: Box::new(move || dom::SEQUENTIAL.run(fold, treeish, root)) },
 
         // ── handrolled sequential ──────────────────
-        BenchMode { name: "hand-seq",
+        BenchMode { name: "hand.seq",
             run: Box::new(|| handrolled_seq(s)) },
-        BenchMode { name: "real-seq",
+        BenchMode { name: "real.seq",
             run: Box::new(|| realworld_seq(s)) },
     ]
 }
@@ -100,32 +101,45 @@ pub fn parallel_modes<'a>(
     let treeish = &s.treeish;
     let root = &s.root;
 
-    let par_lazy = ParLazy::lift::<NodeId, u64, u64>(pool);
-    let par_lazy2 = ParLazy::lift::<NodeId, u64, u64>(pool);
+    let par_lazy_fused = ParLazy::lift::<NodeId, u64, u64>(pool);
+    let par_lazy_rayon = ParLazy::lift::<NodeId, u64, u64>(pool);
     let par_eager_fused = ParEager::lift::<NodeId, u64, u64>(pool);
     let par_eager_rayon = ParEager::lift::<NodeId, u64, u64>(pool);
+    let par_eager_pool = ParEager::lift::<NodeId, u64, u64>(pool);
 
+    let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_exec2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
     let work = Arc::new(s.work.clone());
 
     vec![
-        // ── hylic parallel ─────────────────────────
-        BenchMode { name: "hylic-rayon",
+        // ── hylic parallel (rayon) ─────────────────
+        BenchMode { name: "hylic.rayon.shared",
             run: Box::new(move || dom::RAYON.run(fold, treeish, root)) },
-        BenchMode { name: "hylic-parref+fused",
-            run: Box::new(move || dom::FUSED.run_lifted(&par_lazy, fold, treeish, root)) },
-        BenchMode { name: "hylic-parref+rayon",
-            run: Box::new(move || dom::RAYON.run_lifted(&par_lazy2, fold, treeish, root)) },
-        BenchMode { name: "hylic-eager+fused",
+
+        // ── hylic parallel (our pool) ──────────────
+        BenchMode { name: "hylic.pool.shared",
+            run: Box::new(move || pool_exec.run(fold, treeish, root)) },
+
+        // ── hylic ParLazy lift ─────────────────────
+        BenchMode { name: "hylic.parref.fused.shared",
+            run: Box::new(move || dom::FUSED.run_lifted(&par_lazy_fused, fold, treeish, root)) },
+        BenchMode { name: "hylic.parref.rayon.shared",
+            run: Box::new(move || dom::RAYON.run_lifted(&par_lazy_rayon, fold, treeish, root)) },
+
+        // ── hylic ParEager lift ────────────────────
+        BenchMode { name: "hylic.eager.fused.shared",
             run: Box::new(move || dom::FUSED.run_lifted(&par_eager_fused, fold, treeish, root)) },
-        BenchMode { name: "hylic-eager+rayon",
+        BenchMode { name: "hylic.eager.rayon.shared",
             run: Box::new(move || dom::RAYON.run_lifted(&par_eager_rayon, fold, treeish, root)) },
+        BenchMode { name: "hylic.eager.pool.shared",
+            run: Box::new(move || pool_exec2.run_lifted(&par_eager_pool, fold, treeish, root)) },
 
         // ── handrolled parallel ────────────────────
-        BenchMode { name: "hand-rayon",
+        BenchMode { name: "hand.rayon",
             run: Box::new(|| handrolled_rayon(s)) },
-        BenchMode { name: "hand-pool",
+        BenchMode { name: "hand.pool",
             run: Box::new(move || handrolled_pool(&s.children, &work, pool, s.root)) },
-        BenchMode { name: "real-rayon",
+        BenchMode { name: "real.rayon",
             run: Box::new(|| realworld_rayon(s)) },
     ]
 }
