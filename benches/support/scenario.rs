@@ -14,7 +14,10 @@ pub struct ScenarioDef {
     pub work: WorkSpec,
 }
 
-/// Ready-to-run scenario with pre-built tree, fold, treeish, AND raw closures.
+/// Ready-to-run scenario with pre-built tree and Shared-domain fold/treeish.
+///
+/// Domain variants (Local, Owned) are constructed in hylic_runners
+/// directly from `work` + `children` — same single layer of indirection.
 pub struct PreparedScenario {
     pub name: String,
     pub children: Arc<Vec<Vec<NodeId>>>,
@@ -24,59 +27,35 @@ pub struct PreparedScenario {
     pub treeish: Treeish<NodeId>,
     pub root: NodeId,
     pub expected: u64,
-    // Raw closures for domain-variant construction
-    pub init_fn: Arc<dyn Fn(&NodeId) -> u64 + Send + Sync>,
-    pub acc_fn: Arc<dyn Fn(&mut u64, &u64) + Send + Sync>,
-    pub fin_fn: Arc<dyn Fn(&u64) -> u64 + Send + Sync>,
-    pub graph_fn: Arc<dyn Fn(&NodeId, &mut dyn FnMut(&NodeId)) + Send + Sync>,
+}
+
+/// Build a Shared-domain treeish from work + children.
+pub fn make_shared_treeish(work: &WorkSpec, children: &Arc<Vec<Vec<NodeId>>>) -> Treeish<NodeId> {
+    let w = work.clone();
+    let ch = children.clone();
+    treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+        w.do_graph();
+        for &child in &ch[*n] { cb(&child); }
+    })
+}
+
+/// Build a Shared-domain fold from work.
+pub fn make_shared_fold(work: &WorkSpec) -> Fold<NodeId, u64, u64> {
+    let w1 = work.clone();
+    let w2 = work.clone();
+    let w3 = work.clone();
+    fold::fold(
+        move |_node: &NodeId| w1.do_init(),
+        move |heap: &mut u64, child: &u64| w2.do_accumulate(heap, child),
+        move |heap: &u64| w3.do_finalize(heap),
+    )
 }
 
 impl PreparedScenario {
     pub fn from_def(def: &ScenarioDef, label: &str) -> Self {
         let (children, node_count) = tree::gen_tree(&def.tree);
-        let ch = children.clone();
-        let w = def.work.clone();
-        let w2 = def.work.clone();
-
-        let graph_fn: Arc<dyn Fn(&NodeId, &mut dyn FnMut(&NodeId)) + Send + Sync> = {
-            let ch = ch.clone();
-            let w = w.clone();
-            Arc::new(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
-                w.do_graph();
-                for &child in &ch[*n] { cb(&child); }
-            })
-        };
-
-        let init_fn: Arc<dyn Fn(&NodeId) -> u64 + Send + Sync> = {
-            let w = w2.clone();
-            Arc::new(move |_node: &NodeId| -> u64 { w.do_init() })
-        };
-        let acc_fn: Arc<dyn Fn(&mut u64, &u64) + Send + Sync> = {
-            let w = def.work.clone();
-            Arc::new(move |heap: &mut u64, child: &u64| { w.do_accumulate(heap, child); })
-        };
-        let fin_fn: Arc<dyn Fn(&u64) -> u64 + Send + Sync> = {
-            let w = def.work.clone();
-            Arc::new(move |heap: &u64| -> u64 { w.do_finalize(heap) })
-        };
-
-        let treeish = {
-            let gf = graph_fn.clone();
-            treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| { gf(n, cb) })
-        };
-
-        let fold = {
-            let i = init_fn.clone();
-            let a = acc_fn.clone();
-            let f = fin_fn.clone();
-            fold::fold(
-                move |n: &NodeId| i(n),
-                move |h: &mut u64, c: &u64| a(h, c),
-                move |h: &u64| f(h),
-            )
-        };
-
-        // Correctness baseline — run fused once to get expected result
+        let treeish = make_shared_treeish(&def.work, &children);
+        let fold = make_shared_fold(&def.work);
         let expected = exec::FUSED.run(&fold, &treeish, &0);
 
         PreparedScenario {
@@ -88,10 +67,6 @@ impl PreparedScenario {
             treeish,
             root: 0,
             expected,
-            init_fn,
-            acc_fn,
-            fin_fn,
-            graph_fn,
         }
     }
 }
@@ -131,7 +106,6 @@ pub fn all_scenarios(scale: Scale) -> Vec<ScenarioDef> {
 pub enum Scale { Small, Large }
 
 impl Scale {
-    /// Read from HYLIC_BENCH_SCALE env var. Defaults to Small.
     pub fn from_env() -> Self {
         match std::env::var("HYLIC_BENCH_SCALE").as_deref() {
             Ok("large" | "Large" | "LARGE") => Scale::Large,

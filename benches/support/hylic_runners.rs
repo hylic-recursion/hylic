@@ -2,7 +2,8 @@
 //!
 //! All modes defined once. `build_all` pre-constructs executor + lift
 //! so that only the computation runs inside the benchmark hot loop.
-//! Domain variants (Local, Owned) are included to measure boxing overhead.
+//! Domain variants construct from WorkSpec directly — same single
+//! layer of indirection as Shared. No double wrapping.
 
 use std::sync::Arc;
 use hylic::cata::exec::{self, Executor, ExecutorExt};
@@ -18,7 +19,6 @@ pub struct BenchMode<'a, R> {
 }
 
 /// Build all hylic modes for a PreparedScenario.
-/// Includes Shared (6 modes), Local (1 mode), Owned (1 mode).
 pub fn build_all<'a>(
     s: &'a PreparedScenario,
     pool: &'a Arc<WorkPool>,
@@ -33,23 +33,29 @@ pub fn build_all<'a>(
     let par_eager_fused = ParEager::lift::<NodeId, u64, u64>(pool);
     let par_eager_rayon = ParEager::lift::<NodeId, u64, u64>(pool);
 
-    // Local domain: construct once, reuse across iterations
+    // Local domain: single layer of Rc, from WorkSpec directly
     let local_fold = {
-        let i = s.init_fn.clone();
-        let a = s.acc_fn.clone();
-        let f = s.fin_fn.clone();
-        hylic::domain::local::fold(move |n: &NodeId| i(n), move |h: &mut u64, c: &u64| a(h, c), move |h: &u64| f(h))
+        let w1 = s.work.clone();
+        let w2 = s.work.clone();
+        let w3 = s.work.clone();
+        hylic::domain::local::fold(
+            move |_: &NodeId| w1.do_init(),
+            move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
+            move |h: &u64| w3.do_finalize(h),
+        )
     };
     let local_treeish = {
-        let g = s.graph_fn.clone();
-        hylic::domain::local::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| g(n, cb))
+        let w = s.work.clone();
+        let ch = s.children.clone();
+        hylic::domain::local::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+            w.do_graph();
+            for &child in &ch[*n] { cb(&child); }
+        })
     };
 
-    // Owned domain: must reconstruct each call (not Clone)
-    let owned_init = s.init_fn.clone();
-    let owned_acc = s.acc_fn.clone();
-    let owned_fin = s.fin_fn.clone();
-    let owned_graph = s.graph_fn.clone();
+    // Owned domain: single layer of Box, reconstructed per call (not Clone)
+    let owned_work = s.work.clone();
+    let owned_children = s.children.clone();
 
     vec![
         // ── Shared domain ──────────────────────────────
@@ -66,24 +72,28 @@ pub fn build_all<'a>(
         BenchMode { name: "hylic-eager+rayon",
             run: Box::new(move || exec::RAYON.run_lifted(&par_eager_rayon, fold, treeish, root)) },
 
-        // ── Local domain (Rc, no atomics) ──────────────
+        // ── Local domain (Rc, single layer) ────────────
         BenchMode { name: "hylic-fused-local",
             run: Box::new(move || exec::FUSED_LOCAL.run(&local_fold, &local_treeish, root)) },
 
-        // ── Owned domain (Box, zero refcount) ──────────
+        // ── Owned domain (Box, single layer, reconstructed per call) ──
         BenchMode { name: "hylic-fused-owned",
             run: Box::new(move || {
-                let i = owned_init.clone();
-                let a = owned_acc.clone();
-                let f = owned_fin.clone();
-                let g = owned_graph.clone();
+                let w1 = owned_work.clone();
+                let w2 = owned_work.clone();
+                let w3 = owned_work.clone();
+                let wg = owned_work.clone();
+                let ch = owned_children.clone();
                 let fold = hylic::domain::owned::fold(
-                    move |n: &NodeId| i(n),
-                    move |h: &mut u64, c: &u64| a(h, c),
-                    move |h: &u64| f(h),
+                    move |_: &NodeId| w1.do_init(),
+                    move |h: &mut u64, c: &u64| w2.do_accumulate(h, c),
+                    move |h: &u64| w3.do_finalize(h),
                 );
                 let graph = hylic::domain::owned::treeish_visit(
-                    move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| g(n, cb),
+                    move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+                        wg.do_graph();
+                        for &child in &ch[*n] { cb(&child); }
+                    },
                 );
                 exec::FUSED_OWNED.run(&fold, &graph, root)
             }) },
