@@ -12,6 +12,7 @@
 
 use crate::graph::{treeish, Treeish};
 use crate::fold::Fold;
+use crate::domain::Shared;
 use crate::cata::Lift;
 
 // ── Trace data types ───────────────────────────────────────
@@ -63,7 +64,7 @@ pub struct Explainer;
 
 impl Explainer {
     /// Lift that records traces. Unwrap extracts the original R.
-    pub fn lift<N, H, R>() -> Lift<N, H, R, N, EH<N, H, R>, ER<N, H, R>>
+    pub fn lift<N, H, R>() -> Lift<Shared, N, H, R, N, EH<N, H, R>, ER<N, H, R>>
     where
         N: Clone + 'static,
         H: Clone + 'static,
@@ -81,7 +82,7 @@ impl Explainer {
     /// unwrapping to R. Use this to inspect or store the trace.
     pub fn lift_with<N, H, R>(
         on_result: impl Fn(&ER<N, H, R>) + Send + Sync + 'static,
-    ) -> Lift<N, H, R, N, EH<N, H, R>, ER<N, H, R>>
+    ) -> Lift<Shared, N, H, R, N, EH<N, H, R>, ER<N, H, R>>
     where
         N: Clone + 'static,
         H: Clone + 'static,

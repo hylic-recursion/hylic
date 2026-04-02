@@ -1,6 +1,4 @@
-use hylic::graph::treeish;
-use hylic::fold;
-use hylic::cata::exec::{self, ExecutorExt};
+use hylic::domain::shared::{self as dom, ExecutorExt};
 use hylic::prelude::{ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::time::Instant;
@@ -41,15 +39,15 @@ fn no_hang_branching() {
     let (ch, count) = gen_tree(200, 8);
     eprintln!("Tree: {} nodes", count);
 
-    let graph = treeish(move |n: &NodeId| ch[*n].clone());
+    let graph = dom::treeish(move |n: &NodeId| ch[*n].clone());
     let init = |_: &NodeId| 0u64;
     let acc = |a: &mut u64, c: &u64| { *a += c; };
-    let my_fold = fold::simple_fold(init, acc);
+    let my_fold = dom::simple_fold(init, acc);
 
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
         for i in 0..20 {
             let t = Instant::now();
-            let r = exec::FUSED.run_lifted(&ParEager::lift(pool), &my_fold, &graph, &ROOT);
+            let r = dom::FUSED.run_lifted(&ParEager::lift(pool), &my_fold, &graph, &ROOT);
             eprintln!("  iter {}: {}µs result={}", i, t.elapsed().as_micros(), r);
         }
     });

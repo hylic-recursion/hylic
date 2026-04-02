@@ -1,6 +1,7 @@
 //! Lazy ParRef-based fold parallelization as a Lift.
 
 use crate::cata::Lift;
+use crate::domain::Shared;
 use crate::fold;
 use crate::parref::ParRef;
 
@@ -9,7 +10,7 @@ use crate::parref::ParRef;
 pub struct ParLazy;
 
 impl ParLazy {
-    pub fn lift<N, H, R>() -> Lift<N, H, R, N, (H, Vec<ParRef<R>>), ParRef<R>>
+    pub fn lift<N, H, R>() -> Lift<Shared, N, H, R, N, (H, Vec<ParRef<R>>), ParRef<R>>
     where
         N: Clone + 'static,
         H: Clone + Send + Sync + 'static,
@@ -17,7 +18,7 @@ impl ParLazy {
     {
         Lift::new(
             |treeish| treeish,
-            move |original_fold| {
+            move |original_fold: fold::Fold<N, H, R>| {
                 let f_init = original_fold.clone();
                 let f_fin = original_fold.clone();
                 fold::fold(

@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::cata::Lift;
+use crate::domain::Shared;
 use crate::fold;
 use super::pool::{WorkPool, WorkPoolSpec};
 
@@ -145,7 +146,7 @@ impl<R> Clone for EagerResult<R> {
 pub struct ParEager;
 
 impl ParEager {
-    pub fn lift<N, H, R>(pool: &Arc<WorkPool>) -> Lift<N, H, R, N, EagerHeap<H, R>, EagerResult<R>>
+    pub fn lift<N, H, R>(pool: &Arc<WorkPool>) -> Lift<Shared, N, H, R, N, EagerHeap<H, R>, EagerResult<R>>
     where
         N: Clone + 'static,
         H: Clone + Send + Sync + 'static,
@@ -220,7 +221,7 @@ impl ParEager {
 
     pub fn with<N, H, R, Ret>(
         spec: WorkPoolSpec,
-        f: impl FnOnce(&Lift<N, H, R, N, EagerHeap<H, R>, EagerResult<R>>) -> Ret,
+        f: impl FnOnce(&Lift<Shared, N, H, R, N, EagerHeap<H, R>, EagerResult<R>>) -> Ret,
     ) -> Ret
     where
         N: Clone + 'static,

@@ -22,6 +22,7 @@ pub const RAYON:      RayonIn<Shared>       = RayonIn(PhantomData);
 
 pub use crate::cata::exec::Executor;
 pub use crate::cata::exec::ExecutorExt;
+pub use crate::cata::exec::Exec;
 
 // ── Fold types + constructors ─────────────────────
 

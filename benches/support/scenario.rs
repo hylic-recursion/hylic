@@ -1,7 +1,5 @@
 use std::sync::Arc;
-use hylic::graph::{treeish_visit, Treeish};
-use hylic::fold::{self, Fold};
-use hylic::cata::exec::{self, Executor};
+use hylic::domain::shared::{self as dom, Treeish, Executor};
 
 use super::tree::{self, NodeId, TreeSpec};
 use super::work::WorkSpec;
@@ -23,7 +21,7 @@ pub struct PreparedScenario {
     pub children: Arc<Vec<Vec<NodeId>>>,
     pub node_count: usize,
     pub work: WorkSpec,
-    pub fold: Fold<NodeId, u64, u64>,
+    pub fold: dom::Fold<NodeId, u64, u64>,
     pub treeish: Treeish<NodeId>,
     pub root: NodeId,
     pub expected: u64,
@@ -33,18 +31,18 @@ pub struct PreparedScenario {
 pub fn make_shared_treeish(work: &WorkSpec, children: &Arc<Vec<Vec<NodeId>>>) -> Treeish<NodeId> {
     let w = work.clone();
     let ch = children.clone();
-    treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+    dom::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
         w.do_graph();
         for &child in &ch[*n] { cb(&child); }
     })
 }
 
 /// Build a Shared-domain fold from work.
-pub fn make_shared_fold(work: &WorkSpec) -> Fold<NodeId, u64, u64> {
+pub fn make_shared_fold(work: &WorkSpec) -> dom::Fold<NodeId, u64, u64> {
     let w1 = work.clone();
     let w2 = work.clone();
     let w3 = work.clone();
-    fold::fold(
+    dom::fold(
         move |_node: &NodeId| w1.do_init(),
         move |heap: &mut u64, child: &u64| w2.do_accumulate(heap, child),
         move |heap: &u64| w3.do_finalize(heap),
@@ -56,7 +54,7 @@ impl PreparedScenario {
         let (children, node_count) = tree::gen_tree(&def.tree);
         let treeish = make_shared_treeish(&def.work, &children);
         let fold = make_shared_fold(&def.work);
-        let expected = exec::FUSED.run(&fold, &treeish, &0);
+        let expected = dom::FUSED.run(&fold, &treeish, &0);
 
         PreparedScenario {
             name: format!("{}/{}", def.moniker, label),

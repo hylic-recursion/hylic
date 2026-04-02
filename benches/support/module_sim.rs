@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use hylic::graph::treeish_visit;
-use hylic::fold;
+use hylic::domain::shared as dom;
+
 use hylic::prelude::WorkPool;
 
 use super::work::{busy_work, spin_wait_us};
@@ -153,7 +153,7 @@ pub fn vanilla_rayon(sim: &PreparedModuleSim) -> u64 {
 
 // ── Hylic implementation (uses shared mode dispatch) ───────
 
-pub fn hylic_fold(sim: &PreparedModuleSim) -> fold::Fold<String, u64, u64> {
+pub fn hylic_fold(sim: &PreparedModuleSim) -> dom::Fold<String, u64, u64> {
     let pw = sim.spec.parse_work;
     let pio = sim.spec.parse_io_us;
     let aw = sim.spec.accumulate_work;
@@ -163,12 +163,12 @@ pub fn hylic_fold(sim: &PreparedModuleSim) -> fold::Fold<String, u64, u64> {
         *heap = heap.wrapping_add(*child);
     };
     let fin = |heap: &u64| -> u64 { *heap };
-    fold::fold(init, acc, fin)
+    dom::fold(init, acc, fin)
 }
 
 pub fn hylic_treeish(reg: &Arc<HashMap<String, ModuleDef>>) -> hylic::graph::Treeish<String> {
     let reg = reg.clone();
-    treeish_visit(move |name: &String, cb: &mut dyn FnMut(&String)| {
+    dom::treeish_visit(move |name: &String, cb: &mut dyn FnMut(&String)| {
         for dep in &reg[name].deps { cb(dep); }
     })
 }
@@ -195,7 +195,7 @@ pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>
 where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
 {
     use super::modes::BenchMode;
-    use hylic::cata::exec::{self, Executor, ExecutorExt};
+    use hylic::domain::shared::{Executor, ExecutorExt};
     use hylic::prelude::{ParLazy, ParEager};
 
     let fold = hylic_fold(sim);
@@ -203,19 +203,19 @@ where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
     let root = &sim.root_name;
 
     let par_lazy = ParLazy::lift::<String, u64, u64>();
-    let par_lazy2 = par_lazy.clone();
+    let par_lazy2 = ParLazy::lift::<String, u64, u64>();
     let par_eager_fused = ParEager::lift::<String, u64, u64>(pool);
     let par_eager_rayon = ParEager::lift::<String, u64, u64>(pool);
 
     let modes: Vec<BenchMode<u64>> = vec![
         BenchMode { name: "vanilla-seq",        run: Box::new(|| vanilla_seq(sim)) },
         BenchMode { name: "vanilla-rayon",       run: Box::new(|| vanilla_rayon(sim)) },
-        BenchMode { name: "hylic-fused",         run: Box::new(|| exec::FUSED.run(&fold, &graph, root)) },
-        BenchMode { name: "hylic-rayon",         run: Box::new(|| exec::RAYON.run(&fold, &graph, root)) },
-        BenchMode { name: "hylic-parref+fused",  run: Box::new(|| exec::FUSED.run_lifted(&par_lazy, &fold, &graph, root)) },
-        BenchMode { name: "hylic-parref+rayon",  run: Box::new(|| exec::RAYON.run_lifted(&par_lazy2, &fold, &graph, root)) },
-        BenchMode { name: "hylic-eager+fused",   run: Box::new(|| exec::FUSED.run_lifted(&par_eager_fused, &fold, &graph, root)) },
-        BenchMode { name: "hylic-eager+rayon",   run: Box::new(|| exec::RAYON.run_lifted(&par_eager_rayon, &fold, &graph, root)) },
+        BenchMode { name: "hylic-fused",         run: Box::new(|| dom::FUSED.run(&fold, &graph, root)) },
+        BenchMode { name: "hylic-rayon",         run: Box::new(|| dom::RAYON.run(&fold, &graph, root)) },
+        BenchMode { name: "hylic-parref+fused",  run: Box::new(|| dom::FUSED.run_lifted(&par_lazy, &fold, &graph, root)) },
+        BenchMode { name: "hylic-parref+rayon",  run: Box::new(|| dom::RAYON.run_lifted(&par_lazy2, &fold, &graph, root)) },
+        BenchMode { name: "hylic-eager+fused",   run: Box::new(|| dom::FUSED.run_lifted(&par_eager_fused, &fold, &graph, root)) },
+        BenchMode { name: "hylic-eager+rayon",   run: Box::new(|| dom::RAYON.run_lifted(&par_eager_rayon, &fold, &graph, root)) },
     ];
 
     f(&modes);

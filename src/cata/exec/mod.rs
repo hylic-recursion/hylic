@@ -11,13 +11,14 @@ pub mod variant;
 pub use variant::fused::FusedIn;
 pub use variant::sequential::SequentialIn;
 pub use variant::rayon::RayonIn;
+pub use variant::pool::{PoolIn, PoolSpec};
 pub use variant::custom::Custom;
 
 use std::marker::PhantomData;
 use crate::graph::Treeish;
 use crate::fold::Fold;
 use crate::domain::{Domain, Shared, Local, Owned};
-use super::Lift;
+use crate::ops::LiftOps;
 
 // ── Core trait ────────────────────────────────────
 
@@ -27,18 +28,23 @@ pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
 }
 // ANCHOR_END: executor_trait
 
-// ── Lift extension (Shared domain only) ───────────
+// ── Lift extension (domain-generic) ──────────────
 
 // ANCHOR: executor_ext_trait
-pub trait ExecutorExt<N: 'static, R: 'static>: Executor<N, R, Shared> {
+pub trait ExecutorExt<N: 'static, R: 'static, D: Domain<N>>: Executor<N, R, D> {
     // ANCHOR: run_lifted
     fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
-        lift: &Lift<N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>,
-        graph: &Treeish<N0>,
+        lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
+        fold: &<D as Domain<N0>>::Fold<H0, R0>,
+        graph: &<D as Domain<N0>>::Treeish,
         root: &N0,
-    ) -> R0 {
+    ) -> R0
+    where
+        D: Domain<N0>,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+    {
         let lifted_treeish = lift.lift_treeish(graph.clone());
         let lifted_fold = lift.lift_fold(fold.clone());
         let lifted_root = lift.lift_root(root);
@@ -48,11 +54,17 @@ pub trait ExecutorExt<N: 'static, R: 'static>: Executor<N, R, Shared> {
 
     fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
-        lift: &Lift<N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>,
-        graph: &Treeish<N0>,
+        lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
+        fold: &<D as Domain<N0>>::Fold<H0, R0>,
+        graph: &<D as Domain<N0>>::Treeish,
         root: &N0,
-    ) -> (R0, R) where R: Clone {
+    ) -> (R0, R)
+    where
+        D: Domain<N0>,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+        R: Clone,
+    {
         let lifted_treeish = lift.lift_treeish(graph.clone());
         let lifted_fold = lift.lift_fold(fold.clone());
         let lifted_root = lift.lift_root(root);
@@ -62,7 +74,7 @@ pub trait ExecutorExt<N: 'static, R: 'static>: Executor<N, R, Shared> {
 }
 // ANCHOR_END: executor_ext_trait
 
-impl<N: 'static, R: 'static, E: Executor<N, R, Shared>> ExecutorExt<N, R> for E {}
+impl<N: 'static, R: 'static, D: Domain<N>, E: Executor<N, R, D>> ExecutorExt<N, R, D> for E {}
 
 // ── Type aliases ──────────────────────────────────
 
@@ -108,7 +120,6 @@ where N: Clone + Send + Sync, R: Send + Sync,
     }
 }
 
-// Exec inherent methods — N and R ARE in the self type, so this works.
 impl<N: 'static, R: 'static> Exec<N, R>
 where N: Clone + Send + Sync, R: Send + Sync,
 {
@@ -117,17 +128,23 @@ where N: Clone + Send + Sync, R: Send + Sync,
     }
 
     pub fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
-        &self, lift: &Lift<N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>, graph: &Treeish<N0>, root: &N0,
+        &self,
+        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
+        fold: &Fold<N0, H0, R0>,
+        graph: &Treeish<N0>,
+        root: &N0,
     ) -> R0 {
-        <Self as ExecutorExt<N, R>>::run_lifted(self, lift, fold, graph, root)
+        <Self as ExecutorExt<N, R, Shared>>::run_lifted(self, lift, fold, graph, root)
     }
 
     pub fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
-        &self, lift: &Lift<N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>, graph: &Treeish<N0>, root: &N0,
+        &self,
+        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
+        fold: &Fold<N0, H0, R0>,
+        graph: &Treeish<N0>,
+        root: &N0,
     ) -> (R0, R) where R: Clone {
-        <Self as ExecutorExt<N, R>>::run_lifted_zipped(self, lift, fold, graph, root)
+        <Self as ExecutorExt<N, R, Shared>>::run_lifted_zipped(self, lift, fold, graph, root)
     }
 }
 

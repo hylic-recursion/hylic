@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 use std::hint::black_box;
-use hylic::cata::exec::{self, Executor, ExecutorExt};
+use hylic::domain::shared::{self as dom, Executor, ExecutorExt};
 use hylic::prelude::{ParLazy, ParEager, WorkPool};
 
 use super::tree::NodeId;
@@ -72,13 +72,13 @@ pub fn sequential_modes<'a>(s: &'a PreparedScenario) -> Vec<BenchMode<'a, u64>> 
     vec![
         // ── hylic sequential ───────────────────────
         BenchMode { name: "hylic-fused",
-            run: Box::new(move || exec::FUSED.run(fold, treeish, root)) },
+            run: Box::new(move || dom::FUSED.run(fold, treeish, root)) },
         BenchMode { name: "hylic-fused-local",
-            run: Box::new(move || exec::FUSED_LOCAL.run(&local_fold, &local_treeish, root)) },
+            run: Box::new(move || hylic::domain::local::FUSED.run(&local_fold, &local_treeish, root)) },
         BenchMode { name: "hylic-fused-owned",
-            run: Box::new(move || exec::FUSED_OWNED.run(&owned_fold, &owned_treeish, root)) },
+            run: Box::new(move || hylic::domain::owned::FUSED.run(&owned_fold, &owned_treeish, root)) },
         BenchMode { name: "hylic-sequential",
-            run: Box::new(move || exec::SEQUENTIAL.run(fold, treeish, root)) },
+            run: Box::new(move || dom::SEQUENTIAL.run(fold, treeish, root)) },
 
         // ── handrolled sequential ──────────────────
         BenchMode { name: "hand-seq",
@@ -101,7 +101,7 @@ pub fn parallel_modes<'a>(
     let root = &s.root;
 
     let par_lazy = ParLazy::lift::<NodeId, u64, u64>();
-    let par_lazy2 = par_lazy.clone();
+    let par_lazy2 = ParLazy::lift::<NodeId, u64, u64>();
     let par_eager_fused = ParEager::lift::<NodeId, u64, u64>(pool);
     let par_eager_rayon = ParEager::lift::<NodeId, u64, u64>(pool);
 
@@ -110,15 +110,15 @@ pub fn parallel_modes<'a>(
     vec![
         // ── hylic parallel ─────────────────────────
         BenchMode { name: "hylic-rayon",
-            run: Box::new(move || exec::RAYON.run(fold, treeish, root)) },
+            run: Box::new(move || dom::RAYON.run(fold, treeish, root)) },
         BenchMode { name: "hylic-parref+fused",
-            run: Box::new(move || exec::FUSED.run_lifted(&par_lazy, fold, treeish, root)) },
+            run: Box::new(move || dom::FUSED.run_lifted(&par_lazy, fold, treeish, root)) },
         BenchMode { name: "hylic-parref+rayon",
-            run: Box::new(move || exec::RAYON.run_lifted(&par_lazy2, fold, treeish, root)) },
+            run: Box::new(move || dom::RAYON.run_lifted(&par_lazy2, fold, treeish, root)) },
         BenchMode { name: "hylic-eager+fused",
-            run: Box::new(move || exec::FUSED.run_lifted(&par_eager_fused, fold, treeish, root)) },
+            run: Box::new(move || dom::FUSED.run_lifted(&par_eager_fused, fold, treeish, root)) },
         BenchMode { name: "hylic-eager+rayon",
-            run: Box::new(move || exec::RAYON.run_lifted(&par_eager_rayon, fold, treeish, root)) },
+            run: Box::new(move || dom::RAYON.run_lifted(&par_eager_rayon, fold, treeish, root)) },
 
         // ── handrolled parallel ────────────────────
         BenchMode { name: "hand-rayon",

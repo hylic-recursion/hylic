@@ -1,7 +1,6 @@
-use hylic::domain::shared::{self as dom, Executor, ExecutorExt};
-// Executor — trait, needed for .run()
-// ExecutorExt — for .run_lifted()
-use hylic::prelude::{ParLazy, ParEager, WorkPool, WorkPoolSpec};
+use hylic::domain::shared::{self as dom, Executor};
+use hylic::cata::exec::{PoolIn, PoolSpec};
+use hylic::prelude::{WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::hint::black_box;
 use std::time::Instant;
@@ -61,32 +60,40 @@ fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) 
     let expected = dom::FUSED.run(&fold, &graph, &ROOT);
 
     eprintln!("\n=== {} ({} nodes, bf={}) ===", label, count, bf);
-    timed("fused",        iters, expected, || dom::FUSED.run(&fold, &graph, &ROOT));
-    timed("rayon",        iters, expected, || dom::RAYON.run(&fold, &graph, &ROOT));
-    timed("parref+fused", iters, expected, || dom::FUSED.run_lifted(&ParLazy::lift(), &fold, &graph, &ROOT));
-    timed("parref+rayon", iters, expected, || dom::RAYON.run_lifted(&ParLazy::lift(), &fold, &graph, &ROOT));
+    timed("fused",  iters, expected, || dom::FUSED.run(&fold, &graph, &ROOT));
+    timed("rayon",  iters, expected, || dom::RAYON.run(&fold, &graph, &ROOT));
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-        timed("eager+fused", iters, expected, || dom::FUSED.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
-        timed("eager+rayon", iters, expected, || dom::RAYON.run_lifted(&ParEager::lift(pool), &fold, &graph, &ROOT));
+        let pool_exec = PoolIn::new(pool, PoolSpec::default_for(3));
+        timed("pool", iters, expected, || pool_exec.run(&fold, &graph, &ROOT));
     });
 }
 
 #[test]
-fn eager_overhead_branching() {
-    run_case("0us:overhead bf=8", 200, 8, 0, 0, 20);
+fn pool_correctness_branching() {
+    run_case("pool bf=8 overhead", 200, 8, 0, 0, 20);
 }
 
 #[test]
-fn eager_overhead_linear() {
-    run_case("0us:overhead bf=1", 200, 1, 0, 0, 20);
+fn pool_correctness_linear() {
+    run_case("pool bf=1 overhead", 200, 1, 0, 0, 20);
 }
 
 #[test]
-fn eager_light_branching() {
-    run_case("10us:light bf=8", 200, 8, 5_000, 5_000, 5);
+fn pool_light_work() {
+    run_case("pool bf=8 light", 200, 8, 5_000, 5_000, 5);
 }
 
 #[test]
-fn eager_heavy_branching() {
-    run_case("100us:balanced bf=8", 200, 8, 100_000, 100_000, 3);
+fn pool_heavy_work() {
+    run_case("pool bf=8 heavy", 200, 8, 100_000, 100_000, 3);
+}
+
+#[test]
+fn pool_wide_tree() {
+    run_case("pool bf=20 wide", 200, 20, 50_000, 50_000, 3);
+}
+
+#[test]
+fn pool_deep_narrow() {
+    run_case("pool bf=2 deep", 200, 2, 50_000, 50_000, 3);
 }
