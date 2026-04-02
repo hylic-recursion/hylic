@@ -9,11 +9,11 @@
 
 pub mod ops;
 pub mod domain;
-pub mod parref;
+pub(crate) mod parref;
 
-pub mod graph;
-pub mod fold;
+pub(crate) mod graph;
+pub(crate) mod fold;
 pub mod cata;
-pub mod pipeline;
+pub(crate) mod pipeline;
 
 pub mod prelude;

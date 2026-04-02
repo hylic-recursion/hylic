@@ -1,4 +1,4 @@
-use crate::domain::shared::{self as dom, ExecutorExt};
+use crate::domain::shared as dom;
 use crate::parref::ParRef;
 
 #[test]

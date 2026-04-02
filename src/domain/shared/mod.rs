@@ -1,11 +1,10 @@
 //! Shared domain — Arc-based storage.
 //!
-//! Clone, Send+Sync. The single namespace for composable pipelines,
-//! Lift integration, and parallel execution.
-//!
+//! The single namespace for composable pipelines, Lift integration,
+//! and parallel execution. One import, everything works:
 //! ```ignore
-//! use hylic::domain::shared::{self, Executor};
-//! shared::FUSED.run(&shared::fold(...), &shared::treeish_visit(...), &root);
+//! use hylic::domain::shared as dom;
+//! dom::FUSED.run(&dom::fold(...), &dom::treeish_visit(...), &root);
 //! ```
 
 use std::marker::PhantomData;
@@ -18,10 +17,8 @@ pub const FUSED:      FusedIn<Shared>      = FusedIn(PhantomData);
 pub const SEQUENTIAL: SequentialIn<Shared>  = SequentialIn(PhantomData);
 pub const RAYON:      RayonIn<Shared>       = RayonIn(PhantomData);
 
-// ── Traits (import for .run() / .run_lifted()) ────
+// ── Runtime dispatch ──────────────────────────────
 
-pub use crate::cata::exec::Executor;
-pub use crate::cata::exec::ExecutorExt;
 pub use crate::cata::exec::DynExec;
 
 // ── Fold types + constructors ─────────────────────
@@ -36,6 +33,7 @@ pub use crate::graph::{
     treeish, treeish_visit, treeish_from,
     edgy, edgy_visit,
     Graph, SeedGraph,
+    Visit, visit_slice,
 };
 
 // ── Pipeline (Shared-only) ────────────────────────

@@ -1,4 +1,4 @@
-use hylic::domain::shared::{self as dom, Executor};
+use hylic::domain::shared as dom;
 use hylic::cata::exec::{PoolIn, PoolSpec};
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 use std::sync::Arc;

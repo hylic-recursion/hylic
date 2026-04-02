@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use hylic::domain::shared::{self as dom, Treeish, Executor};
+use hylic::domain::shared::{self as dom, Treeish};
 
 use super::tree::{self, NodeId, TreeSpec};
 use super::work::WorkSpec;

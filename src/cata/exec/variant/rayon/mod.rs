@@ -3,7 +3,7 @@
 //! Shared domain only — requires Sync on fold/graph references.
 
 use std::marker::PhantomData;
-use crate::ops::{FoldOps, TreeOps};
+use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Shared;
 use super::super::Executor;
 
@@ -26,6 +26,52 @@ where N: Clone + Send + Sync + 'static, R: Send + Sync + 'static,
         root: &N,
     ) -> R {
         recurse(fold, graph, root)
+    }
+}
+
+impl RayonIn<Shared> {
+    pub fn run<N: Clone + Send + Sync + 'static, H: 'static, R: Send + Sync + 'static>(
+        &self,
+        fold: &<Shared as crate::domain::Domain<N>>::Fold<H, R>,
+        graph: &<Shared as crate::domain::Domain<N>>::Treeish,
+        root: &N,
+    ) -> R {
+        recurse(fold, graph, root)
+    }
+
+    pub fn run_lifted<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static, N0: Clone + Send + Sync + 'static, H0: 'static, R0: 'static, H: 'static>(
+        &self,
+        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
+        fold: &<Shared as crate::domain::Domain<N0>>::Fold<H0, R0>,
+        graph: &<Shared as crate::domain::Domain<N0>>::Treeish,
+        root: &N0,
+    ) -> R0
+    where
+        <Shared as crate::domain::Domain<N0>>::Fold<H0, R0>: Clone,
+        <Shared as crate::domain::Domain<N0>>::Treeish: Clone,
+    {
+        let lifted_fold = lift.lift_fold(fold.clone());
+        let lifted_treeish = lift.lift_treeish(graph.clone());
+        let lifted_root = lift.lift_root(root);
+        lift.unwrap(self.run(&lifted_fold, &lifted_treeish, &lifted_root))
+    }
+
+    pub fn run_lifted_zipped<N: Clone + Send + Sync + 'static, R: Clone + Send + Sync + 'static, N0: Clone + Send + Sync + 'static, H0: 'static, R0: 'static, H: 'static>(
+        &self,
+        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
+        fold: &<Shared as crate::domain::Domain<N0>>::Fold<H0, R0>,
+        graph: &<Shared as crate::domain::Domain<N0>>::Treeish,
+        root: &N0,
+    ) -> (R0, R)
+    where
+        <Shared as crate::domain::Domain<N0>>::Fold<H0, R0>: Clone,
+        <Shared as crate::domain::Domain<N0>>::Treeish: Clone,
+    {
+        let lifted_fold = lift.lift_fold(fold.clone());
+        let lifted_treeish = lift.lift_treeish(graph.clone());
+        let lifted_root = lift.lift_root(root);
+        let inner = self.run(&lifted_fold, &lifted_treeish, &lifted_root);
+        (lift.unwrap(inner.clone()), inner)
     }
 }
 

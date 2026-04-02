@@ -2,7 +2,7 @@
 //! with domain-compatible executors, and that transformations work
 //! across clone-able domains (Shared, Local).
 
-use hylic::domain::shared::{self as dom, Executor};
+use hylic::domain::shared as dom;
 
 // ── Tree fixture ──────────────────────────────────
 

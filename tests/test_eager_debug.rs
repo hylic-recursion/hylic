@@ -1,4 +1,4 @@
-use hylic::domain::shared::{self as dom, ExecutorExt};
+use hylic::domain::shared as dom;
 use hylic::prelude::{ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::time::Instant;

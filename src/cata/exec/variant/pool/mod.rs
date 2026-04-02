@@ -1,13 +1,9 @@
 //! Pool executor: parallel child recursion via our own WorkPool.
 //!
-//! Domain-generic — works with Shared, Local, and Owned via SyncRef.
-//! Uses binary-split fork-join (fork_join_map) with depth-based
-//! sequential cutoff. No rayon dependency.
-//!
-//! Currently Shared-only pending SyncRef implementation.
+//! Currently Shared-only pending SyncRef for domain-generic support.
 
 use std::sync::Arc;
-use crate::ops::{FoldOps, TreeOps};
+use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Shared;
 use crate::prelude::parallel::pool::{WorkPool, fork_join_map};
 use super::super::Executor;
@@ -49,7 +45,8 @@ impl PoolIn {
     }
 }
 
-// Shared impl — will become domain-generic (PoolIn<D>) with SyncRef.
+// ── Trait impl ────────────────────────────────────
+
 impl<N, R> Executor<N, R, Shared> for PoolIn
 where N: Clone + Send + Sync + 'static, R: Send + Sync + 'static,
 {
@@ -62,6 +59,56 @@ where N: Clone + Send + Sync + 'static, R: Send + Sync + 'static,
         pool_recurse(fold, graph, root, &self.pool, &self.spec, 0)
     }
 }
+
+// ── Inherent methods ──────────────────────────────
+
+impl PoolIn {
+    pub fn run<N: Clone + Send + Sync + 'static, H: 'static, R: Send + Sync + 'static>(
+        &self,
+        fold: &<Shared as crate::domain::Domain<N>>::Fold<H, R>,
+        graph: &<Shared as crate::domain::Domain<N>>::Treeish,
+        root: &N,
+    ) -> R {
+        pool_recurse(fold, graph, root, &self.pool, &self.spec, 0)
+    }
+
+    pub fn run_lifted<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static, N0: Clone + Send + Sync + 'static, H0: 'static, R0: 'static, H: 'static>(
+        &self,
+        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
+        fold: &<Shared as crate::domain::Domain<N0>>::Fold<H0, R0>,
+        graph: &<Shared as crate::domain::Domain<N0>>::Treeish,
+        root: &N0,
+    ) -> R0
+    where
+        <Shared as crate::domain::Domain<N0>>::Fold<H0, R0>: Clone,
+        <Shared as crate::domain::Domain<N0>>::Treeish: Clone,
+    {
+        let lifted_fold = lift.lift_fold(fold.clone());
+        let lifted_treeish = lift.lift_treeish(graph.clone());
+        let lifted_root = lift.lift_root(root);
+        lift.unwrap(self.run(&lifted_fold, &lifted_treeish, &lifted_root))
+    }
+
+    pub fn run_lifted_zipped<N: Clone + Send + Sync + 'static, R: Clone + Send + Sync + 'static, N0: Clone + Send + Sync + 'static, H0: 'static, R0: 'static, H: 'static>(
+        &self,
+        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
+        fold: &<Shared as crate::domain::Domain<N0>>::Fold<H0, R0>,
+        graph: &<Shared as crate::domain::Domain<N0>>::Treeish,
+        root: &N0,
+    ) -> (R0, R)
+    where
+        <Shared as crate::domain::Domain<N0>>::Fold<H0, R0>: Clone,
+        <Shared as crate::domain::Domain<N0>>::Treeish: Clone,
+    {
+        let lifted_fold = lift.lift_fold(fold.clone());
+        let lifted_treeish = lift.lift_treeish(graph.clone());
+        let lifted_root = lift.lift_root(root);
+        let inner = self.run(&lifted_fold, &lifted_treeish, &lifted_root);
+        (lift.unwrap(inner.clone()), inner)
+    }
+}
+
+// ── Recursion engine ──────────────────────────────
 
 fn pool_recurse<N, H, R>(
     fold: &(impl FoldOps<N, H, R> + Sync),

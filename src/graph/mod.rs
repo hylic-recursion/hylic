@@ -4,7 +4,6 @@ pub mod graph;
 pub mod seed;
 
 pub use types::{Treeish, Edgy, treeish, treeish_visit, treeish_from, edgy, edgy_visit};
-pub use crate::ops::TreeOps;
 pub use graph::Graph;
 pub use visit::{Visit, visit_slice};
 pub use seed::SeedGraph;

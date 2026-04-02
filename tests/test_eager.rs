@@ -1,6 +1,5 @@
-use hylic::domain::shared::{self as dom, Executor, ExecutorExt};
+use hylic::domain::shared as dom;
 // Executor — trait, needed for .run()
-// ExecutorExt — for .run_lifted()
 use hylic::prelude::{ParLazy, ParEager, WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::hint::black_box;

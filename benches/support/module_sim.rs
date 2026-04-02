@@ -195,7 +195,7 @@ pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>
 where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
 {
     use super::modes::BenchMode;
-    use hylic::domain::shared::{Executor, ExecutorExt};
+    // (no trait imports needed — inherent methods)
     use hylic::prelude::{ParLazy, ParEager};
 
     let fold = hylic_fold(sim);
