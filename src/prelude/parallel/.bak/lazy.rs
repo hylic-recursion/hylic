@@ -11,25 +11,20 @@ use std::sync::{Arc, OnceLock};
 use crate::cata::Lift;
 use crate::domain::{ConstructFold, Domain};
 use crate::ops::FoldOps;
-use super::pool::{WorkPool, fork_join_map};
+use super::pool::{WorkPool, PoolExecView, fork_join_map};
 use super::sync_unsafe::SyncRef;
 
-// ── Lazy tree data types ─────────────────────────────
-
-/// Node in the lazy computation tree. Pure data — no fold closures.
 struct LazyNode<H, R> {
     heap: H,
     children: Vec<Arc<LazyNode<H, R>>>,
     result: OnceLock<R>,
 }
 
-/// Heap during Phase 1 construction.
 pub struct LazyHeap<H, R> {
     heap: H,
     children: Vec<Arc<LazyNode<H, R>>>,
 }
 
-/// Result handle from Phase 1. Wraps a node in the lazy tree.
 pub struct LazyResult<H, R> {
     node: Arc<LazyNode<H, R>>,
 }
@@ -38,29 +33,24 @@ impl<H, R> Clone for LazyResult<H, R> {
     fn clone(&self) -> Self { LazyResult { node: self.node.clone() } }
 }
 
-// ── Phase 2: parallel bottom-up evaluation ───────────
-
-/// Evaluate a single node, recursing into children in parallel.
-/// N is a phantom — FoldOps<N,H,R> carries it but eval never calls init.
 fn eval_node<N, H: Clone, R: Clone + Send, F: FoldOps<N, H, R>>(
     node: &LazyNode<H, R>,
     fold: &SyncRef<'_, F>,
-    pool: &WorkPool,
+    view: &PoolExecView,
 ) -> R {
     node.result.get_or_init(|| {
         let mut h = node.heap.clone();
-        let n_children = node.children.len();
-        if n_children == 0 {
+        let n = node.children.len();
+        if n == 0 {
             fold.finalize(&h)
-        } else if n_children == 1 {
-            let r = eval_node(&node.children[0], fold, pool);
+        } else if n == 1 {
+            let r = eval_node(&node.children[0], fold, view);
             fold.accumulate(&mut h, &r);
             fold.finalize(&h)
         } else {
             let results = fork_join_map(
-                pool,
-                &node.children,
-                &|child: &Arc<LazyNode<H, R>>| eval_node(child, fold, pool),
+                view, &node.children,
+                &|child: &Arc<LazyNode<H, R>>| eval_node(child, fold, view),
                 0, 8,
             );
             for r in &results { fold.accumulate(&mut h, r); }
@@ -69,10 +59,6 @@ fn eval_node<N, H: Clone, R: Clone + Send, F: FoldOps<N, H, R>>(
     }).clone()
 }
 
-// ── ParLazy ──────────────────────────────────────────
-
-/// Lazy parallel strategy. Builds a data tree during Phase 1;
-/// evaluates bottom-up in parallel during Phase 2. Domain-generic.
 pub struct ParLazy;
 
 impl ParLazy {
@@ -85,24 +71,15 @@ impl ParLazy {
         R: Clone + Send + 'static,
     {
         let pool = pool.clone();
-
-        // Stash: lift_fold stores the original fold, unwrap retrieves it.
-        // Both closures run on the same thread (sequentially), so Rc<RefCell> is safe.
         let stash: Rc<RefCell<Option<<D as Domain<N>>::Fold<H, R>>>> = Rc::new(RefCell::new(None));
         let stash_write = stash.clone();
         let stash_read = stash.clone();
 
         Lift::new(
-            // lift_treeish: identity (node type unchanged)
             |treeish| treeish,
-
-            // lift_fold: stash original, build Phase 1 fold via ConstructFold
             move |original_fold: <D as Domain<N>>::Fold<H, R>| {
-                let for_stash = original_fold.clone();
-                *stash_write.borrow_mut() = Some(for_stash);
+                *stash_write.borrow_mut() = Some(original_fold.clone());
                 let f = original_fold;
-                // SAFETY: init captures D::Fold (Send+Sync for Shared,
-                // unconstrained for Local). acc/fin have no captures.
                 unsafe { D::make_fold(
                     move |node: &N| -> LazyHeap<H, R> {
                         LazyHeap { heap: f.init(node), children: Vec::new() }
@@ -121,16 +98,13 @@ impl ParLazy {
                     },
                 ) }
             },
-
-            // lift_root: identity
             |n: &N| n.clone(),
-
-            // unwrap: retrieve fold from stash, run Phase 2
             move |result: LazyResult<H, R>| {
                 let fold = stash_read.borrow_mut().take()
-                    .expect("ParLazy: fold not stashed (lift_fold not called?)");
+                    .expect("ParLazy: fold not stashed");
+                let view = PoolExecView::new(&pool);
                 let sync_fold = SyncRef(&fold);
-                eval_node::<N, H, R, _>(&result.node, &sync_fold, &pool)
+                eval_node::<N, H, R, _>(&result.node, &sync_fold, &view)
             },
         )
     }

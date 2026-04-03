@@ -1,5 +1,6 @@
 pub mod fused;
 pub mod sequential;
 pub mod rayon;
-pub mod pool;
+// Disabled until parallel module reimplemented:
+// pub mod pool;
 pub mod custom;

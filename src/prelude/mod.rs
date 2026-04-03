@@ -15,5 +15,6 @@ pub use traced::{Traced, traced_treeish};
 pub use memoize::{memoize_treeish, memoize_treeish_by};
 pub use common_folds::{count_fold, depth_fold, pretty_print};
 pub use fallible::seeds_for_fallible;
-pub use parallel::{ParLazy, ParEager, WorkPool, WorkPoolSpec};
-pub use parallel::eager::EagerSpec;
+// Re-exports disabled until parallel module is reimplemented:
+// pub use parallel::{ParLazy, ParEager, WorkPool, WorkPoolSpec, PoolExecView, ViewHandle};
+// pub use parallel::eager::EagerSpec;

@@ -81,7 +81,14 @@ impl<N: 'static> ConstructFold<N> for Shared {
         // SAFETY: caller guarantees closures are Send+Sync.
         // AssertSend bridges the type gap. Method call (.get())
         // forces Rust 2021 precise captures to grab the whole wrapper.
-        use crate::prelude::parallel::sync_unsafe::AssertSend;
+
+        /// Wrapper asserting Send+Sync for values known to satisfy these
+        /// bounds by the caller's safety contract. Use `.get()` (method call)
+        /// to force Rust 2021 precise captures to grab the whole wrapper.
+        struct AssertSend<T>(T);
+        unsafe impl<T> Send for AssertSend<T> {}
+        unsafe impl<T> Sync for AssertSend<T> {}
+        impl<T> AssertSend<T> { fn get(&self) -> &T { &self.0 } }
         let init = AssertSend(init);
         let acc = AssertSend(acc);
         let fin = AssertSend(fin);

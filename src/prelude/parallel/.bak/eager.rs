@@ -1,17 +1,14 @@
 //! Pipelined eager parallel fold as a Lift — domain-generic.
 //!
-//! Phase 1 (fused traversal): runs fold.init per node, builds
-//! Completion handles. Leaf finalize submits Phase 2 work immediately.
-//! Interior finalize wires a Collector counting down children.
+//! Phase 1: fused traversal builds Completion handles. Leaf finalize
+//! submits Phase 2 work via ViewHandle. Interior finalize wires Collectors.
 //!
-//! Phase 2 (continuation-passing, overlapping with Phase 1):
-//! When a child completes, it notifies the parent Collector. The LAST
-//! child to arrive runs the parent's acc+fin INLINE — no new task, no
-//! blocking. The chain propagates upward to the root.
+//! Phase 2: continuation-passing, overlapping with Phase 1. Last child
+//! to arrive runs parent's acc+fin INLINE.
 //!
-//! Domain-generic via FoldPtr: a lifetime-erased raw pointer to the
-//! fold's operations. The fold lives in the stash (stable heap address)
-//! and outlives all tasks (unwrap waits for root before dropping it).
+//! The PoolExecView is created in lift_fold (before Phase 1), stored in
+//! an Rc stash. ViewHandle (Arc-based, no raw pointers) is injected into
+//! finalize closures via ContextSlot. Unwrap waits for root, then drops.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -22,37 +19,25 @@ use crate::cata::Lift;
 use crate::domain::{ConstructFold, Domain};
 use crate::ops::FoldOps;
 use super::completion::Completion;
-use super::pool::{WorkPool, WorkPoolSpec};
+use super::context_slot::ContextSlot;
+use super::pool::{WorkPool, WorkPoolSpec, PoolExecView, ViewHandle};
 use super::sync_unsafe::FoldPtr;
 
 // ── EagerSpec ────────────────────────────────────────
 
-/// Controls the eager lift's parallelism granularity.
 pub struct EagerSpec {
-    /// Minimum children to create a Collector. Below this threshold,
-    /// children are waited on inline (the worker helps the pool while
-    /// waiting). Default: 2.
     pub min_children_to_fork: usize,
-    /// Minimum subtree height to fork. Nodes whose tallest child
-    /// subtree has height < this threshold go sequential. Height 0 =
-    /// leaf; height 1 = parent of leaves only. Default: 2.
     pub min_height_to_fork: usize,
 }
 
 impl EagerSpec {
     pub fn default_for(_n_workers: usize) -> Self {
-        EagerSpec {
-            min_children_to_fork: 2,
-            min_height_to_fork: 2,
-        }
+        EagerSpec { min_children_to_fork: 2, min_height_to_fork: 2 }
     }
 }
 
 // ── Collector ────────────────────────────────────────
 
-/// Reactive parent computation. Counts down as children complete.
-/// The LAST child runs acc+fin INLINE on its thread — no task
-/// submission, no blocking.
 struct Collector<N: 'static, H: 'static, R: 'static> {
     remaining: AtomicUsize,
     heap: Mutex<H>,
@@ -63,15 +48,8 @@ struct Collector<N: 'static, H: 'static, R: 'static> {
 
 impl<N: 'static, H: Send + 'static, R: Clone + Send + 'static> Collector<N, H, R> {
     fn child_done(self: &Arc<Self>, child_index: usize, result: R) {
-        {
-            self.child_results.lock().unwrap()[child_index] = Some(result);
-        }
-        let prev = self.remaining.fetch_sub(1, Ordering::AcqRel);
-        if prev == 1 {
-            // Last child — run acc+fin inline.
-            // SAFETY: fold pointer valid — this Collector firing is on the
-            // path to root completion. The stash (holding the fold) is not
-            // taken until unwrap waits for root.
+        { self.child_results.lock().unwrap()[child_index] = Some(result); }
+        if self.remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
             let mut h = self.heap.lock().unwrap();
             let results = self.child_results.lock().unwrap();
             for r in results.iter() {
@@ -85,8 +63,6 @@ impl<N: 'static, H: Send + 'static, R: Clone + Send + 'static> Collector<N, H, R
     }
 }
 
-// Collector fields: Mutex<H> (Send if H: Send), Mutex<Vec<Option<R>>> (Send if R: Send),
-// Completion<R> (Arc-based, Send), FoldPtr (Send+Sync by assertion), AtomicUsize (Send+Sync).
 unsafe impl<N, H: Send, R: Send> Send for Collector<N, H, R> {}
 unsafe impl<N, H: Send, R: Send> Sync for Collector<N, H, R> {}
 
@@ -104,13 +80,13 @@ pub struct EagerResult<R> {
 }
 
 impl<R> Clone for EagerResult<R> {
-    fn clone(&self) -> Self { EagerResult { completion: self.completion.clone(), height: self.height } }
+    fn clone(&self) -> Self {
+        EagerResult { completion: self.completion.clone(), height: self.height }
+    }
 }
 
 // ── ParEager ─────────────────────────────────────────
 
-/// Eager parallel strategy. Phase 1 and Phase 2 overlap — leaf work
-/// starts during the fused traversal. Domain-generic via FoldPtr.
 pub struct ParEager;
 
 impl ParEager {
@@ -125,42 +101,54 @@ impl ParEager {
         H: Clone + Send + 'static,
         R: Clone + Send + 'static,
     {
-        let pool_for_unwrap = pool.clone();
-        let pool_for_fin = pool.clone();
+        let pool_for_lift = pool.clone();
 
-        let stash: Rc<RefCell<Option<<D as Domain<N>>::Fold<H, R>>>> = Rc::new(RefCell::new(None));
+        // Fold stash: lift_fold stores, unwrap retrieves.
+        let stash: Rc<RefCell<Option<<D as Domain<N>>::Fold<H, R>>>> =
+            Rc::new(RefCell::new(None));
         let stash_write = stash.clone();
         let stash_read = stash.clone();
+
+        // View stash: lift_fold creates the view, unwrap drops it.
+        let view_stash: Rc<RefCell<Option<PoolExecView>>> =
+            Rc::new(RefCell::new(None));
+        let view_stash_write = view_stash.clone();
+        let view_stash_read = view_stash.clone();
+
+        // ContextSlot for ViewHandle — filled in lift_fold, read by
+        // finalize closures, cleared in unwrap.
+        let view_slot: Arc<ContextSlot<ViewHandle>> = Arc::new(ContextSlot::new());
+        let view_slot_fill = view_slot.clone();
+        let view_slot_clear = view_slot.clone();
 
         let min_fork = spec.min_children_to_fork;
         let min_height = spec.min_height_to_fork;
 
         Lift::new(
-            // lift_treeish: identity
             |treeish| treeish,
 
-            // lift_fold: stash fold, create FoldPtr, build Phase 1 fold
+            // lift_fold: stash fold + create view + fill slot + build Phase 1 fold
             move |original_fold: <D as Domain<N>>::Fold<H, R>| {
-                // Clone for the init closure (needs fold.init during Phase 1)
                 let fold_for_init = original_fold.clone();
-                // Stash for FoldPtr (acc+fin during Phase 2)
                 *stash_write.borrow_mut() = Some(original_fold);
 
-                // SAFETY: fold is in the stash at a stable heap address (Rc
-                // allocation). Pointer valid until unwrap takes from stash.
                 let fold_ptr = unsafe {
                     let stash_ref = stash_write.borrow();
                     FoldPtr::from_ref(stash_ref.as_ref().unwrap())
                 };
 
-                let pool = pool_for_fin.clone();
+                // Create view and stash it. The view lives in the Rc
+                // (heap-stable) until unwrap drops it.
+                let view = PoolExecView::new(&pool_for_lift);
+                let vh = view.handle(); // Arc-based — stable regardless of moves
+                *view_stash_write.borrow_mut() = Some(view);
 
-                // SAFETY (make_fold for Shared): init captures fold_for_init
-                // (D::Fold, which is Arc-based for Shared → Send+Sync).
-                // acc captures nothing domain-specific. fin captures FoldPtr
-                // (Send+Sync) + Arc<WorkPool> (Send+Sync) + usize.
+                // Fill the ContextSlot. Cleared in unwrap.
+                unsafe { *view_slot_fill.inner_raw() = Some(vh); }
+
+                let view_slot = view_slot_fill.clone();
+
                 unsafe { D::make_fold(
-                    // ── init: call original fold's init ──
                     move |node: &N| -> EagerHeap<H, R> {
                         EagerHeap {
                             heap: fold_for_init.init(node),
@@ -169,7 +157,6 @@ impl ParEager {
                         }
                     },
 
-                    // ── accumulate: collect child Completion handles + track height ──
                     |heap: &mut EagerHeap<H, R>, child: &EagerResult<R>| {
                         heap.children.push(child.completion.clone());
                         if child.height > heap.max_child_height {
@@ -177,33 +164,29 @@ impl ParEager {
                         }
                     },
 
-                    // ── finalize: wire continuation chain, submit leaves ──
                     move |heap: &EagerHeap<H, R>| -> EagerResult<R> {
+                        let vh = view_slot.get();
                         let completion = Completion::new();
                         let n_children = heap.children.len();
                         let my_height = if n_children == 0 { 0 } else { heap.max_child_height + 1 };
-                        let go_sequential = n_children < min_fork
-                            || my_height < min_height;
+                        let go_sequential = n_children < min_fork || my_height < min_height;
 
                         if n_children == 0 {
-                            // LEAF: submit finalize to pool immediately
                             let h = heap.heap.clone();
                             let fp = fold_ptr;
                             let comp = completion.clone();
-                            pool.submit(Box::new(move || {
+                            vh.submit(Box::new(move || {
                                 comp.set(fp.finalize(&h));
                             }));
                         } else if go_sequential {
-                            // BELOW CUTOFF: wait+help inline, no Collector
                             let mut h = heap.heap.clone();
                             let fp = fold_ptr;
                             for child in &heap.children {
-                                let r = child.wait(&pool);
+                                let r = child.wait(vh.clone());
                                 fp.accumulate(&mut h, &r);
                             }
                             completion.set(fp.finalize(&h));
                         } else {
-                            // PARALLEL: create Collector, wire children
                             let collector = Arc::new(Collector {
                                 remaining: AtomicUsize::new(n_children),
                                 heap: Mutex::new(heap.heap.clone()),
@@ -226,15 +209,15 @@ impl ParEager {
                 ) }
             },
 
-            // lift_root: identity
             |n: &N| n.clone(),
 
-            // unwrap: wait for root, then drop fold from stash
+            // unwrap: wait for root, clear slot, drop view + fold
             move |result: EagerResult<R>| {
-                let r = result.completion.wait(&pool_for_unwrap);
-                // All tasks done — safe to drop fold (invalidates FoldPtrs,
-                // but no copies are alive anymore).
+                let vh = view_slot_clear.get().clone();
+                let r = result.completion.wait(vh);
+                unsafe { *view_slot_clear.inner_raw() = None; }
                 let _fold = stash_read.borrow_mut().take();
+                let _view = view_stash_read.borrow_mut().take();
                 r
             },
         )
