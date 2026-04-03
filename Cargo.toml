@@ -27,3 +27,7 @@ harness = false
 [[bench]]
 name = "bench_module_sim"
 harness = false
+
+[[bench]]
+name = "bench_executor_compare"
+harness = false
