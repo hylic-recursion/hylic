@@ -109,3 +109,49 @@ fn lifts_domain_generic_comprehensive() {
         assert_eq!(pool_local.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &lf, &lg, &tree), expected, "Eager+Pool+Local");
     });
 }
+
+/// Level 6 stress: ParEager + PoolIn on a 200-node tree, 4 workers, 20 iterations.
+#[test]
+fn stress_eager_pool_200_nodes() {
+    use crate::cata::exec::{PoolIn, PoolSpec};
+    use crate::prelude::{ParEager, EagerSpec};
+
+    let tree = big_tree(200, 6);
+    let fold = dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; });
+    let graph = dom::treeish(|n: &N| n.children.clone());
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
+
+    for iteration in 0..20 {
+        WorkPool::with(WorkPoolSpec::threads(4), |pool| {
+            let pool_exec = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(4));
+            let result = pool_exec.run_lifted(
+                &ParEager::lift(pool, EagerSpec::default_for(4)),
+                &fold, &graph, &tree,
+            );
+            assert_eq!(result, expected, "eager stress iteration {iteration}");
+        });
+    }
+}
+
+/// Level 6 stress: ParLazy + PoolIn same parameters.
+#[test]
+fn stress_lazy_pool_200_nodes() {
+    use crate::cata::exec::{PoolIn, PoolSpec};
+    use crate::prelude::ParLazy;
+
+    let tree = big_tree(200, 6);
+    let fold = dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; });
+    let graph = dom::treeish(|n: &N| n.children.clone());
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
+
+    for iteration in 0..20 {
+        WorkPool::with(WorkPoolSpec::threads(4), |pool| {
+            let pool_exec = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(4));
+            let result = pool_exec.run_lifted(
+                &ParLazy::lift(pool),
+                &fold, &graph, &tree,
+            );
+            assert_eq!(result, expected, "lazy stress iteration {iteration}");
+        });
+    }
+}
