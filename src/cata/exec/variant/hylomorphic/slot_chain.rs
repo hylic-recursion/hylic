@@ -152,10 +152,8 @@ impl<H, R> SlotChain<H, R> {
     /// try_advance may or may not have completed — call it once more.
     pub fn finish<N>(&self, fold: &impl FoldOps<N, H, R>) -> R {
         self.try_advance(fold);
-        // Spin briefly if another thread is mid-finalize
-        while !self.done.load(Ordering::Acquire) {
-            std::hint::spin_loop();
-        }
+        debug_assert!(self.done.load(Ordering::Acquire),
+            "SlotChain not done after all joins returned — indicates a protocol bug");
         unsafe { (*self.result.get()).take().expect("chain result not set") }
     }
 }

@@ -97,6 +97,11 @@ pub fn all_scenarios(scale: Scale) -> Vec<ScenarioDef> {
         def("wide-shallow", "wide",     TreeSpec { node_count: n, branch_factor: 20 }, w(50_000, 10_000, 10_000, 10_000, 0)),
         def("deep-narrow",  "deep",     TreeSpec { node_count: n, branch_factor: 2 },  w(50_000, 10_000, 10_000, 10_000, 0)),
         def("large-dense",  "lg-dense", TreeSpec { node_count: n_large, branch_factor: 10 }, w(50_000, 10_000, 10_000, 10_000, 0)),
+        // Graph-heavy: edge discovery is the dominant cost (like module resolution).
+        // Light dict-merge accumulate. Models dependency graph traversal.
+        def("graph-heavy",  "graph-hv", TreeSpec { node_count: n, branch_factor: 8 },  w(5_000, 10_000, 5_000, 200_000, 0)),
+        // Graph-heavy with I/O: each edge has latency (like filesystem lookup).
+        def("graph-io",     "graph-io", TreeSpec { node_count: n, branch_factor: 8 },  w(5_000, 10_000, 5_000, 50_000, 200)),
     ]
 }
 
