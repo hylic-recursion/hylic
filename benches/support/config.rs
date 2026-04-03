@@ -17,10 +17,13 @@ pub const SEQUENTIAL_OWNED:  &str = "hylic.sequential.owned";
 
 // ── Parallel (direct executors) ──────────────────
 
-pub const RAYON_SHARED:      &str = "hylic.rayon.shared";
-pub const POOL_SHARED:       &str = "hylic.pool.shared";
-pub const POOL_LOCAL:        &str = "hylic.pool.local";
-pub const POOL_OWNED:        &str = "hylic.pool.owned";
+pub const RAYON_SHARED:         &str = "hylic.rayon.shared";
+pub const POOL_SHARED:          &str = "hylic.pool.shared";
+pub const POOL_LOCAL:           &str = "hylic.pool.local";
+pub const POOL_OWNED:           &str = "hylic.pool.owned";
+pub const FUSED_PAR_SHARED:     &str = "hylic.fused_par.shared";
+pub const FUSED_PAR_LOCAL:      &str = "hylic.fused_par.local";
+pub const FUSED_PAR_OWNED:      &str = "hylic.fused_par.owned";
 
 // ── Parallel (with lifts — Shared) ───────────────
 
