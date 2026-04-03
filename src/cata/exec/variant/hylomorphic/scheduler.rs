@@ -1,6 +1,13 @@
-//! Scheduler: DFS traversal with arena-based work stealing.
-//! Safe code over arena's atomic API.
+//! Scheduler: DFS traversal with tree-navigating work stealing.
+//!
+//! The DFS thread processes children depth-first. When a worker needs
+//! work, it navigates the tree from its last position: walk up to the
+//! parent, check right siblings, steal a pending one. O(depth) per
+//! steal in theory, O(1) in practice (pending siblings are near).
+//!
+//! No StealQueue. The arena IS the work structure. Workers navigate it.
 
+use std::cell::Cell;
 use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
 use crate::prelude::parallel::pool::{PoolExecView, SyncRef};
@@ -22,22 +29,25 @@ where
     let arena: Arena<N, H, R> = Arena::new();
     let root_id = arena.alloc(root.clone(), None, 0);
 
-    // Wrap fold/graph in SyncRef for cross-thread sharing.
-    // Safe: all workers join before run_fold returns (scoped pool).
     let sf = SyncRef(fold);
     let sg = SyncRef(graph);
 
-    // Activate root and process it
-    let root_entry = arena.get(root_id);
-    root_entry.try_activate(); // root is always ours
+    arena.get(root_id).try_activate();
+    process_node(&sf, &sg, root_id, &arena);
 
-    process_node(&sf, &sg, root_id, &arena, view);
-
+    // Help until root is Ready
+    let cursor = Cell::new(root_id);
     while arena.get(root_id).state.load(Ordering::Acquire) != READY {
-        if !help_once(&sf, &sg, &arena, view) {
-            if !view.help_once() {
-                std::hint::spin_loop();
+        if let Some(node_id) = find_work_near(&arena, cursor.get()) {
+            if arena.get(node_id).try_activate() {
+                process_node(&sf, &sg, node_id, &arena);
+                cursor.set(node_id);
+                continue;
             }
+        }
+        // No tree work found — help the pool (ParEager Phase 2 etc.)
+        if !view.help_once() {
+            std::thread::yield_now();
         }
     }
 
@@ -49,7 +59,6 @@ fn process_node<N, H, R>(
     graph: &SyncRef<'_, impl TreeOps<N>>,
     node_id: NodeId,
     arena: &Arena<N, H, R>,
-    view: &PoolExecView,
 ) where
     N: Clone + Send + 'static,
     H: 'static,
@@ -71,34 +80,29 @@ fn process_node<N, H, R>(
     if child_count == 0 {
         let result = fold.finalize(unsafe { entry.heap_mut() });
         entry.write_result(result);
-        notify_parent(fold, arena, node_id, view);
+        notify_parent(fold, arena, node_id);
         return;
     }
 
     // DFS into first child
     let first = entry.child_at(0);
     if arena.get(first).try_activate() {
-        process_node(fold, graph, first, arena, view);
+        process_node(fold, graph, first, arena);
     }
 
     // Process remaining children not yet stolen
     for i in 1..child_count {
         let child_id = entry.child_at(i);
         if arena.get(child_id).try_activate() {
-            process_node(fold, graph, child_id, arena, view);
+            process_node(fold, graph, child_id, arena);
         }
     }
-
-    // Don't finalize here — notify_parent cascade handles it.
-    // The last child to complete (via notify_parent) runs
-    // do_finalize + notify_parent on this node.
 }
 
 fn notify_parent<N, H, R>(
     fold: &SyncRef<'_, impl FoldOps<N, H, R>>,
     arena: &Arena<N, H, R>,
     child_id: NodeId,
-    view: &PoolExecView,
 ) where
     N: Send + 'static,
     H: 'static,
@@ -109,7 +113,7 @@ fn notify_parent<N, H, R>(
         let parent = arena.get(parent_id);
         if parent.child_completed() {
             do_finalize(fold, arena, parent_id);
-            notify_parent(fold, arena, parent_id, view);
+            notify_parent(fold, arena, parent_id);
         }
     }
 }
@@ -136,26 +140,49 @@ fn do_finalize<N, H, R>(
     entry.write_result(result);
 }
 
-fn help_once<N, H, R>(
-    fold: &SyncRef<'_, impl FoldOps<N, H, R>>,
-    graph: &SyncRef<'_, impl TreeOps<N>>,
+/// Find pending work by navigating from the cursor position.
+/// Walk up to parent, check right siblings. O(depth) worst case.
+fn find_work_near<N, H, R>(
     arena: &Arena<N, H, R>,
-    view: &PoolExecView,
-) -> bool
+    start: NodeId,
+) -> Option<NodeId>
 where
-    N: Clone + Send + 'static,
+    N: Send + 'static,
     H: 'static,
-    R: Clone + Send + 'static,
+    R: Send + 'static,
 {
+    let mut cursor = start;
+
+    loop {
+        let entry = arena.get(cursor);
+
+        // Check: does this node have pending children?
+        if entry.children_known.load(Ordering::Acquire) {
+            let total = entry.children_total.load(Ordering::Acquire);
+            for i in 0..total {
+                let child_id = entry.child_at(i);
+                if arena.get(child_id).state.load(Ordering::Acquire) == PENDING {
+                    return Some(child_id);
+                }
+            }
+        }
+
+        // No pending children here. Walk up.
+        match entry.parent {
+            Some(parent_id) => cursor = parent_id,
+            None => break, // reached root
+        }
+    }
+
+    // Fallback: scan the arena linearly (rare — only when the tree
+    // navigation missed something due to concurrent activation).
     let len = arena.len();
     for i in 0..len {
         let id = NodeId(i);
         if arena.get(id).state.load(Ordering::Acquire) == PENDING {
-            if arena.get(id).try_activate() {
-                process_node(fold, graph, id, arena, view);
-                return true;
-            }
+            return Some(id);
         }
     }
-    false
+
+    None
 }
