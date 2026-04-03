@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::hint::black_box;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{PoolIn, PoolSpec, FusedParallelIn, FusedParallelSpec};
+use hylic::cata::exec::{PoolIn, PoolSpec};
 use hylic::prelude::{ParLazy, ParEager, WorkPool, PoolExecView};
 
 use super::config as id;
@@ -136,15 +136,9 @@ pub fn parallel_modes<'a>(
     let local_fold_ell = local_fold.clone();
     let local_tree_ell = local_tree.clone();
 
-    // Additional Local clones for fused_par
-    let local_fold_fp = local_fold.clone();
-    let local_tree_fp = local_tree.clone();
-
-    // Owned domain for Pool.Owned + FusedPar.Owned
+    // Owned domain for Pool.Owned
     let owned_fold = make_owned_fold(&s.work);
     let owned_tree = make_owned_treeish(&s.work, &s.children);
-    let owned_fold_fp = make_owned_fold(&s.work);
-    let owned_tree_fp = make_owned_treeish(&s.work, &s.children);
 
     // Lifts (Shared domain)
     let par_lazy_fused = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
@@ -169,11 +163,6 @@ pub fn parallel_modes<'a>(
     let pool_local3  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
     let pool_owned   = PoolIn::<hylic::domain::Owned>::new(pool, PoolSpec::default_for(3));
 
-    // FusedParallel executors (all domains)
-    let fpar_shared = FusedParallelIn::<hylic::domain::Shared>::new(pool, FusedParallelSpec::default_for(3));
-    let fpar_local  = FusedParallelIn::<hylic::domain::Local>::new(pool, FusedParallelSpec::default_for(3));
-    let fpar_owned  = FusedParallelIn::<hylic::domain::Owned>::new(pool, FusedParallelSpec::default_for(3));
-
     let work = Arc::new(s.work.clone());
 
     vec![
@@ -188,14 +177,6 @@ pub fn parallel_modes<'a>(
             run: Box::new(move || pool_local.run(&local_fold, &local_tree, root)) },
         BenchMode { name: id::POOL_OWNED,
             run: Box::new(move || pool_owned.run(&owned_fold, &owned_tree, root)) },
-
-        // ── hylic fused-parallel (all domains) ───────────
-        BenchMode { name: id::FUSED_PAR_SHARED,
-            run: Box::new(move || fpar_shared.run(fold, treeish, root)) },
-        BenchMode { name: id::FUSED_PAR_LOCAL,
-            run: Box::new(move || fpar_local.run(&local_fold_fp, &local_tree_fp, root)) },
-        BenchMode { name: id::FUSED_PAR_OWNED,
-            run: Box::new(move || fpar_owned.run(&owned_fold_fp, &owned_tree_fp, root)) },
 
         // ── hylic ParLazy lift ──────────────────────────
         BenchMode { name: id::PARREF_FUSED_SHARED,
