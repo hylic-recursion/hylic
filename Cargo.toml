@@ -28,7 +28,6 @@ harness = false
 name = "bench_module_sim"
 harness = false
 
-## Re-add when hylomorphic executor is ready:
-# [[bench]]
-# name = "bench_executor_compare"
-# harness = false
+[[bench]]
+name = "bench_executor_compare"
+harness = false
