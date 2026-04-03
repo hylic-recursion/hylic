@@ -216,6 +216,13 @@ impl PoolExecView {
         }
         false
     }
+
+    /// True if no tasks are queued in this view's deque.
+    /// Used by the fused-parallel executor to detect idle workers
+    /// (empty queue = workers have nothing to steal = demand exists).
+    pub fn queue_is_empty(&self) -> bool {
+        self.deque.is_empty()
+    }
 }
 
 impl Drop for PoolExecView {
