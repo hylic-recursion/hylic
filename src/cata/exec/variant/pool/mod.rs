@@ -1,14 +1,10 @@
 //! Pool executor: parallel child recursion via WorkPool + PoolExecView.
-//!
-//! Domain-generic via SyncRef — works with Shared, Local, and Owned.
-//! Creates a PoolExecView per run() call — scoped, zero globals.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Domain;
-use crate::prelude::parallel::pool::{WorkPool, PoolExecView, fork_join_map};
-use crate::prelude::parallel::sync_unsafe::SyncRef;
+use crate::prelude::parallel::pool::{WorkPool, PoolExecView, SyncRef, fork_join_map};
 use super::super::Executor;
 
 pub struct PoolSpec {
@@ -23,16 +19,8 @@ impl PoolSpec {
             min_children_to_fork: 2,
         }
     }
-
-    pub fn with_fork_depth(mut self, depth: usize) -> Self {
-        self.fork_depth_limit = depth;
-        self
-    }
-
-    pub fn with_min_children(mut self, min: usize) -> Self {
-        self.min_children_to_fork = min;
-        self
-    }
+    pub fn with_fork_depth(mut self, depth: usize) -> Self { self.fork_depth_limit = depth; self }
+    pub fn with_min_children(mut self, min: usize) -> Self { self.min_children_to_fork = min; self }
 }
 
 pub struct PoolIn<D> {
@@ -52,9 +40,7 @@ where N: Clone + Send + 'static, R: Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         let view = PoolExecView::new(&self.pool);
-        let sync_fold = SyncRef(fold);
-        let sync_graph = SyncRef(graph);
-        pool_recurse(&sync_fold, &sync_graph, root, &view, &self.spec, 0)
+        pool_recurse(&SyncRef(fold), &SyncRef(graph), root, &view, &self.spec, 0)
     }
 }
 
@@ -63,9 +49,7 @@ impl<D> PoolIn<D> {
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N> {
         let view = PoolExecView::new(&self.pool);
-        let sync_fold = SyncRef(fold);
-        let sync_graph = SyncRef(graph);
-        pool_recurse(&sync_fold, &sync_graph, root, &view, &self.spec, 0)
+        pool_recurse(&SyncRef(fold), &SyncRef(graph), root, &view, &self.spec, 0)
     }
 
     pub fn run_lifted<N: Clone + Send + 'static, R: Send + 'static, N0: Clone + Send + 'static, H0: 'static, R0: 'static, H: 'static>(

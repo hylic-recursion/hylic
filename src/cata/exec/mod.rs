@@ -14,8 +14,7 @@ pub mod variant;
 pub use variant::fused::FusedIn;
 pub use variant::sequential::SequentialIn;
 pub use variant::rayon::RayonIn;
-// Disabled until parallel module reimplemented:
-// pub use variant::pool::{PoolIn, PoolSpec};
+pub use variant::pool::{PoolIn, PoolSpec};
 pub use variant::custom::Custom;
 
 use std::marker::PhantomData;
