@@ -1,7 +1,7 @@
-//! Hylomorphic parallel executor: CPS zipper with reactive accumulation.
+//! Hylomorphic parallel executor: arena-based tree-aware scheduling.
 
-pub(crate) mod slot_chain;
-mod walk;
+pub mod arena;
+mod scheduler;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -32,16 +32,16 @@ where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         let view = PoolExecView::new(&self.pool);
-        walk::run_fold(fold, graph, root, &view)
+        scheduler::run_fold(fold, graph, root, &view)
     }
 }
 
 impl<D> HylomorphicIn<D> {
     pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
-    ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static {
+    ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: Send + 'static, R: Clone + Send + 'static {
         let view = PoolExecView::new(&self.pool);
-        walk::run_fold(fold, graph, root, &view)
+        scheduler::run_fold(fold, graph, root, &view)
     }
 
     pub fn run_lifted<N, R, N0, H0, R0, H>(
@@ -49,8 +49,9 @@ impl<D> HylomorphicIn<D> {
         fold: &<D as Domain<N0>>::Fold<H0, R0>, graph: &<D as Domain<N0>>::Treeish, root: &N0,
     ) -> R0 where
         D: Domain<N> + Domain<N0>,
-        <D as Domain<N0>>::Fold<H0, R0>: Clone, <D as Domain<N0>>::Treeish: Clone,
-        N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+        N: Clone + Send + 'static, H: Send + 'static, R: Clone + Send + 'static,
         N0: Clone + Send + 'static, H0: 'static, R0: 'static,
     {
         let lifted_fold = lift.lift_fold(fold.clone());

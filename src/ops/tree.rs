@@ -12,12 +12,7 @@ pub trait TreeOps<N> {
     fn visit(&self, node: &N, cb: &mut dyn FnMut(&N));
 
     /// Visit with a monomorphized callback — avoids the `dyn FnMut`
-    /// vtable dispatch that `visit` requires. Default delegates to
-    /// `visit`. Override in concrete TreeOps implementations for
-    /// zero-overhead child iteration.
-    ///
-    /// The `Sized` bound preserves object safety — `dyn TreeOps<N>`
-    /// can still be used (it just can't call `visit_inline`).
+    /// vtable dispatch that `visit` requires.
     fn visit_inline<F: FnMut(&N)>(&self, node: &N, cb: &mut F)
     where Self: Sized
     {
@@ -30,5 +25,40 @@ pub trait TreeOps<N> {
         self.visit(node, &mut |child| v.push(child.clone()));
         v
     }
+
+    /// Pull-based: get first child + a cursor for remaining siblings.
+    /// The cursor is OWNED — sendable to another thread.
+    /// Default: collect via visit, split into first + rest.
+    fn first_child(&self, node: &N) -> Option<(N, ChildCursor<N>)>
+    where N: Clone, Self: Sized
+    {
+        let mut children = Vec::new();
+        self.visit(node, &mut |child| children.push(child.clone()));
+        if children.is_empty() { return None; }
+        let first = children.remove(0);
+        Some((first, ChildCursor(children)))
+    }
 }
 // ANCHOR_END: treeops_trait
+
+/// Owned cursor over remaining siblings. Send + 'static.
+/// Pull one child at a time via `next()`.
+pub struct ChildCursor<N>(Vec<N>);
+
+impl<N> ChildCursor<N> {
+    /// Pull the next child. Returns the child + a cursor for the rest.
+    /// Returns None if no more children.
+    pub fn next(mut self) -> Option<(N, ChildCursor<N>)> {
+        if self.0.is_empty() {
+            None
+        } else {
+            let first = self.0.remove(0);
+            Some((first, ChildCursor(self.0)))
+        }
+    }
+
+    /// True if no more children.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}

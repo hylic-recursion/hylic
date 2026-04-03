@@ -3,5 +3,5 @@ pub mod tree;
 pub mod lift;
 
 pub use fold::{FoldOps, FoldConstruct};
-pub use tree::TreeOps;
+pub use tree::{TreeOps, ChildCursor};
 pub use lift::LiftOps;
