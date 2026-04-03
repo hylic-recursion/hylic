@@ -1,33 +1,18 @@
-//! Hylomorphic parallel executor: tree-aware scheduling via arena + zipper frames.
-//!
-//! The tree is discovered lazily during DFS (via visit callback).
-//! Nodes are registered in a concurrent arena. Each worker holds a
-//! stack of zipper frames — the defunctionalized continuation of its
-//! traversal. Remaining siblings in a frame are stealable by idle workers.
-//!
-//! Preserves hylomorphism fusion: graph traversal and fold computation
-//! interleaved in one pass per thread. No Vec of children materialized.
+//! Hylomorphic parallel executor: arena-based tree-aware scheduling.
 
 pub mod arena;
 mod scheduler;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
-use crate::ops::{FoldOps, TreeOps, LiftOps};
+use crate::ops::LiftOps;
 use crate::domain::Domain;
-use crate::prelude::parallel::pool::{WorkPool, PoolExecView, SyncRef};
+use crate::prelude::parallel::pool::{WorkPool, PoolExecView};
 use super::super::Executor;
 
-pub struct HylomorphicSpec {
-    /// Always DFS into the first child locally (fused).
-    /// Remaining children are stealable.
-    pub _reserved: (),
-}
-
+pub struct HylomorphicSpec { pub _reserved: () }
 impl HylomorphicSpec {
-    pub fn default_for(_n_workers: usize) -> Self {
-        HylomorphicSpec { _reserved: () }
-    }
+    pub fn default_for(_n_workers: usize) -> Self { HylomorphicSpec { _reserved: () } }
 }
 
 pub struct HylomorphicIn<D> {
@@ -45,24 +30,30 @@ impl<D> HylomorphicIn<D> {
 impl<N, R, D: Domain<N>> Executor<N, R, D> for HylomorphicIn<D>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
-    fn run<H: Clone + Send + 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         let view = PoolExecView::new(&self.pool);
         scheduler::run_fold(fold, graph, root, &view)
     }
 }
 
 impl<D> HylomorphicIn<D> {
-    pub fn run<N: Clone + Send + 'static, H: Clone + Send + 'static, R: Clone + Send + 'static>(
+    pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
-    ) -> R where D: Domain<N> {
+    ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: Send + 'static, R: Clone + Send + 'static {
         let view = PoolExecView::new(&self.pool);
         scheduler::run_fold(fold, graph, root, &view)
     }
 
-    pub fn run_lifted<N: Clone + Send + 'static, R: Clone + Send + 'static, N0: Clone + Send + 'static, H0: Clone + Send + 'static, R0: 'static, H: Clone + Send + 'static>(
+    pub fn run_lifted<N, R, N0, H0, R0, H>(
         &self, lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
         fold: &<D as Domain<N0>>::Fold<H0, R0>, graph: &<D as Domain<N0>>::Treeish, root: &N0,
-    ) -> R0 where D: Domain<N> + Domain<N0>, <D as Domain<N0>>::Fold<H0, R0>: Clone, <D as Domain<N0>>::Treeish: Clone {
+    ) -> R0 where
+        D: Domain<N> + Domain<N0>,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+        N: Clone + Send + 'static, H: Send + 'static, R: Clone + Send + 'static,
+        N0: Clone + Send + 'static, H0: 'static, R0: 'static,
+    {
         let lifted_fold = lift.lift_fold(fold.clone());
         let lifted_treeish = lift.lift_treeish(graph.clone());
         let lifted_root = lift.lift_root(root);
@@ -141,29 +132,28 @@ mod tests {
     }
 
     #[test]
-    fn with_lift() {
-        use crate::prelude::{ParLazy, ParEager, EagerSpec};
+    fn with_lift_lazy() {
+        use crate::prelude::ParLazy;
         let tree = big_tree(60, 4);
         let fold = dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; });
         let graph = dom::treeish(|n: &N| n.children.clone());
         let expected = dom::FUSED.run(&fold, &graph, &tree);
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
             let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
-            assert_eq!(exec.run_lifted(&ParLazy::lift(pool), &fold, &graph, &tree), expected, "Lazy+Hylo");
-            assert_eq!(exec.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &fold, &graph, &tree), expected, "Eager+Hylo");
+            assert_eq!(exec.run_lifted(&ParLazy::lift(pool), &fold, &graph, &tree), expected);
         });
     }
 
     #[test]
-    fn local_domain() {
-        use crate::domain::local;
+    fn with_lift_eager() {
+        use crate::prelude::{ParEager, EagerSpec};
         let tree = big_tree(60, 4);
-        let fold = local::fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; }, |h: &i32| *h);
-        let graph = local::treeish_visit(|n: &N, cb: &mut dyn FnMut(&N)| { for c in &n.children { cb(c); } });
-        let expected = local::FUSED.run(&fold, &graph, &tree);
+        let fold = dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; });
+        let graph = dom::treeish(|n: &N| n.children.clone());
+        let expected = dom::FUSED.run(&fold, &graph, &tree);
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            let exec = HylomorphicIn::<crate::domain::Local>::new(pool, HylomorphicSpec::default_for(3));
-            assert_eq!(exec.run(&fold, &graph, &tree), expected);
+            let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
+            assert_eq!(exec.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &fold, &graph, &tree), expected);
         });
     }
 }

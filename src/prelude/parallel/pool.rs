@@ -218,7 +218,7 @@ impl PoolExecView {
         }
     }
 
-    fn help_once(&self) -> bool {
+    pub fn help_once(&self) -> bool {
         if let Some(task) = self.deque.steal() {
             unsafe { task.execute(); }
             return true;

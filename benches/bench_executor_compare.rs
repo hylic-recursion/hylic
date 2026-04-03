@@ -1,5 +1,4 @@
 //! Focused benchmark: Hylomorphic vs Pool vs Rayon (Shared domain).
-//! Includes hand-rolled baselines for direct overhead comparison.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -25,33 +24,28 @@ fn bench_executor_compare(c: &mut Criterion) {
             let hylo_exec = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
 
             group.bench_with_input(
-                BenchmarkId::new("hylic.rayon.shared", &s.name),
-                &(), |b, _| b.iter(|| black_box(dom::RAYON.run(&s.fold, &s.treeish, &s.root))),
+                BenchmarkId::new("hylic.rayon.shared", &s.name), &(),
+                |b, _| b.iter(|| black_box(dom::RAYON.run(&s.fold, &s.treeish, &s.root))),
             );
-
             group.bench_with_input(
-                BenchmarkId::new("hylic.pool.shared", &s.name),
-                &(), |b, _| b.iter(|| black_box(pool_exec.run(&s.fold, &s.treeish, &s.root))),
+                BenchmarkId::new("hylic.pool.shared", &s.name), &(),
+                |b, _| b.iter(|| black_box(pool_exec.run(&s.fold, &s.treeish, &s.root))),
             );
-
             group.bench_with_input(
-                BenchmarkId::new("hylic.hylo.shared", &s.name),
-                &(), |b, _| b.iter(|| black_box(hylo_exec.run(&s.fold, &s.treeish, &s.root))),
+                BenchmarkId::new("hylic.hylo.shared", &s.name), &(),
+                |b, _| b.iter(|| black_box(hylo_exec.run(&s.fold, &s.treeish, &s.root))),
             );
-
             group.bench_with_input(
-                BenchmarkId::new("hand.rayon", &s.name),
-                &(), |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
+                BenchmarkId::new("hand.rayon", &s.name), &(),
+                |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
             );
-
             let work = std::sync::Arc::new(s.work.clone());
             group.bench_with_input(
-                BenchmarkId::new("hand.pool", &s.name),
-                &(), |b, _| b.iter(|| black_box(handrolled_pool(&s.children, &work, pool, s.root))),
+                BenchmarkId::new("hand.pool", &s.name), &(),
+                |b, _| b.iter(|| black_box(handrolled_pool(&s.children, &work, pool, s.root))),
             );
         });
     }
-
     group.finish();
 }
 
