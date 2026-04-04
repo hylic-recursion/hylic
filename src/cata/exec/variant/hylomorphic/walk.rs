@@ -93,13 +93,13 @@ where
     R: Send + 'static,
 {
     let ctx2 = ctx.clone();
-    ctx.handle.submit(Box::new(move || {
+    ctx.handle.submit(move || {
         let fold = unsafe { ctx2.fold_ref() };
         if let Some(result) = node.chain.rake(fold) {
             let parent = node.take_parent_cont();
             fire_cont::<N, H, R, F, G>(&ctx2, parent, result);
         }
-    }));
+    });
 }
 
 // ── fire_cont (trampolined, inline-first) ─────────────
@@ -175,9 +175,9 @@ where
         let ctx2 = ctx.clone();
         let cn2 = cn.clone();
         let child = child.clone();
-        ctx.handle.submit(Box::new(move || {
+        ctx.handle.submit(move || {
             walk_cps::<N, H, R, F, G>(&ctx2, child, Cont::Slot { node: cn2, slot });
-        }));
+        });
     });
 
     match chain {

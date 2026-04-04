@@ -51,8 +51,8 @@ pub struct ViewHandle {
 }
 
 impl ViewHandle {
-    pub fn submit(&self, f: Box<dyn FnOnce() + Send>) {
-        self.deque.push(TaskRef::from_boxed(f));
+    pub fn submit<F: FnOnce() + Send + 'static>(&self, f: F) {
+        self.deque.push(TaskRef::from_fn(f));
         self.signal.wake_one();
     }
 
@@ -385,7 +385,7 @@ mod tests {
                 let handle = view.handle();
                 let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let d2 = done.clone();
-                handle.submit(Box::new(move || { d2.store(true, std::sync::atomic::Ordering::Release); }));
+                handle.submit(move || { d2.store(true, std::sync::atomic::Ordering::Release); });
                 while !done.load(std::sync::atomic::Ordering::Acquire) {
                     if !view.help_once() { std::hint::spin_loop(); }
                 }

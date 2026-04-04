@@ -192,9 +192,9 @@ impl ParEager {
                             let h = heap.heap.clone();
                             let fp = fold_ptr;
                             let comp = completion.clone();
-                            vh.submit(Box::new(move || {
+                            vh.submit(move || {
                                 comp.set(fp.finalize(&h));
-                            }));
+                            });
                         } else if go_sequential {
                             let mut h = heap.heap.clone();
                             let fp = fold_ptr;

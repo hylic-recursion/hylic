@@ -52,10 +52,22 @@ impl TaskRef {
     }
 
     /// Create a TaskRef from a boxed closure (for fire-and-forget
-    /// tasks like ParEager's leaf finalize submissions).
+    /// Create a TaskRef from a concrete closure type (monomorphic path).
     ///
-    /// The closure is double-boxed: Box<Box<dyn FnOnce() + Send>>
-    /// to get a thin pointer for the data field.
+    /// Single Box<F> allocation — the execute function is monomorphized
+    /// for F, so no vtable / double-box is needed.
+    pub fn from_fn<F: FnOnce() + Send + 'static>(f: F) -> Self {
+        let ptr = Box::into_raw(Box::new(f));
+        TaskRef {
+            data: ptr as *const (),
+            execute: execute_fn::<F>,
+        }
+    }
+
+    /// Create a TaskRef from a type-erased boxed closure (legacy path).
+    ///
+    /// Double-boxed: Box<Box<dyn FnOnce() + Send>> to get a thin pointer.
+    /// Prefer from_fn when the concrete type is available.
     pub fn from_boxed(f: Box<dyn FnOnce() + Send>) -> Self {
         let wrapper = Box::into_raw(Box::new(f));
         TaskRef {
@@ -65,7 +77,18 @@ impl TaskRef {
     }
 }
 
-/// Execute function for boxed closures (from_boxed path).
+/// Execute function for monomorphic closures (from_fn path).
+///
+/// # Safety
+/// `data` must be a pointer from `Box::into_raw(Box::new(f))` where f: F.
+unsafe fn execute_fn<F: FnOnce() + Send>(data: *const ()) {
+    unsafe {
+        let f = Box::from_raw(data as *mut F);
+        (*f)();
+    }
+}
+
+/// Execute function for type-erased closures (from_boxed path).
 ///
 /// # Safety
 /// `data` must be a pointer from `Box::into_raw(Box::new(Box<dyn FnOnce() + Send>))`.
