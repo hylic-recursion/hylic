@@ -1,13 +1,9 @@
 //! walk + dispatch_rest: the CPS recursion engine.
-//!
-//! walk(node) → R. Recursive. The call stack IS the zipper.
-//! view.join() IS the fork. Returning IS the rejoin.
 
-use crate::ops::{FoldOps, TreeOps};
+use crate::ops::{FoldOps, TreeOps, ChildCursor};
 use crate::prelude::parallel::pool::{PoolExecView, SyncRef};
 use super::slot_chain::SlotChain;
 
-/// Process a node. Returns its folded result.
 pub fn walk<N, H, R>(
     fold: &SyncRef<'_, impl FoldOps<N, H, R>>,
     graph: &SyncRef<'_, impl TreeOps<N>>,
@@ -27,7 +23,6 @@ where
             let chain = SlotChain::new(heap);
             let slot_0 = chain.append_slot();
 
-            // Fork: DFS child_0 (left) || dispatch remaining (right)
             let (r0, ()) = view.join(
                 || walk(fold, graph, first_child, view),
                 || dispatch_rest(fold, graph, cursor, &chain, view),
@@ -39,12 +34,10 @@ where
     }
 }
 
-/// Pull children from cursor one at a time. For each: append slot,
-/// fork (DFS child || dispatch rest). When cursor exhausts: set_total.
 fn dispatch_rest<N, H, R>(
     fold: &SyncRef<'_, impl FoldOps<N, H, R>>,
     graph: &SyncRef<'_, impl TreeOps<N>>,
-    cursor: crate::ops::ChildCursor<N>,
+    cursor: ChildCursor<N>,
     chain: &SlotChain<H, R>,
     view: &PoolExecView,
 ) where
@@ -69,7 +62,6 @@ fn dispatch_rest<N, H, R>(
     }
 }
 
-/// Entry point for the executor.
 pub fn run_fold<N, H, R>(
     fold: &impl FoldOps<N, H, R>,
     graph: &impl TreeOps<N>,

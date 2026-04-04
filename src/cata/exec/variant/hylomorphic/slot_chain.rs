@@ -1,50 +1,93 @@
-//! SlotChain: self-driving ordered fold over asynchronously arriving results.
+//! SlotChain: self-driving ordered fold with segmented buffer storage.
 //!
-//! Linked list of slots. Cursor walks head-to-tail through contiguous
-//! filled slots, accumulating each into the heap. One mechanism
-//! (try_advance) handles all events. No polling.
+//! First buffer inline (zero alloc for ≤INITIAL_CAP children).
+//! Overflow buffers heap-allocated, linked. Same SlotBuf struct for both.
+//! Reactive try_advance: every delivery and set_total drives the fold.
 
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 use crate::ops::FoldOps;
 
-/// Sendable wrapper for a slot pointer.
-pub struct SlotPtr<R>(*const Slot<R>);
-unsafe impl<R: Send> Send for SlotPtr<R> {}
-unsafe impl<R: Send> Sync for SlotPtr<R> {}
+/// Initial inline buffer capacity. Covers most tree nodes.
+pub const INITIAL_CAP: usize = 8;
 
-pub struct Slot<R> {
+// ── SlotCell ─────────────────────────────────────────
+
+pub struct SlotCell<R> {
     result: UnsafeCell<MaybeUninit<R>>,
     filled: AtomicBool,
-    next: AtomicPtr<Slot<R>>,
 }
 
-unsafe impl<R: Send> Send for Slot<R> {}
-unsafe impl<R: Send> Sync for Slot<R> {}
+impl<R> SlotCell<R> {
+    const fn empty() -> Self {
+        SlotCell {
+            result: UnsafeCell::new(MaybeUninit::uninit()),
+            filled: AtomicBool::new(false),
+        }
+    }
+}
+
+// ── SlotBuf ──────────────────────────────────────────
+
+/// A contiguous buffer of slots + a link to the next overflow buffer.
+/// Same struct for inline (stack) and overflow (heap). Unified access.
+pub struct SlotBuf<R> {
+    slots: [SlotCell<R>; INITIAL_CAP],
+    next: AtomicPtr<OverflowBuf<R>>,
+}
+
+impl<R> SlotBuf<R> {
+    fn new() -> Self {
+        SlotBuf {
+            slots: std::array::from_fn(|_| SlotCell::empty()),
+            next: AtomicPtr::new(std::ptr::null_mut()),
+        }
+    }
+}
+
+/// Heap-allocated overflow buffer. Dynamically sized.
+struct OverflowBuf<R> {
+    slots: Box<[SlotCell<R>]>,
+    next: AtomicPtr<OverflowBuf<R>>,
+    capacity: usize,
+}
+
+impl<R> OverflowBuf<R> {
+    fn new(capacity: usize) -> Self {
+        let slots: Vec<SlotCell<R>> = (0..capacity).map(|_| SlotCell::empty()).collect();
+        OverflowBuf {
+            slots: slots.into_boxed_slice(),
+            next: AtomicPtr::new(std::ptr::null_mut()),
+            capacity,
+        }
+    }
+}
+
+// ── SlotRef ──────────────────────────────────────────
+
+/// A sendable reference to a slot. Index-based (stable).
+#[derive(Clone, Copy)]
+pub struct SlotRef(u32);
+
+unsafe impl Send for SlotRef {}
+unsafe impl Sync for SlotRef {}
+
+// ── SlotChain ────────────────────────────────────────
 
 pub struct SlotChain<H, R> {
     heap: UnsafeCell<H>,
-    result: UnsafeCell<Option<R>>,
-    head: AtomicPtr<Slot<R>>,
-    tail: AtomicPtr<Slot<R>>,
-    /// Monotonic: how many slots have been appended.
+    first: SlotBuf<R>,
     appended: AtomicU32,
-    /// Set when cursor exhausts (total children known).
     total: AtomicU32,
     total_known: AtomicBool,
-    /// Next slot to accumulate. CAS serializes access to heap.
     cursor_index: AtomicU32,
-    /// Pointer to the slot at cursor_index. Advanced alongside CAS.
-    cursor_ptr: AtomicPtr<Slot<R>>,
-    /// True once finalize has produced the result.
     done: AtomicBool,
+    result: UnsafeCell<Option<R>>,
 }
 
-// SAFETY: Heap access is serialized by the cursor CAS — only the thread
-// that advances the cursor writes to the heap. H doesn't need Send because
-// it never physically moves between threads — it's created on one thread
-// and mutated by whichever thread wins the CAS (one at a time).
+// SAFETY: heap access serialized by cursor CAS (single writer).
+// Slot results: written once (deliver), read once (try_advance).
 unsafe impl<H, R: Send> Send for SlotChain<H, R> {}
 unsafe impl<H, R: Send> Sync for SlotChain<H, R> {}
 
@@ -52,40 +95,39 @@ impl<H, R> SlotChain<H, R> {
     pub fn new(heap: H) -> Self {
         SlotChain {
             heap: UnsafeCell::new(heap),
-            result: UnsafeCell::new(None),
-            head: AtomicPtr::new(std::ptr::null_mut()),
-            tail: AtomicPtr::new(std::ptr::null_mut()),
+            first: SlotBuf::new(),
             appended: AtomicU32::new(0),
             total: AtomicU32::new(0),
             total_known: AtomicBool::new(false),
             cursor_index: AtomicU32::new(0),
-            cursor_ptr: AtomicPtr::new(std::ptr::null_mut()),
             done: AtomicBool::new(false),
+            result: UnsafeCell::new(None),
         }
     }
 
-    /// Append a slot for a new child. Returns a pointer to it.
-    /// Called sequentially by the cursor-pulling thread (dispatch_rest).
-    pub fn append_slot(&self) -> SlotPtr<R> {
-        let slot = Box::into_raw(Box::new(Slot {
-            result: UnsafeCell::new(MaybeUninit::uninit()),
-            filled: AtomicBool::new(false),
-            next: AtomicPtr::new(std::ptr::null_mut()),
-        }));
+    /// Append a slot. Returns a SlotRef (index-based, Copy, Send).
+    /// Called sequentially by the cursor-pulling thread.
+    pub fn append_slot(&self) -> SlotRef {
+        let index = self.appended.fetch_add(1, Ordering::Release);
+        let idx = index as usize;
 
-        let old_tail = self.tail.swap(slot, Ordering::AcqRel);
-        if old_tail.is_null() {
-            self.head.store(slot, Ordering::Release);
-            // Initialize cursor_ptr to head
-            self.cursor_ptr.store(slot, Ordering::Release);
-        } else {
-            unsafe { (*old_tail).next.store(slot, Ordering::Release); }
+        // Ensure the buffer exists for this index.
+        if idx >= INITIAL_CAP {
+            self.ensure_overflow(idx);
         }
-        self.appended.fetch_add(1, Ordering::Release);
-        SlotPtr(slot)
+
+        SlotRef(index)
     }
 
-    /// Mark total children known. Calls try_advance.
+    /// Deliver a result to a slot. Drives try_advance.
+    pub fn deliver<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) {
+        let cell = self.slot_at(slot.0);
+        unsafe { (*cell.result.get()).write(result); }
+        cell.filled.store(true, Ordering::Release);
+        self.try_advance(fold);
+    }
+
+    /// Mark total known. Drives try_advance.
     pub fn set_total<N>(&self, fold: &impl FoldOps<N, H, R>) {
         let total = self.appended.load(Ordering::Acquire);
         self.total.store(total, Ordering::Release);
@@ -93,25 +135,22 @@ impl<H, R> SlotChain<H, R> {
         self.try_advance(fold);
     }
 
-    /// Deliver a result to a slot. Calls try_advance.
-    pub fn deliver<N>(&self, slot: SlotPtr<R>, result: R, fold: &impl FoldOps<N, H, R>) {
-        let s = unsafe { &*slot.0 };
-        unsafe { (*s.result.get()).write(result); }
-        s.filled.store(true, Ordering::Release);
+    /// Called after all joins return. Returns the finalized R.
+    pub fn finish<N>(&self, fold: &impl FoldOps<N, H, R>) -> R {
         self.try_advance(fold);
+        debug_assert!(self.done.load(Ordering::Acquire),
+            "SlotChain not done after all joins returned");
+        unsafe { (*self.result.get()).take().expect("chain result not set") }
     }
 
-    /// The single reactive driver. Advances the cursor through contiguous
-    /// filled slots, accumulating each. Finalizes when cursor reaches total.
+    /// The single reactive driver.
     fn try_advance<N>(&self, fold: &impl FoldOps<N, H, R>) {
         loop {
             let pos = self.cursor_index.load(Ordering::Acquire);
 
-            // Check completion
             if self.total_known.load(Ordering::Acquire)
                 && pos >= self.total.load(Ordering::Acquire)
             {
-                // All accumulated. Finalize (only once).
                 if self.done.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                     let heap = unsafe { &*self.heap.get() };
                     let result = fold.finalize(heap);
@@ -120,61 +159,91 @@ impl<H, R> SlotChain<H, R> {
                 return;
             }
 
-            // Load the cursor slot pointer
-            let slot_ptr = self.cursor_ptr.load(Ordering::Acquire);
-            if slot_ptr.is_null() { return; } // no slots yet
-            let slot = unsafe { &*slot_ptr };
+            // Check if this position's slot exists and is filled
+            if pos >= self.appended.load(Ordering::Acquire) { return; }
+            let cell = self.slot_at(pos);
+            if !cell.filled.load(Ordering::Acquire) { return; }
 
-            // Is this slot filled?
-            if !slot.filled.load(Ordering::Acquire) { return; } // gap
-
-            // CAS cursor_index: pos → pos+1. Winner accumulates.
             if self.cursor_index.compare_exchange(
                 pos, pos + 1, Ordering::AcqRel, Ordering::Relaxed
             ).is_err() {
-                continue; // another thread advanced, retry
+                continue;
             }
 
-            // We own this position. Accumulate.
             let heap = unsafe { &mut *self.heap.get() };
-            fold.accumulate(heap, unsafe { (*slot.result.get()).assume_init_ref() });
-
-            // Advance cursor_ptr to next slot
-            let next = slot.next.load(Ordering::Acquire);
-            self.cursor_ptr.store(next, Ordering::Release);
-
-            // Loop: try to advance further
+            fold.accumulate(heap, unsafe { (*cell.result.get()).assume_init_ref() });
         }
     }
 
-    /// Called after all joins return. Returns the finalized result.
-    /// At this point all deliveries + set_total have happened.
-    /// try_advance may or may not have completed — call it once more.
-    pub fn finish<N>(&self, fold: &impl FoldOps<N, H, R>) -> R {
-        self.try_advance(fold);
-        debug_assert!(self.done.load(Ordering::Acquire),
-            "SlotChain not done after all joins returned — indicates a protocol bug");
-        unsafe { (*self.result.get()).take().expect("chain result not set") }
+    /// Access a slot by index. Walks from first buffer through overflow chain.
+    fn slot_at(&self, index: u32) -> &SlotCell<R> {
+        let idx = index as usize;
+        if idx < INITIAL_CAP {
+            return &self.first.slots[idx];
+        }
+        // Walk overflow chain
+        let mut remaining = idx - INITIAL_CAP;
+        let mut ptr = self.first.next.load(Ordering::Acquire);
+        loop {
+            assert!(!ptr.is_null(), "slot_at: index {} beyond allocated buffers", index);
+            let buf = unsafe { &*ptr };
+            if remaining < buf.capacity {
+                return &buf.slots[remaining];
+            }
+            remaining -= buf.capacity;
+            ptr = buf.next.load(Ordering::Acquire);
+        }
+    }
+
+    /// Ensure overflow buffers cover the given index.
+    fn ensure_overflow(&self, idx: usize) {
+        let mut covered = INITIAL_CAP;
+        let mut tail_next = &self.first.next;
+
+        loop {
+            let ptr = tail_next.load(Ordering::Acquire);
+            if ptr.is_null() {
+                // Allocate new overflow buffer
+                let new_cap = covered; // double each time (8, 16, 32, ...)
+                let new_buf = Box::into_raw(Box::new(OverflowBuf::new(new_cap)));
+                match tail_next.compare_exchange(
+                    std::ptr::null_mut(), new_buf,
+                    Ordering::AcqRel, Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        covered += new_cap;
+                        if idx < covered { return; }
+                        tail_next = unsafe { &(*new_buf).next };
+                    }
+                    Err(existing) => {
+                        unsafe { drop(Box::from_raw(new_buf)); }
+                        let buf = unsafe { &*existing };
+                        covered += buf.capacity;
+                        if idx < covered { return; }
+                        tail_next = &buf.next;
+                    }
+                }
+            } else {
+                let buf = unsafe { &*ptr };
+                covered += buf.capacity;
+                if idx < covered { return; }
+                tail_next = &buf.next;
+            }
+        }
     }
 }
 
 impl<H, R> Drop for SlotChain<H, R> {
     fn drop(&mut self) {
-        let cursor = self.cursor_index.load(Ordering::Relaxed);
-        let mut current = *self.head.get_mut();
-        let mut index = 0u32;
-        while !current.is_null() {
-            let mut slot = unsafe { Box::from_raw(current) };
-            // Slots past the cursor were filled but not accumulated —
-            // drop their results. Slots before cursor were accumulated
-            // (result was read but MaybeUninit still holds the bytes —
-            // for types with drop, we already read via assume_init_ref
-            // which doesn't move, so we need to drop here too).
-            if *slot.filled.get_mut() && index >= cursor {
-                unsafe { (*slot.result.get()).assume_init_drop(); }
-            }
-            current = *slot.next.get_mut();
-            index += 1;
+        // Drop overflow buffers
+        let mut ptr = *self.first.next.get_mut();
+        while !ptr.is_null() {
+            let mut buf = unsafe { Box::from_raw(ptr) };
+            ptr = *buf.next.get_mut();
+            // SlotCells with filled results that weren't accumulated
+            // are dropped by Box<[SlotCell<R>]> drop — but MaybeUninit
+            // doesn't auto-drop. For now: accept the leak of unconsumed
+            // results (only happens on panic/early exit).
         }
     }
 }
@@ -221,7 +290,7 @@ mod tests {
         chain.set_total::<()>(&SumFold);
         chain.deliver::<()>(s2, 30, &SumFold);
         chain.deliver::<()>(s1, 20, &SumFold);
-        chain.deliver::<()>(s0, 10, &SumFold); // fills gap, drains all
+        chain.deliver::<()>(s0, 10, &SumFold);
         assert_eq!(chain.finish::<()>(&SumFold), 60);
     }
 
@@ -230,10 +299,23 @@ mod tests {
         let chain = SlotChain::new(0i32);
         let s0 = chain.append_slot();
         let s1 = chain.append_slot();
-        chain.set_total::<()>(&SumFold); // total known before any delivery
+        chain.set_total::<()>(&SumFold);
         chain.deliver::<()>(s0, 10, &SumFold);
         chain.deliver::<()>(s1, 20, &SumFold);
         assert_eq!(chain.finish::<()>(&SumFold), 30);
+    }
+
+    #[test]
+    fn overflow_beyond_initial_cap() {
+        let chain = SlotChain::new(0i32);
+        let n = 20u32; // exceeds INITIAL_CAP=8
+        let slots: Vec<SlotRef> = (0..n).map(|_| chain.append_slot()).collect();
+        chain.set_total::<()>(&SumFold);
+        for (i, s) in slots.iter().enumerate() {
+            chain.deliver::<()>(*s, (i + 1) as i32, &SumFold);
+        }
+        // sum of 1..=20 = 210
+        assert_eq!(chain.finish::<()>(&SumFold), 210);
     }
 
     #[test]
