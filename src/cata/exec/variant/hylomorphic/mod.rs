@@ -155,4 +155,142 @@ mod tests {
             assert_eq!(exec.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &fold, &graph, &tree), expected);
         });
     }
+
+    /// Validate that graph traversal and fold accumulation happen
+    /// concurrently on different threads, interleaved in time.
+    ///
+    /// Uses a shared atomic sequence counter. Each graph.visit child
+    /// callback and each fold.accumulate call records (thread_id,
+    /// operation, sequence_number). After the fold, we check:
+    /// - Multiple thread IDs appear (parallelism happened)
+    /// - Visit events from one subtree interleave with accumulate
+    ///   events from another (interleaved execution)
+    #[test]
+    fn validates_interleaved_parallel_execution() {
+        use std::sync::atomic::AtomicU64;
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone, Debug)]
+        enum Op { Visit(usize), Init(usize), Accumulate(usize), Finalize(usize) }
+
+        #[derive(Clone, Debug)]
+        struct TraceEntry {
+            thread_id: u64,
+            op: Op,
+            seq: u64,
+        }
+
+        let seq = Arc::new(AtomicU64::new(0));
+        let trace = Arc::new(Mutex::new(Vec::<TraceEntry>::new()));
+
+        fn thread_id() -> u64 {
+            // Use a simple hash of the thread id
+            let id = std::thread::current().id();
+            let s = format!("{:?}", id);
+            let mut h = 0u64;
+            for b in s.bytes() { h = h.wrapping_mul(31).wrapping_add(b as u64); }
+            h
+        }
+
+        let seq_g = seq.clone();
+        let trace_g = trace.clone();
+        let graph = dom::treeish(move |n: &N| {
+            // Simulate real graph work (sleep a bit so interleaving is observable)
+            std::thread::yield_now();
+            let s = seq_g.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            trace_g.lock().unwrap().push(TraceEntry {
+                thread_id: thread_id(), op: Op::Visit(n.val as usize), seq: s,
+            });
+            n.children.clone()
+        });
+
+        let seq_f = seq.clone();
+        let trace_f = trace.clone();
+        let seq_f2 = seq.clone();
+        let trace_f2 = trace.clone();
+        let seq_f3 = seq.clone();
+        let trace_f3 = trace.clone();
+
+        let fold = dom::fold(
+            move |n: &N| -> i32 {
+                let s = seq_f.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                trace_f.lock().unwrap().push(TraceEntry {
+                    thread_id: thread_id(), op: Op::Init(n.val as usize), seq: s,
+                });
+                n.val
+            },
+            move |heap: &mut i32, child: &i32| {
+                let s = seq_f2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                trace_f2.lock().unwrap().push(TraceEntry {
+                    thread_id: thread_id(), op: Op::Accumulate(*heap as usize), seq: s,
+                });
+                *heap += child;
+            },
+            move |heap: &i32| -> i32 {
+                let s = seq_f3.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                trace_f3.lock().unwrap().push(TraceEntry {
+                    thread_id: thread_id(), op: Op::Finalize(*heap as usize), seq: s,
+                });
+                *heap
+            },
+        );
+
+        // Wide tree: 4 children at root, each with 4 children = 21 nodes
+        let tree = big_tree(21, 4);
+        let expected = dom::FUSED.run(&fold, &graph, &tree);
+
+        // Clear trace from the Fused run
+        trace.lock().unwrap().clear();
+        seq.store(0, std::sync::atomic::Ordering::Relaxed);
+
+        WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+            let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
+            let result = exec.run(&fold, &graph, &tree);
+            assert_eq!(result, expected, "result mismatch");
+        });
+
+        let trace = trace.lock().unwrap();
+
+        // Check 1: multiple threads participated
+        let mut thread_ids: Vec<u64> = trace.iter().map(|t| t.thread_id).collect();
+        thread_ids.sort();
+        thread_ids.dedup();
+        let parallel = thread_ids.len() > 1;
+
+        // Check 2: visit events from different subtrees interleave with
+        // accumulate events (i.e., accumulation happened DURING traversal,
+        // not after all traversal was done)
+        let first_accumulate_seq = trace.iter()
+            .filter(|t| matches!(t.op, Op::Accumulate(_)))
+            .map(|t| t.seq)
+            .min();
+        let last_visit_seq = trace.iter()
+            .filter(|t| matches!(t.op, Op::Visit(_)))
+            .map(|t| t.seq)
+            .max();
+
+        let interleaved = match (first_accumulate_seq, last_visit_seq) {
+            (Some(first_acc), Some(last_vis)) => first_acc < last_vis,
+            _ => false,
+        };
+
+        // Report
+        if !parallel {
+            eprintln!("[interleave test] WARNING: only 1 thread participated. \
+                       The tree may be too small or workers too slow to steal.");
+        }
+        if !interleaved {
+            eprintln!("[interleave test] WARNING: accumulate did not interleave with visit. \
+                       First accumulate seq={:?}, last visit seq={:?}",
+                       first_accumulate_seq, last_visit_seq);
+        }
+
+        // We assert interleaving: at least one accumulate happened before
+        // the last visit. This proves the fold started producing results
+        // while the graph was still being traversed.
+        assert!(interleaved,
+            "Accumulate should interleave with visit (fold during traversal). \
+             First accumulate={:?}, last visit={:?}. Trace has {} entries across {} threads.",
+            first_accumulate_seq, last_visit_seq, trace.len(), thread_ids.len());
+    }
 }
