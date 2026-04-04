@@ -1,7 +1,6 @@
-//! Focused benchmark: Hylomorphic vs Rayon — the three that matter.
+//! Focused benchmark: Hylomorphic vs Rayon — four-way comparison.
 //!
-//! Three modes only: hylic.rayon.shared, hand.rayon, hylic.hylo.shared
-//! Subset of scenarios for fast iteration.
+//! hylic.rayon, hand.rayon, hylic.hylo (shared pool), hylic.funnel (self-contained)
 
 #[path = "support/mod.rs"]
 mod support;
@@ -10,7 +9,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;
 use std::sync::Arc;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec};
+use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec};
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 
 use support::scenario::{Scale, PreparedScenario, ScenarioDef};
@@ -56,7 +55,7 @@ fn bench_hylo_compare(c: &mut Criterion) {
             |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
         );
 
-        // hylic.hylo.shared
+        // hylic.hylo (shared WorkPool)
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
             let hylo = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
             group.bench_with_input(
@@ -64,6 +63,13 @@ fn bench_hylo_compare(c: &mut Criterion) {
                 |b, _| b.iter(|| black_box(hylo.run(&s.fold, &s.treeish, &s.root))),
             );
         });
+
+        // hylic.funnel (self-contained, own threads)
+        let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(3, HyloFunnelSpec::default_for(3));
+        group.bench_with_input(
+            BenchmarkId::new("hylic.funnel", &s.name), &(),
+            |b, _| b.iter(|| black_box(funnel.run(&s.fold, &s.treeish, &s.root))),
+        );
     }
     group.finish();
 }
