@@ -31,3 +31,7 @@ harness = false
 [[bench]]
 name = "bench_executor_compare"
 harness = false
+
+[[bench]]
+name = "bench_hylo_compare"
+harness = false

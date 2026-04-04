@@ -1,6 +1,6 @@
 .PHONY: hylic-check hylic-test hylic-test-parallel hylic-test-all \
        hylic-bench hylic-bench-large hylic-bench-modes hylic-bench-overhead hylic-bench-module \
-       hylic-bench-report hylic-bench-full hylic-docs-build hylic-docs-serve
+       hylic-bench-hylo hylic-bench-report hylic-bench-full hylic-docs-build hylic-docs-serve
 
 # ── Quick checks ────────────────────────────────────────────
 hylic-check:
@@ -27,6 +27,9 @@ hylic-bench-par:
 
 hylic-bench-module:
 	@bash Makefile-scripting/bench-run.sh module
+
+hylic-bench-hylo:
+	@bash Makefile-scripting/bench-run.sh bench_hylo_compare
 
 hylic-bench-large:
 	@HYLIC_BENCH_SCALE=large bash Makefile-scripting/bench-run.sh all
