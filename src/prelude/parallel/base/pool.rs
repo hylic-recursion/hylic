@@ -1,10 +1,10 @@
-//! Pool infrastructure: WorkPool, worker threads, wake signaling.
+//! WorkPool: scoped thread pool with condvar-based worker parking.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use super::super::steal_queue::StealQueue;
-use super::super::unsafe_core::task_ref::TaskRef;
+use super::steal_queue::StealQueue;
+use super::unsafe_core::task_ref::TaskRef;
 
 // ── WakeSignal ───────────────────────────────────────
 

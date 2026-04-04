@@ -1,11 +1,11 @@
-//! Work-stealing pool: shared infrastructure implementing both
-//! the submit mechanism ([`TaskSubmitter`]/[`TaskRunner`]) and
-//! the fork-join mechanism (`join` / `fork_join_map`).
+//! Pool bridge: concrete view types connecting base/ → submit + fork_join.
+//!
+//! [`ViewHandle`] implements [`TaskSubmitter`](super::submit::TaskSubmitter).
+//! [`PoolExecView`] implements [`TaskRunner`](super::submit::TaskRunner) and provides `join`.
 
-pub(crate) mod infra;
 mod view;
 
-pub use infra::{WorkPool, WorkPoolSpec};
+pub use super::base::{WorkPool, WorkPoolSpec};
 pub use view::{PoolExecView, ViewHandle};
 
 #[cfg(test)]

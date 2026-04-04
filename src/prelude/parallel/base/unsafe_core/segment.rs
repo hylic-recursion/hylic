@@ -115,7 +115,7 @@ impl<T> Drop for SegmentTable<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::parallel::unsafe_core::slot as slot_mod;
+    use crate::prelude::parallel::base::unsafe_core::slot as slot_mod;
     use std::sync::{Arc, Barrier};
 
     #[test]

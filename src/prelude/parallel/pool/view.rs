@@ -1,15 +1,14 @@
-//! ViewHandle + PoolExecView: the concrete types that implement
-//! both the submit mechanism (TaskSubmitter/TaskRunner) and the
-//! fork-join mechanism (join with ownership race).
+//! ViewHandle + PoolExecView: concrete bridge types connecting
+//! base/WorkPool to the submit and fork-join abstractions.
 
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
-use super::super::steal_queue::StealQueue;
-use super::super::task_slot::TaskSlot;
-use super::super::unsafe_core::task_ref::TaskRef;
+use super::super::base::steal_queue::StealQueue;
+use super::super::base::task_slot::TaskSlot;
+use super::super::base::unsafe_core::task_ref::TaskRef;
+use super::super::base::pool::{WakeSignal, WorkPool, steal_from_views};
 use super::super::submit::{TaskSubmitter, TaskRunner};
-use super::infra::{WakeSignal, WorkPool, steal_from_views};
 
 // ── ViewHandle ───────────────────────────────────────
 
@@ -21,12 +20,10 @@ pub struct ViewHandle {
 }
 
 impl ViewHandle {
-    /// Convenience: submit a task (delegates to TaskSubmitter impl).
     pub fn submit<F: FnOnce() + Send + 'static>(&self, f: F) {
         <Self as TaskSubmitter>::submit(self, f)
     }
 
-    /// Convenience: help process one task (delegates to TaskSubmitter impl).
     pub fn help_once(&self) -> bool {
         <Self as TaskSubmitter>::help_once(self)
     }
@@ -99,7 +96,6 @@ impl PoolExecView {
         }
     }
 
-    /// Convenience: produce a ViewHandle (same as TaskRunner::submitter).
     pub fn handle(&self) -> ViewHandle {
         <Self as TaskRunner>::submitter(self)
     }
