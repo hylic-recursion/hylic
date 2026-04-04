@@ -4,7 +4,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Domain;
-use crate::prelude::parallel::pool::{WorkPool, PoolExecView, SyncRef, fork_join_map};
+use crate::prelude::parallel::pool::{WorkPool, PoolExecView};
+use crate::prelude::parallel::fork_join::{SyncRef, fork_join_map};
 use super::super::Executor;
 
 pub struct PoolSpec {

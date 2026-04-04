@@ -5,7 +5,7 @@
 //! 2. If a parent callback was attached, it fires with the value
 
 use std::sync::{Arc, Mutex};
-use super::pool::ViewHandle;
+use super::submit::TaskSubmitter;
 
 struct CompletionInner<R> {
     result: Mutex<Option<R>>,
@@ -55,10 +55,10 @@ impl<R: Clone + Send + 'static> Completion<R> {
         self.inner.result.lock().unwrap().clone()
     }
 
-    pub(crate) fn wait(&self, view: ViewHandle) -> R {
+    pub(crate) fn wait(&self, handle: impl TaskSubmitter) -> R {
         loop {
             if let Some(r) = self.get() { return r; }
-            if !view.help_once() { std::hint::spin_loop(); }
+            if !handle.help_once() { std::hint::spin_loop(); }
         }
     }
 }

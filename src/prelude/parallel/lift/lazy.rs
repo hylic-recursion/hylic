@@ -11,7 +11,8 @@ use std::sync::{Arc, OnceLock};
 use crate::cata::Lift;
 use crate::domain::{ConstructFold, Domain};
 use crate::ops::FoldOps;
-use crate::prelude::parallel::pool::{WorkPool, PoolExecView, SyncRef, fork_join_map};
+use crate::prelude::parallel::pool::{WorkPool, PoolExecView};
+use crate::prelude::parallel::fork_join::{SyncRef, fork_join_map};
 
 struct LazyNode<H, R> {
     heap: H,

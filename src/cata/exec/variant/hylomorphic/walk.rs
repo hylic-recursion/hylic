@@ -3,32 +3,34 @@
 //! walk_cps is void — delivers results through defunctionalized continuations.
 //! fire_cont tries to rake inline (same thread, zero alloc). Falls back to
 //! submitting a raker task on CAS failure.
+//!
+//! Generic over TaskSubmitter/TaskRunner — no dependency on concrete pool types.
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::ops::{FoldOps, TreeOps};
-use crate::prelude::parallel::pool::{PoolExecView, ViewHandle};
+use crate::prelude::parallel::submit::{TaskSubmitter, TaskRunner};
 use super::fold_chain::{FoldChain, SlotRef};
 
 // ── Lifetime-erased context ───────────────────────────
 
-struct WalkCtx<F, G> {
+struct WalkCtx<F, G, S: TaskSubmitter> {
     fold: *const F,
     graph: *const G,
-    handle: ViewHandle,
+    handle: S,
 }
 
-impl<F, G> Clone for WalkCtx<F, G> {
+impl<F, G, S: TaskSubmitter> Clone for WalkCtx<F, G, S> {
     fn clone(&self) -> Self {
         WalkCtx { fold: self.fold, graph: self.graph, handle: self.handle.clone() }
     }
 }
 
-unsafe impl<F, G> Send for WalkCtx<F, G> {}
-unsafe impl<F, G> Sync for WalkCtx<F, G> {}
+unsafe impl<F, G, S: TaskSubmitter> Send for WalkCtx<F, G, S> {}
+unsafe impl<F, G, S: TaskSubmitter> Sync for WalkCtx<F, G, S> {}
 
-impl<F, G> WalkCtx<F, G> {
+impl<F, G, S: TaskSubmitter> WalkCtx<F, G, S> {
     unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
     unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
 }
@@ -84,7 +86,7 @@ impl<R> RootCell<R> {
 // ── submit_raker ──────────────────────────────────────
 
 /// Fallback: submit a raker task when inline CAS failed.
-fn submit_raker<N, H, R, F, G>(ctx: &WalkCtx<F, G>, node: Arc<ChainNode<H, R>>)
+fn submit_raker<N, H, R, F, G, S: TaskSubmitter>(ctx: &WalkCtx<F, G, S>, node: Arc<ChainNode<H, R>>)
 where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
@@ -97,7 +99,7 @@ where
         let fold = unsafe { ctx2.fold_ref() };
         if let Some(result) = node.chain.rake(fold) {
             let parent = node.take_parent_cont();
-            fire_cont::<N, H, R, F, G>(&ctx2, parent, result);
+            fire_cont::<N, H, R, F, G, S>(&ctx2, parent, result);
         }
     });
 }
@@ -107,8 +109,8 @@ where
 /// Deliver result to continuation target. Tries inline rake first.
 /// On CAS failure, submits a raker task as fallback.
 /// Trampolined: cascades without stack growth.
-fn fire_cont<N, H, R, F, G>(
-    ctx: &WalkCtx<F, G>,
+fn fire_cont<N, H, R, F, G, S: TaskSubmitter>(
+    ctx: &WalkCtx<F, G, S>,
     mut cont: Cont<H, R>,
     mut result: R,
 ) where
@@ -136,7 +138,7 @@ fn fire_cont<N, H, R, F, G>(
                     None => {
                         // CAS failed or chain not complete.
                         // Submit raker task as fallback.
-                        submit_raker::<N, H, R, F, G>(ctx, node);
+                        submit_raker::<N, H, R, F, G, S>(ctx, node);
                         return;
                     }
                 }
@@ -147,7 +149,7 @@ fn fire_cont<N, H, R, F, G>(
 
 // ── CPS walk ──────────────────────────────────────────
 
-fn walk_cps<N, H, R, F, G>(ctx: &WalkCtx<F, G>, node: N, cont: Cont<H, R>)
+fn walk_cps<N, H, R, F, G, S: TaskSubmitter>(ctx: &WalkCtx<F, G, S>, node: N, cont: Cont<H, R>)
 where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
@@ -176,7 +178,7 @@ where
         let cn2 = cn.clone();
         let child = child.clone();
         ctx.handle.submit(move || {
-            walk_cps::<N, H, R, F, G>(&ctx2, child, Cont::Slot { node: cn2, slot });
+            walk_cps::<N, H, R, F, G, S>(&ctx2, child, Cont::Slot { node: cn2, slot });
         });
     });
 
@@ -186,7 +188,7 @@ where
             let heap = heap_opt.take().unwrap();
             let cont = cont_opt.take().unwrap();
             let result = fold.finalize(&heap);
-            fire_cont::<N, H, R, F, G>(ctx, cont, result);
+            fire_cont::<N, H, R, F, G, S>(ctx, cont, result);
         }
         Some(cn) => {
             // Interior: children stream finished.
@@ -196,11 +198,11 @@ where
             match cn.chain.rake(fold) {
                 Some(finalized) => {
                     let parent = cn.take_parent_cont();
-                    fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
+                    fire_cont::<N, H, R, F, G, S>(ctx, parent, finalized);
                 }
                 None => {
                     // CAS failed or chain not complete. Submit fallback.
-                    submit_raker::<N, H, R, F, G>(ctx, cn);
+                    submit_raker::<N, H, R, F, G, S>(ctx, cn);
                 }
             }
         }
@@ -213,7 +215,7 @@ pub fn run_fold<N, H, R>(
     fold: &(impl FoldOps<N, H, R> + 'static),
     graph: &(impl TreeOps<N> + 'static),
     root: &N,
-    view: &PoolExecView,
+    runner: &(impl TaskRunner + 'static),
 ) -> R
 where
     N: Clone + Send + 'static,
@@ -224,20 +226,19 @@ where
     let ctx = WalkCtx {
         fold: fold as *const _,
         graph: graph as *const _,
-        handle: view.handle(),
+        handle: runner.submitter(),
     };
 
     walk_cps(&ctx, root.clone(), Cont::Root(root_cell.clone()));
 
     let mut spins = 0u64;
     while !root_cell.is_done() {
-        if view.help_once() {
+        if runner.help_once() {
             spins = 0;
         } else {
             spins += 1;
             if spins > 10_000_000 {
-                panic!("run_fold hung: deque_len={}, views={}, root_done={}",
-                    view.deque_len(), view.views_count(), root_cell.is_done());
+                panic!("run_fold hung: root_done={}", root_cell.is_done());
             }
             std::hint::spin_loop();
         }
