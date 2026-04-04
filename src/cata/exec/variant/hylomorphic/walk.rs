@@ -1,8 +1,8 @@
-//! CPS walk with raker-based fold accumulation.
+//! CPS walk with inline-first raker.
 //!
 //! walk_cps is void — delivers results through defunctionalized continuations.
-//! fire_cont delivers to parent chain and submits the raker if needed.
-//! The raker has exclusive heap ownership — one per chain, signaled by events.
+//! fire_cont tries to rake inline (same thread, zero alloc). Falls back to
+//! submitting a raker task on CAS failure.
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
@@ -83,6 +83,7 @@ impl<R> RootCell<R> {
 
 // ── submit_raker ──────────────────────────────────────
 
+/// Fallback: submit a raker task when inline CAS failed.
 fn submit_raker<N, H, R, F, G>(ctx: &WalkCtx<F, G>, node: Arc<ChainNode<H, R>>)
 where
     F: FoldOps<N, H, R> + 'static,
@@ -101,21 +102,44 @@ where
     }));
 }
 
-// ── fire_cont ─────────────────────────────────────────
+// ── fire_cont (trampolined, inline-first) ─────────────
 
-fn fire_cont<N, H, R, F, G>(ctx: &WalkCtx<F, G>, cont: Cont<H, R>, result: R)
-where
+/// Deliver result to continuation target. Tries inline rake first.
+/// On CAS failure, submits a raker task as fallback.
+/// Trampolined: cascades without stack growth.
+fn fire_cont<N, H, R, F, G>(
+    ctx: &WalkCtx<F, G>,
+    mut cont: Cont<H, R>,
+    mut result: R,
+) where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
     N: Clone + Send + 'static,
     H: 'static,
     R: Send + 'static,
 {
-    match cont {
-        Cont::Root(cell) => cell.set(result),
-        Cont::Slot { node, slot } => {
-            if node.chain.deliver(slot, result) {
-                submit_raker::<N, H, R, F, G>(ctx, node);
+    loop {
+        match cont {
+            Cont::Root(cell) => {
+                cell.set(result);
+                return;
+            }
+            Cont::Slot { node, slot } => {
+                node.chain.deliver(slot, result);
+                let fold = unsafe { ctx.fold_ref() };
+                match node.chain.rake(fold) {
+                    Some(finalized) => {
+                        cont = node.take_parent_cont();
+                        result = finalized;
+                        // Trampoline: loop to cascade inline
+                    }
+                    None => {
+                        // CAS failed or chain not complete.
+                        // Submit raker task as fallback.
+                        submit_raker::<N, H, R, F, G>(ctx, node);
+                        return;
+                    }
+                }
             }
         }
     }
@@ -158,14 +182,26 @@ where
 
     match chain {
         None => {
+            // Leaf
             let heap = heap_opt.take().unwrap();
             let cont = cont_opt.take().unwrap();
             let result = fold.finalize(&heap);
             fire_cont::<N, H, R, F, G>(ctx, cont, result);
         }
         Some(cn) => {
-            if cn.chain.set_total() {
-                submit_raker::<N, H, R, F, G>(ctx, cn);
+            // Interior: children stream finished.
+            cn.chain.set_total();
+            // Inline rake for the set_total event.
+            let fold = unsafe { ctx.fold_ref() };
+            match cn.chain.rake(fold) {
+                Some(finalized) => {
+                    let parent = cn.take_parent_cont();
+                    fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
+                }
+                None => {
+                    // CAS failed or chain not complete. Submit fallback.
+                    submit_raker::<N, H, R, F, G>(ctx, cn);
+                }
             }
         }
     }
@@ -193,8 +229,16 @@ where
 
     walk_cps(&ctx, root.clone(), Cont::Root(root_cell.clone()));
 
+    let mut spins = 0u64;
     while !root_cell.is_done() {
-        if !view.help_once() {
+        if view.help_once() {
+            spins = 0;
+        } else {
+            spins += 1;
+            if spins > 10_000_000 {
+                panic!("run_fold hung: deque_len={}, views={}, root_done={}",
+                    view.deque_len(), view.views_count(), root_cell.is_done());
+            }
             std::hint::spin_loop();
         }
     }

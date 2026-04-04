@@ -1,9 +1,10 @@
-//! FoldChain: per-node fold accumulator with raker-based sweep.
+//! FoldChain: per-node fold accumulator with inline-first raker.
 //!
-//! The raker has exclusive heap ownership. No concurrent access, no lock.
-//! Events (deliver, set_total) signal via wake_pending. Only the false→true
-//! transition submits a raker task. The raker clears the flag, sweeps,
-//! re-checks before returning. One raker task per chain at any time.
+//! Slots: segmented buffer (inline [SlotCell; 8] + linked overflow).
+//! Deliver and set_total are pure stores.
+//! rake() CAS's the sweeping flag for exclusive heap access, sweeps
+//! contiguous filled slots, checks finalization. Done check inside
+//! the gate prevents double finalization.
 
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
@@ -73,20 +74,16 @@ pub struct FoldChain<H, R> {
     total: AtomicU32,
     total_known: AtomicBool,
     cursor: AtomicU32,
-    wake_pending: AtomicBool,
+    sweeping: AtomicBool,
     done: AtomicBool,
     finalize_count: AtomicU32,
-    id: u32, // debug: unique chain id
 }
-
-static CHAIN_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 unsafe impl<H, R: Send> Send for FoldChain<H, R> {}
 unsafe impl<H, R: Send> Sync for FoldChain<H, R> {}
 
 impl<H, R> FoldChain<H, R> {
     pub fn new(heap: H) -> Self {
-        let id = CHAIN_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         FoldChain {
             heap: UnsafeCell::new(heap),
             first: SlotBuf::new(),
@@ -94,10 +91,9 @@ impl<H, R> FoldChain<H, R> {
             total: AtomicU32::new(0),
             total_known: AtomicBool::new(false),
             cursor: AtomicU32::new(0),
-            wake_pending: AtomicBool::new(false),
+            sweeping: AtomicBool::new(false),
             done: AtomicBool::new(false),
             finalize_count: AtomicU32::new(0),
-            id,
         }
     }
 
@@ -109,73 +105,66 @@ impl<H, R> FoldChain<H, R> {
         SlotRef(index)
     }
 
-    /// Store result in slot. Signal raker via wake_pending.
-    /// Returns true if this call must submit the raker task (false→true transition).
-    pub fn deliver(&self, slot: SlotRef, result: R) -> bool {
+    /// Pure store: write result to slot, set filled.
+    pub fn deliver(&self, slot: SlotRef, result: R) {
         assert!(!self.done.load(Ordering::Relaxed),
-            "deliver to finalized chain {}: slot={}, cursor={}, total={}",
-            self.id, slot.0, self.cursor.load(Ordering::Relaxed), self.total.load(Ordering::Relaxed));
+            "deliver to finalized chain: slot={}", slot.0);
         let cell = self.slot_at(slot.0);
         unsafe { (*cell.result.get()).write(result); }
         cell.filled.store(true, Ordering::Release);
-        let was_false = self.wake_pending.swap(true, Ordering::Release) == false;
-        eprintln!("[chain {}] deliver slot={} submit_raker={} thread={:?}",
-            self.id, slot.0, was_false, std::thread::current().id());
-        was_false
     }
 
-    /// Mark total known. Signal raker via wake_pending.
-    /// Returns true if this call must submit the raker task (false→true transition).
-    pub fn set_total(&self) -> bool {
+    /// Pure store: mark total known.
+    pub fn set_total(&self) {
         let total = self.appended.load(Ordering::Acquire);
         self.total.store(total, Ordering::Release);
         self.total_known.store(true, Ordering::Release);
-        let was_false = self.wake_pending.swap(true, Ordering::Release) == false;
-        eprintln!("[chain {}] set_total={} submit_raker={} thread={:?}",
-            self.id, total, was_false, std::thread::current().id());
-        was_false
     }
 
-    /// The raker. Exclusive heap access — one raker task per chain at a time.
-    /// Clears wake_pending, sweeps, re-checks. Returns Some(R) if finalized.
+    /// The raker. CAS sweeping for exclusive heap access. Sweeps contiguous
+    /// filled slots, accumulates in order, checks finalization.
+    /// Returns Some(R) if this call finalized the chain.
+    /// Returns None if CAS failed (another sweeper) or chain not yet complete.
     pub fn rake<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
-        eprintln!("[chain {}] rake ENTER cursor={} appended={} total_known={} total={} done={} thread={:?}",
-            self.id, self.cursor.load(Ordering::Relaxed), self.appended.load(Ordering::Relaxed),
-            self.total_known.load(Ordering::Relaxed), self.total.load(Ordering::Relaxed),
-            self.done.load(Ordering::Relaxed), std::thread::current().id());
+        if self.sweeping.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+            return None;
+        }
+
+        // Inside the gate. The Acquire on the CAS synchronizes with
+        // the previous sweeper's Release on sweeping.store(false).
+        // All their stores (done, cursor, heap mutations) are visible.
+        if self.done.load(Ordering::Relaxed) {
+            self.sweeping.store(false, Ordering::Release);
+            return None;
+        }
+
         let heap = unsafe { &mut *self.heap.get() };
         let mut pos = self.cursor.load(Ordering::Relaxed);
 
         loop {
-            self.wake_pending.store(false, Ordering::SeqCst);
-
-            // Sweep contiguous filled slots
-            loop {
-                let appended = self.appended.load(Ordering::Acquire);
-                if pos >= appended { break; }
-                let cell = self.slot_at(pos);
-                if !cell.filled.load(Ordering::Acquire) { break; }
-                fold.accumulate(heap, unsafe { (*cell.result.get()).assume_init_ref() });
-                pos += 1;
-            }
-            self.cursor.store(pos, Ordering::Release);
-
-            // Check finalization
-            if self.total_known.load(Ordering::Acquire) && pos >= self.total.load(Ordering::Acquire) {
-                let prev = self.finalize_count.fetch_add(1, Ordering::Relaxed);
-                assert!(prev == 0,
-                    "FoldChain finalized {} times! cursor={}, total={}, thread={:?}",
-                    prev + 1, pos, self.total.load(Ordering::Relaxed), std::thread::current().id());
-                self.done.store(true, Ordering::Release);
-                return Some(fold.finalize(unsafe { &*self.heap.get() }));
-            }
-
-            // Re-check: did events arrive during our sweep?
-            if !self.wake_pending.load(Ordering::Acquire) {
-                return None; // No pending events. Raker goes idle.
-            }
-            // Events arrived — loop and sweep again.
+            let appended = self.appended.load(Ordering::Acquire);
+            if pos >= appended { break; }
+            let cell = self.slot_at(pos);
+            if !cell.filled.load(Ordering::Acquire) { break; }
+            fold.accumulate(heap, unsafe { (*cell.result.get()).assume_init_ref() });
+            pos += 1;
         }
+
+        self.cursor.store(pos, Ordering::Release);
+
+        if self.total_known.load(Ordering::Acquire) && pos >= self.total.load(Ordering::Acquire) {
+            let prev = self.finalize_count.fetch_add(1, Ordering::Relaxed);
+            assert!(prev == 0,
+                "FoldChain double finalization: count={}, cursor={}, total={}, thread={:?}",
+                prev + 1, pos, self.total.load(Ordering::Relaxed), std::thread::current().id());
+            self.done.store(true, Ordering::Release);
+            let result = fold.finalize(unsafe { &*self.heap.get() });
+            self.sweeping.store(false, Ordering::Release);
+            return Some(result);
+        }
+
+        self.sweeping.store(false, Ordering::Release);
+        None
     }
 
     fn slot_at(&self, index: u32) -> &SlotCell<R> {
@@ -250,86 +239,84 @@ mod tests {
     }
 
     #[test]
-    fn single_child_deliver_then_total() {
-        let chain = FoldChain::new(0i32);
-        let s = chain.append_slot();
-        assert!(chain.deliver(s, 42));  // first event → must submit raker
-        assert_eq!(chain.rake::<()>(&SumFold), None); // total not known
-        assert!(chain.set_total());     // wake_pending was cleared by rake
-        assert_eq!(chain.rake::<()>(&SumFold), Some(42));
+    fn deliver_then_total() {
+        let c = FoldChain::new(0i32);
+        let s = c.append_slot();
+        c.deliver(s, 42);
+        assert_eq!(c.rake::<()>(&SumFold), None); // total not known
+        c.set_total();
+        assert_eq!(c.rake::<()>(&SumFold), Some(42));
     }
 
     #[test]
-    fn single_child_total_then_deliver() {
-        let chain = FoldChain::new(0i32);
-        let s = chain.append_slot();
-        assert!(chain.set_total());
-        assert_eq!(chain.rake::<()>(&SumFold), None); // slot not filled
-        assert!(chain.deliver(s, 42));  // wake_pending was cleared by rake
-        assert_eq!(chain.rake::<()>(&SumFold), Some(42));
+    fn total_then_deliver() {
+        let c = FoldChain::new(0i32);
+        let s = c.append_slot();
+        c.set_total();
+        assert_eq!(c.rake::<()>(&SumFold), None); // slot not filled
+        c.deliver(s, 42);
+        assert_eq!(c.rake::<()>(&SumFold), Some(42));
     }
 
     #[test]
     fn three_in_order() {
-        let chain = FoldChain::new(0i32);
-        let s0 = chain.append_slot();
-        let s1 = chain.append_slot();
-        let s2 = chain.append_slot();
-        chain.set_total();
-        chain.deliver(s0, 10);
-        chain.deliver(s1, 20);
-        chain.deliver(s2, 30);
-        // Multiple events coalesced — only one rake needed
-        assert_eq!(chain.rake::<()>(&SumFold), Some(60));
+        let c = FoldChain::new(0i32);
+        let s0 = c.append_slot();
+        let s1 = c.append_slot();
+        let s2 = c.append_slot();
+        c.set_total();
+        c.deliver(s0, 10);
+        c.deliver(s1, 20);
+        c.deliver(s2, 30);
+        assert_eq!(c.rake::<()>(&SumFold), Some(60));
     }
 
     #[test]
     fn three_reverse() {
-        let chain = FoldChain::new(0i32);
-        let s0 = chain.append_slot();
-        let s1 = chain.append_slot();
-        let s2 = chain.append_slot();
-        chain.set_total();
-        chain.deliver(s2, 30);
-        chain.deliver(s1, 20);
-        chain.deliver(s0, 10);
-        assert_eq!(chain.rake::<()>(&SumFold), Some(60));
+        let c = FoldChain::new(0i32);
+        let s0 = c.append_slot();
+        let s1 = c.append_slot();
+        let s2 = c.append_slot();
+        c.set_total();
+        c.deliver(s2, 30);
+        c.deliver(s1, 20);
+        c.deliver(s0, 10);
+        assert_eq!(c.rake::<()>(&SumFold), Some(60));
     }
 
     #[test]
-    fn all_delivered_before_total() {
-        let chain = FoldChain::new(0i32);
-        let s0 = chain.append_slot();
-        let s1 = chain.append_slot();
-        chain.deliver(s0, 10);
-        chain.deliver(s1, 20);
-        assert_eq!(chain.rake::<()>(&SumFold), None); // total unknown
-        chain.set_total();
-        assert_eq!(chain.rake::<()>(&SumFold), Some(30));
+    fn all_before_total() {
+        let c = FoldChain::new(0i32);
+        let s0 = c.append_slot();
+        let s1 = c.append_slot();
+        c.deliver(s0, 10);
+        c.deliver(s1, 20);
+        assert_eq!(c.rake::<()>(&SumFold), None);
+        c.set_total();
+        assert_eq!(c.rake::<()>(&SumFold), Some(30));
     }
 
     #[test]
-    fn overflow_beyond_initial_cap() {
-        let chain = FoldChain::new(0i32);
-        let n = 20u32;
-        let slots: Vec<SlotRef> = (0..n).map(|_| chain.append_slot()).collect();
-        chain.set_total();
+    fn overflow() {
+        let c = FoldChain::new(0i32);
+        let slots: Vec<SlotRef> = (0..20u32).map(|_| c.append_slot()).collect();
+        c.set_total();
         for (i, s) in slots.iter().enumerate() {
-            chain.deliver(*s, (i + 1) as i32);
+            c.deliver(*s, (i + 1) as i32);
         }
-        assert_eq!(chain.rake::<()>(&SumFold), Some(210));
+        assert_eq!(c.rake::<()>(&SumFold), Some(210));
     }
 
     #[test]
     fn concurrent_delivery() {
         use std::sync::{Arc, Barrier};
         for _ in 0..200 {
-            let chain = Arc::new(FoldChain::new(0i32));
-            let s0 = chain.append_slot();
-            let s1 = chain.append_slot();
-            chain.set_total();
+            let c = Arc::new(FoldChain::new(0i32));
+            let s0 = c.append_slot();
+            let s1 = c.append_slot();
+            c.set_total();
 
-            let c2 = chain.clone();
+            let c2 = c.clone();
             let barrier = Arc::new(Barrier::new(2));
             let b2 = barrier.clone();
 
@@ -339,13 +326,23 @@ mod tests {
                 c2.rake::<()>(&SumFold)
             });
             barrier.wait();
-            chain.deliver(s0, 10);
-            let r1 = chain.rake::<()>(&SumFold);
+            c.deliver(s0, 10);
+            let r1 = c.rake::<()>(&SumFold);
             let r2 = t.join().unwrap();
 
-            // Exactly one rake finalizes.
-            let result = r1.or(r2).or_else(|| chain.rake::<()>(&SumFold));
+            let result = r1.or(r2).or_else(|| c.rake::<()>(&SumFold));
             assert_eq!(result, Some(30));
         }
+    }
+
+    #[test]
+    fn done_prevents_double_finalize() {
+        let c = FoldChain::new(0i32);
+        let s = c.append_slot();
+        c.set_total();
+        c.deliver(s, 42);
+        assert_eq!(c.rake::<()>(&SumFold), Some(42));
+        // Second rake: done check inside gate prevents double finalize
+        assert_eq!(c.rake::<()>(&SumFold), None);
     }
 }

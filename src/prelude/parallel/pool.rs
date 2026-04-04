@@ -102,7 +102,19 @@ impl WorkPool {
             struct ShutdownGuard<'a>(&'a WorkPool);
             impl Drop for ShutdownGuard<'_> {
                 fn drop(&mut self) {
-                    self.0.shutdown.store(true, Ordering::Release);
+                    // Store shutdown under the condvar mutex to close the
+                    // lost-wakeup window. Workers check shutdown with this
+                    // mutex held before entering condvar.wait — storing here
+                    // guarantees the worker either sees shutdown=true at the
+                    // check, or is already in wait (and will be woken).
+                    //
+                    // Future: an eventcount or futex-based scheme could
+                    // replace the condvar entirely, avoiding the mutex
+                    // round-trip on both the signal and wait paths.
+                    {
+                        let _guard = self.0.signal.lock.lock().unwrap();
+                        self.0.shutdown.store(true, Ordering::Release);
+                    }
                     self.0.signal.wake_all();
                 }
             }
@@ -367,6 +379,36 @@ mod tests {
                 let results = fork_join_map(&view, &items, &|&x| x * 2, 0, 6);
                 let expected: Vec<i32> = (0..64).map(|x| x * 2).collect();
                 assert_eq!(results, expected, "iteration {iteration}");
+            });
+        }
+    }
+
+    /// Isolated pool lifecycle stress: create/destroy pools with NO work.
+    /// If this hangs, the bug is in pool shutdown, not fold logic.
+    #[test]
+    fn pool_lifecycle_stress_500() {
+        for i in 0..500 {
+            if i % 100 == 0 { eprintln!("[lifecycle] iter {i}"); }
+            WorkPool::with(WorkPoolSpec::threads(4), |_pool| {
+                // No work. Just create and destroy the pool.
+            });
+        }
+    }
+
+    /// Pool lifecycle with trivial work (submit + drain via help_once).
+    #[test]
+    fn pool_lifecycle_with_work_500() {
+        for i in 0..500 {
+            if i % 100 == 0 { eprintln!("[lifecycle+work] iter {i}"); }
+            WorkPool::with(WorkPoolSpec::threads(4), |pool| {
+                let view = PoolExecView::new(pool);
+                let handle = view.handle();
+                let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let d2 = done.clone();
+                handle.submit(Box::new(move || { d2.store(true, std::sync::atomic::Ordering::Release); }));
+                while !done.load(std::sync::atomic::Ordering::Acquire) {
+                    if !view.help_once() { std::hint::spin_loop(); }
+                }
             });
         }
     }
