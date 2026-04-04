@@ -10,6 +10,9 @@ hylic-check:
 hylic-test:
 	@cargo test --lib -- --nocapture
 
+hylic-test-hylo:
+	@cargo test --lib -- --test-threads=1 --nocapture hylomorphic
+
 hylic-test-parallel:
 	@cargo test --test test_eager --test test_eager_debug -- --nocapture
 

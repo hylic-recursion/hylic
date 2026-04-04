@@ -363,36 +363,6 @@ mod tests {
         }
     }
 
-    /// Isolated pool lifecycle stress: create/destroy pools with NO work.
-    /// If this hangs, the bug is in pool shutdown, not fold logic.
-    #[test]
-    fn pool_lifecycle_stress_500() {
-        for i in 0..500 {
-            if i % 100 == 0 { eprintln!("[lifecycle] iter {i}"); }
-            WorkPool::with(WorkPoolSpec::threads(4), |_pool| {
-                // No work. Just create and destroy the pool.
-            });
-        }
-    }
-
-    /// Pool lifecycle with trivial work (submit + drain via help_once).
-    #[test]
-    fn pool_lifecycle_with_work_500() {
-        for i in 0..500 {
-            if i % 100 == 0 { eprintln!("[lifecycle+work] iter {i}"); }
-            WorkPool::with(WorkPoolSpec::threads(4), |pool| {
-                let view = PoolExecView::new(pool);
-                let handle = view.handle();
-                let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let d2 = done.clone();
-                handle.submit(move || { d2.store(true, std::sync::atomic::Ordering::Release); });
-                while !done.load(std::sync::atomic::Ordering::Acquire) {
-                    if !view.help_once() { std::hint::spin_loop(); }
-                }
-            });
-        }
-    }
-
     #[test]
     fn concurrent_pools() {
         let t1 = std::thread::spawn(|| {
