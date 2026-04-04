@@ -12,14 +12,26 @@ use super::super::submit::{TaskSubmitter, TaskRunner};
 
 // ── ViewHandle ───────────────────────────────────────
 
-#[derive(Clone)]
-pub struct ViewHandle {
+/// Shared state behind a ViewHandle. One Arc clone per handle clone
+/// instead of three separate Arc clones (deque + signal + views).
+struct ViewHandleInner {
     deque: Arc<StealQueue<TaskRef>>,
     signal: Arc<WakeSignal>,
     views: Arc<Mutex<Vec<Arc<StealQueue<TaskRef>>>>>,
 }
 
+#[derive(Clone)]
+pub struct ViewHandle(Arc<ViewHandleInner>);
+
 impl ViewHandle {
+    fn new(
+        deque: Arc<StealQueue<TaskRef>>,
+        signal: Arc<WakeSignal>,
+        views: Arc<Mutex<Vec<Arc<StealQueue<TaskRef>>>>>,
+    ) -> Self {
+        ViewHandle(Arc::new(ViewHandleInner { deque, signal, views }))
+    }
+
     pub fn submit<F: FnOnce() + Send + 'static>(&self, f: F) {
         <Self as TaskSubmitter>::submit(self, f)
     }
@@ -31,16 +43,16 @@ impl ViewHandle {
 
 impl TaskSubmitter for ViewHandle {
     fn submit<F: FnOnce() + Send + 'static>(&self, f: F) {
-        self.deque.push(TaskRef::from_fn(f));
-        self.signal.wake_one();
+        self.0.deque.push(TaskRef::from_fn(f));
+        self.0.signal.wake_one();
     }
 
     fn help_once(&self) -> bool {
-        if let Some(task_ref) = self.deque.steal() {
+        if let Some(task_ref) = self.0.deque.steal() {
             unsafe { task_ref.execute(); }
             return true;
         }
-        if let Some(task_ref) = steal_from_views(&self.views) {
+        if let Some(task_ref) = steal_from_views(&self.0.views) {
             unsafe { task_ref.execute(); }
             return true;
         }
@@ -117,11 +129,11 @@ impl TaskRunner for PoolExecView {
     type Submitter = ViewHandle;
 
     fn submitter(&self) -> ViewHandle {
-        ViewHandle {
-            deque: self.deque.clone(),
-            signal: self.signal.clone(),
-            views: self.views.clone(),
-        }
+        ViewHandle::new(
+            self.deque.clone(),
+            self.signal.clone(),
+            self.views.clone(),
+        )
     }
 
     fn help_once(&self) -> bool {
