@@ -8,6 +8,7 @@ description = "Composable tree computation framework: monoidal catamorphisms wit
 either = "1.15.0"
 derive_more = { version = "2.0.1", features = ["full"] }
 rayon = "1.10"
+atomic-wait = "1"
 
 [features]
 pool_trace = []
