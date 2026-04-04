@@ -175,19 +175,6 @@ impl PoolExecView {
         }
     }
 
-    /// Create a sub-view from a ViewHandle. Used by workers in the
-    /// hylomorphic executor to create scoped views for subtree processing.
-    /// The new view gets its own deque (registered with the pool).
-    pub fn new_from_handle(vh: &ViewHandle) -> Self {
-        let deque = Arc::new(StealQueue::new());
-        vh.views.lock().unwrap().push(deque.clone());
-        PoolExecView {
-            deque,
-            signal: vh.signal.clone(),
-            views: vh.views.clone(),
-        }
-    }
-
     pub fn handle(&self) -> ViewHandle {
         ViewHandle {
             deque: self.deque.clone(),
@@ -240,13 +227,6 @@ impl PoolExecView {
             return true;
         }
         false
-    }
-
-    /// True if no tasks are queued in this view's deque.
-    /// Used by the fused-parallel executor to detect idle workers
-    /// (empty queue = workers have nothing to steal = demand exists).
-    pub fn queue_is_empty(&self) -> bool {
-        self.deque.is_empty()
     }
 
     pub fn deque_len(&self) -> usize {
