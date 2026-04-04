@@ -1,6 +1,6 @@
 //! Hylomorphic parallel executor: CPS zipper with reactive accumulation.
 
-pub(crate) mod slot_chain;
+pub(crate) mod fold_chain;
 mod walk;
 
 use std::marker::PhantomData;
@@ -69,15 +69,30 @@ mod tests {
     #[derive(Clone)]
     struct N { val: i32, children: Vec<N> }
 
+    /// Build a wide tree BFS-style: fill each level left-to-right before going deeper.
+    /// big_tree(21, 4) → root with 4 children, each with 4 children = 1+4+16 = 21 nodes.
     fn big_tree(n: usize, bf: usize) -> N {
-        fn build(id: &mut i32, remaining: &mut usize, bf: usize) -> N {
-            let val = *id; *id += 1; *remaining = remaining.saturating_sub(1);
-            let mut ch = Vec::new();
-            for _ in 0..bf { if *remaining == 0 { break; } ch.push(build(id, remaining, bf)); }
-            N { val, children: ch }
+        if n == 0 { return N { val: 0, children: vec![] }; }
+        // Allocate all nodes flat, then wire children BFS.
+        let mut nodes: Vec<N> = (0..n).map(|i| N { val: (i + 1) as i32, children: vec![] }).collect();
+        // BFS parent assignment: node i has children [i*bf+1 .. i*bf+bf], if they exist.
+        // Build bottom-up so we can move children into parents.
+        for i in (0..n).rev() {
+            let first_child = i * bf + 1;
+            if first_child < n {
+                let last_child = (first_child + bf).min(n);
+                // Drain children from the flat array (they're after parent, so safe to split)
+                let children: Vec<N> = (first_child..last_child)
+                    .rev()
+                    .map(|c| std::mem::replace(&mut nodes[c], N { val: 0, children: vec![] }))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                nodes[i].children = children;
+            }
         }
-        let mut id = 1; let mut remaining = n;
-        build(&mut id, &mut remaining, bf)
+        nodes.into_iter().next().unwrap()
     }
 
     #[test]
@@ -117,12 +132,12 @@ mod tests {
     }
 
     #[test]
-    fn stress_20x() {
+    fn stress_200x() {
         let tree = big_tree(200, 6);
         let fold = dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; });
         let graph = dom::treeish(|n: &N| n.children.clone());
         let expected = dom::FUSED.run(&fold, &graph, &tree);
-        for i in 0..20 {
+        for i in 0..200 {
             WorkPool::with(WorkPoolSpec::threads(4), |pool| {
                 let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(4));
                 assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
@@ -171,6 +186,7 @@ mod tests {
         use std::sync::{Arc, Mutex};
 
         #[derive(Clone, Debug)]
+        #[allow(dead_code)]
         enum Op { Visit(usize), Init(usize), Accumulate(usize), Finalize(usize) }
 
         #[derive(Clone, Debug)]
@@ -292,5 +308,65 @@ mod tests {
             "Accumulate should interleave with visit (fold during traversal). \
              First accumulate={:?}, last visit={:?}. Trace has {} entries across {} threads.",
             first_accumulate_seq, last_visit_seq, trace.len(), thread_ids.len());
+    }
+
+    /// Reproduces the bench_executor_compare pattern: adjacency-list graph,
+    /// NodeId=usize, noop work, repeated execution. Tests for hangs.
+    #[test]
+    fn bench_pattern_noop_200() {
+        use std::sync::Arc;
+        type NodeId = usize;
+
+        // BFS adjacency list (same as benches/support/tree.rs gen_tree)
+        fn gen_adj(node_count: usize, bf: usize) -> Arc<Vec<Vec<NodeId>>> {
+            let mut children: Vec<Vec<NodeId>> = vec![vec![]];
+            let mut next_id = 1usize;
+            let mut level_start = 0;
+            let mut level_end = 1;
+            while next_id < node_count {
+                let mut new_end = level_end;
+                for parent in level_start..level_end {
+                    let n_ch = bf.min(node_count - next_id);
+                    if n_ch == 0 { break; }
+                    let mut my_ch = Vec::with_capacity(n_ch);
+                    for _ in 0..n_ch {
+                        if next_id >= node_count { break; }
+                        children.push(vec![]);
+                        my_ch.push(next_id);
+                        next_id += 1;
+                        new_end += 1;
+                    }
+                    children[parent] = my_ch;
+                }
+                level_start = level_end;
+                level_end = new_end;
+                if level_start == level_end { break; }
+            }
+            Arc::new(children)
+        }
+
+        let adj = gen_adj(200, 8);
+        let ch = adj.clone();
+        let treeish = dom::treeish_visit(move |n: &NodeId, cb: &mut dyn FnMut(&NodeId)| {
+            for &child in &ch[*n] { cb(&child); }
+        });
+        let fold = dom::fold(
+            |_: &NodeId| 0u64,
+            |h: &mut u64, c: &u64| { *h += c; },
+            |h: &u64| *h,
+        );
+
+        let expected = dom::FUSED.run(&fold, &treeish, &0usize);
+
+        WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+            let exec = HylomorphicIn::<crate::domain::Shared>::new(
+                pool, HylomorphicSpec::default_for(3));
+            for i in 0..200 {
+                eprintln!("[repro] iter {i} start");
+                let result = exec.run(&fold, &treeish, &0usize);
+                eprintln!("[repro] iter {i} done");
+                assert_eq!(result, expected, "iteration {i}");
+            }
+        });
     }
 }

@@ -2,7 +2,11 @@
 //!
 //! First buffer inline (zero alloc for ≤INITIAL_CAP children).
 //! Overflow buffers heap-allocated, linked. Same SlotBuf struct for both.
-//! Reactive try_advance: every delivery and set_total drives the fold.
+//! Reactive sweep: every delivery and set_total drives the fold.
+//!
+//! Heap access is serialized by the `sweeping` flag — only one thread
+//! runs the accumulation loop at a time. Others return immediately;
+//! the sweeper processes all contiguously filled slots.
 
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
@@ -68,7 +72,7 @@ impl<R> OverflowBuf<R> {
 
 /// A sendable reference to a slot. Index-based (stable).
 #[derive(Clone, Copy)]
-pub struct SlotRef(u32);
+pub struct SlotRef(pub(super) u32);
 
 unsafe impl Send for SlotRef {}
 unsafe impl Sync for SlotRef {}
@@ -84,10 +88,13 @@ pub struct SlotChain<H, R> {
     cursor_index: AtomicU32,
     done: AtomicBool,
     result: UnsafeCell<Option<R>>,
+    /// Only one thread runs the accumulation sweep at a time.
+    /// Others return; the sweeper processes all contiguously filled slots.
+    sweeping: AtomicBool,
 }
 
-// SAFETY: heap access serialized by cursor CAS (single writer).
-// Slot results: written once (deliver), read once (try_advance).
+// SAFETY: heap access serialized by `sweeping` flag (single writer).
+// Slot results: written once (deliver), read once (sweep).
 unsafe impl<H, R: Send> Send for SlotChain<H, R> {}
 unsafe impl<H, R: Send> Sync for SlotChain<H, R> {}
 
@@ -102,24 +109,67 @@ impl<H, R> SlotChain<H, R> {
             cursor_index: AtomicU32::new(0),
             done: AtomicBool::new(false),
             result: UnsafeCell::new(None),
+            sweeping: AtomicBool::new(false),
         }
     }
 
     /// Append a slot. Returns a SlotRef (index-based, Copy, Send).
-    /// Called sequentially by the cursor-pulling thread.
     pub fn append_slot(&self) -> SlotRef {
         let index = self.appended.fetch_add(1, Ordering::Release);
         let idx = index as usize;
-
-        // Ensure the buffer exists for this index.
         if idx >= INITIAL_CAP {
             self.ensure_overflow(idx);
         }
-
         SlotRef(index)
     }
 
-    /// Deliver a result to a slot. Drives try_advance.
+    // ── Shared sweep engine ──────────────────────────────
+
+    /// Accumulate all contiguously filled slots from the cursor position.
+    /// MUST only be called while holding the sweeping flag.
+    /// Returns Some(R) if finalization was triggered.
+    fn sweep<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
+        loop {
+            let pos = self.cursor_index.load(Ordering::Acquire);
+
+            if self.total_known.load(Ordering::Acquire)
+                && pos >= self.total.load(Ordering::Acquire)
+            {
+                if self.done.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                    let heap = unsafe { &*self.heap.get() };
+                    return Some(fold.finalize(heap));
+                }
+                return None;
+            }
+
+            if pos >= self.appended.load(Ordering::Acquire) { return None; }
+            let cell = self.slot_at(pos);
+            if !cell.filled.load(Ordering::Acquire) { return None; }
+
+            // We hold the sweeping flag — exclusive heap access.
+            self.cursor_index.store(pos + 1, Ordering::Release);
+            let heap = unsafe { &mut *self.heap.get() };
+            fold.accumulate(heap, unsafe { (*cell.result.get()).assume_init_ref() });
+        }
+    }
+
+    /// Check if more work is pending (a slot was filled while we were sweeping).
+    fn has_pending_work(&self) -> bool {
+        let pos = self.cursor_index.load(Ordering::Acquire);
+        if self.total_known.load(Ordering::Acquire)
+            && pos >= self.total.load(Ordering::Acquire)
+        {
+            return !self.done.load(Ordering::Acquire);
+        }
+        if pos < self.appended.load(Ordering::Acquire) {
+            return self.slot_at(pos).filled.load(Ordering::Acquire);
+        }
+        false
+    }
+
+    // ── Legacy path (join-based) ─────────────────────────
+
+    /// Deliver a result to a slot. Drives the sweep.
     pub fn deliver<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) {
         let cell = self.slot_at(slot.0);
         unsafe { (*cell.result.get()).write(result); }
@@ -127,7 +177,7 @@ impl<H, R> SlotChain<H, R> {
         self.try_advance(fold);
     }
 
-    /// Mark total known. Drives try_advance.
+    /// Mark total known. Drives the sweep.
     pub fn set_total<N>(&self, fold: &impl FoldOps<N, H, R>) {
         let total = self.appended.load(Ordering::Acquire);
         self.total.store(total, Ordering::Release);
@@ -143,37 +193,59 @@ impl<H, R> SlotChain<H, R> {
         unsafe { (*self.result.get()).take().expect("chain result not set") }
     }
 
-    /// The single reactive driver.
     fn try_advance<N>(&self, fold: &impl FoldOps<N, H, R>) {
         loop {
-            let pos = self.cursor_index.load(Ordering::Acquire);
-
-            if self.total_known.load(Ordering::Acquire)
-                && pos >= self.total.load(Ordering::Acquire)
-            {
-                if self.done.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
-                    let heap = unsafe { &*self.heap.get() };
-                    let result = fold.finalize(heap);
-                    unsafe { *self.result.get() = Some(result); }
-                }
+            if self.sweeping.compare_exchange(
+                false, true, Ordering::Acquire, Ordering::Relaxed,
+            ).is_err() {
                 return;
             }
-
-            // Check if this position's slot exists and is filled
-            if pos >= self.appended.load(Ordering::Acquire) { return; }
-            let cell = self.slot_at(pos);
-            if !cell.filled.load(Ordering::Acquire) { return; }
-
-            if self.cursor_index.compare_exchange(
-                pos, pos + 1, Ordering::AcqRel, Ordering::Relaxed
-            ).is_err() {
-                continue;
+            if let Some(result) = self.sweep(fold) {
+                unsafe { *self.result.get() = Some(result); }
+                self.sweeping.store(false, Ordering::Release);
+                return;
             }
-
-            let heap = unsafe { &mut *self.heap.get() };
-            fold.accumulate(heap, unsafe { (*cell.result.get()).assume_init_ref() });
+            self.sweeping.store(false, Ordering::Release);
+            if !self.has_pending_work() { return; }
         }
     }
+
+    // ── CPS path ─────────────────────────────────────────
+
+    /// CPS delivery: returns Some(R) iff this call triggered finalization.
+    /// Only the sweeping winner gets Some; all others get None.
+    pub fn deliver_cps<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) -> Option<R> {
+        let cell = self.slot_at(slot.0);
+        unsafe { (*cell.result.get()).write(result); }
+        cell.filled.store(true, Ordering::Release);
+        self.try_advance_return(fold)
+    }
+
+    /// CPS set_total: returns Some(R) iff this call triggered finalization.
+    pub fn set_total_cps<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
+        let total = self.appended.load(Ordering::Acquire);
+        self.total.store(total, Ordering::Release);
+        self.total_known.store(true, Ordering::Release);
+        self.try_advance_return(fold)
+    }
+
+    /// Acquire sweep, process all ready slots, return finalized result if done.
+    /// Retries if new work appeared during the sweep (liveness guarantee).
+    fn try_advance_return<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
+        loop {
+            if self.sweeping.compare_exchange(
+                false, true, Ordering::Acquire, Ordering::Relaxed,
+            ).is_err() {
+                return None;
+            }
+            let result = self.sweep(fold);
+            self.sweeping.store(false, Ordering::Release);
+            if result.is_some() { return result; }
+            if !self.has_pending_work() { return None; }
+        }
+    }
+
+    // ── Buffer access ────────────────────────────────────
 
     /// Access a slot by index. Walks from first buffer through overflow chain.
     fn slot_at(&self, index: u32) -> &SlotCell<R> {
@@ -203,7 +275,6 @@ impl<H, R> SlotChain<H, R> {
         loop {
             let ptr = tail_next.load(Ordering::Acquire);
             if ptr.is_null() {
-                // Allocate new overflow buffer
                 let new_cap = covered; // double each time (8, 16, 32, ...)
                 let new_buf = Box::into_raw(Box::new(OverflowBuf::new(new_cap)));
                 match tail_next.compare_exchange(
@@ -235,15 +306,10 @@ impl<H, R> SlotChain<H, R> {
 
 impl<H, R> Drop for SlotChain<H, R> {
     fn drop(&mut self) {
-        // Drop overflow buffers
         let mut ptr = *self.first.next.get_mut();
         while !ptr.is_null() {
             let mut buf = unsafe { Box::from_raw(ptr) };
             ptr = *buf.next.get_mut();
-            // SlotCells with filled results that weren't accumulated
-            // are dropped by Box<[SlotCell<R>]> drop — but MaybeUninit
-            // doesn't auto-drop. For now: accept the leak of unconsumed
-            // results (only happens on panic/early exit).
         }
     }
 }

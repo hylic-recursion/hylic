@@ -12,7 +12,6 @@
 //! outlives all uses of the TaskRef. This is the same safety argument
 //! as rayon's StackJob pattern.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// Type-erased handle to a task on someone's stack.
 ///
@@ -73,8 +72,7 @@ impl TaskRef {
 unsafe fn execute_boxed(data: *const ()) {
     unsafe {
         let wrapper = Box::from_raw(data as *mut Box<dyn FnOnce() + Send>);
-        // Catch panics so they don't unwind through the worker loop.
-        let _ = catch_unwind(AssertUnwindSafe(move || (*wrapper)()));
+        (*wrapper)();
     }
 }
 
@@ -126,13 +124,6 @@ mod tests {
         assert_eq!(unsafe { *slot.result.get() }, Some(99));
     }
 
-    #[test]
-    fn boxed_panic_doesnt_unwind() {
-        // A panicking boxed closure should not crash the caller.
-        let task = TaskRef::from_boxed(Box::new(|| {
-            panic!("boom");
-        }));
-        // This should not panic — execute_boxed catches it.
-        unsafe { task.execute(); }
-    }
+    // No test for panic-in-boxed: panics in worker tasks must propagate.
+    // Silent swallowing (catch_unwind) was removed by design.
 }

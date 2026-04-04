@@ -236,6 +236,14 @@ impl PoolExecView {
     pub fn queue_is_empty(&self) -> bool {
         self.deque.is_empty()
     }
+
+    pub fn deque_len(&self) -> usize {
+        self.deque.len()
+    }
+
+    pub fn views_count(&self) -> usize {
+        self.views.lock().unwrap().len()
+    }
 }
 
 impl Drop for PoolExecView {
