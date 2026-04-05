@@ -43,7 +43,7 @@ impl<T> BoundedMpmc<T> {
     }
 
     pub fn push(&self, item: T) -> Result<(), T> {
-        let mut item = item;
+        let item = item;
         loop {
             let tail = self.tail.0.load(Ordering::Relaxed);
             let slot = &self.buffer[tail & self.mask];

@@ -8,12 +8,12 @@
 mod mpmc;
 mod eventcount;
 mod task_ref;
+mod arena;
 pub(crate) mod fold_chain;
 mod pool;
 mod walk;
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 use crate::ops::LiftOps;
 use crate::domain::Domain;
 use super::super::Executor;
