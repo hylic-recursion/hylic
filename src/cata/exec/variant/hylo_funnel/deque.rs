@@ -117,12 +117,6 @@ impl<T> WorkerDeque<T> {
         }
     }
 
-
-    pub fn len(&self) -> usize {
-        let t = self.top.load(Ordering::Relaxed);
-        let b = self.bottom.load(Ordering::Relaxed);
-        (b - t).max(0) as usize
-    }
 }
 
 impl<T> Drop for WorkerDeque<T> {

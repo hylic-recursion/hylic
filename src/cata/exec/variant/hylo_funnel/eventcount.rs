@@ -21,8 +21,6 @@ pub(super) struct EventCount {
 impl EventCount {
     pub fn new() -> Self { EventCount { epoch: AtomicU32::new(0) } }
 
-    pub fn current_epoch(&self) -> u32 { self.epoch.load(Ordering::Relaxed) }
-
     /// Snapshot the current epoch. Call BEFORE checking conditions.
     pub fn prepare(&self) -> Token {
         Token(self.epoch.load(Ordering::Acquire))

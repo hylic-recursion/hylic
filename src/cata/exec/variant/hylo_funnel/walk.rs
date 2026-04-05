@@ -3,22 +3,23 @@
 //!
 //! Tasks are data (FunnelTask::Walk only). Workers pattern-match.
 //! Each delivery callback tries the sweep permission inline.
-//! The packed ticket (AtomicU64) determines who finalizes.
-//! fold_done is set inside fire_cont(Cont::Root) — the CPS completion signal.
+//! The packed ticket (Relaxed AtomicU64) determines who finalizes.
+//! Per-slot filled.load(Acquire) provides data visibility.
+//! fold_done set inside fire_cont(Cont::Root) — CPS completion signal.
 //!
-//! All per-fold state is stack-local to run_fold. The FoldView's
-//! active_in_view counter ensures all pool threads exit the typed
-//! closure before run_fold returns and the stack is destroyed.
+//! All per-fold state is stack-local to run_fold. WalkCtx is shared
+//! by &reference (immutable, created once). The Job struct bridges
+//! the pool's type-erased dispatch to the typed worker code.
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use crate::ops::{FoldOps, TreeOps};
 use super::fold_chain::{FoldChain, SlotRef};
 use super::arena::{Arena, ArenaIdx};
 use super::cont_arena::{ContArena, ContIdx};
 use super::deque::WorkerDeque;
-use super::pool::{FunnelPool, FoldView, steal_from_others, DEQUE_CAPACITY};
+use super::pool::{FunnelPool, FoldView, Job, steal_from_others, DEQUE_CAPACITY};
 
 // ── Defunctionalized task ────────────────────────────
 
@@ -29,20 +30,15 @@ pub(super) enum FunnelTask<N, H, R> {
 
 unsafe impl<N: Send, H, R: Send> Send for FunnelTask<N, H, R> {}
 
-// ── Lifetime-erased context ───────────────────────────
+// ── Shared immutable context (created once, passed by &ref) ──
 
 struct WalkCtx<F, G, H, R> {
     fold: *const F,
     graph: *const G,
-    view: *const (), // type-erased *const FoldView
+    view: *const FoldView,
     chain_arena: *const Arena<ChainNode<H, R>>,
     cont_arena: *const ContArena<Cont<H, R>>,
 }
-
-impl<F, G, H, R> Clone for WalkCtx<F, G, H, R> {
-    fn clone(&self) -> Self { *self }
-}
-impl<F, G, H, R> Copy for WalkCtx<F, G, H, R> {}
 
 unsafe impl<F, G, H, R> Send for WalkCtx<F, G, H, R> {}
 unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
@@ -50,11 +46,34 @@ unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
 impl<F, G, H, R> WalkCtx<F, G, H, R> {
     unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
     unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
-    unsafe fn view_ref(&self) -> &FoldView {
-        unsafe { &*(self.view as *const FoldView) }
-    }
+    unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
     unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
     unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
+}
+
+// ── FoldState (bridges Job → typed worker code) ──────
+
+struct FoldState<'a, N, H, R, F, G> {
+    ctx: &'a WalkCtx<F, G, H, R>,
+    deques: *const [WorkerDeque<FunnelTask<N, H, R>>],
+}
+
+unsafe impl<N: Send, H, R: Send, F, G> Send for FoldState<'_, N, H, R, F, G> {}
+unsafe impl<N: Send, H, R: Send, F, G> Sync for FoldState<'_, N, H, R, F, G> {}
+
+/// Monomorphized worker entry point. The pool calls this through the Job.
+unsafe fn worker_entry<N, H, R, F, G>(data: *const (), thread_idx: usize)
+where
+    F: FoldOps<N, H, R> + 'static,
+    G: TreeOps<N> + 'static,
+    N: Clone + Send + 'static,
+    H: 'static,
+    R: Send + 'static,
+{
+    let state = unsafe { &*(data as *const FoldState<N, H, R, F, G>) };
+    let view = unsafe { state.ctx.view_ref() };
+    let deques = unsafe { &*state.deques };
+    worker_loop(state.ctx, view, deques, thread_idx);
 }
 
 // ── Defunctionalized continuation ─────────────────────
@@ -123,7 +142,6 @@ fn fire_cont<N, H, R, F, G>(
         match cont {
             Cont::Root(cell) => {
                 cell.set(result);
-                // CPS completion: fold is done. Signal workers to exit.
                 let view = unsafe { ctx.view_ref() };
                 view.fold_done.store(true, Ordering::Release);
                 view.event().notify_all();
@@ -180,15 +198,11 @@ fn walk_cps<N, H, R, F, G>(
 
     graph.visit(&node, &mut |child: &N| {
         child_count += 1;
-
         if child_count == 1 {
             first_child = Some(child.clone());
         } else {
             if child_count == 2 {
-                let cn = ChainNode::new(
-                    heap_opt.take().unwrap(),
-                    cont_opt.take().unwrap(),
-                );
+                let cn = ChainNode::new(heap_opt.take().unwrap(), cont_opt.take().unwrap());
                 let idx = chain_arena.alloc(cn);
                 let node_ref = unsafe { chain_arena.get(idx) };
                 node_ref.chain.append_slot();
@@ -231,14 +245,13 @@ fn walk_cps<N, H, R, F, G>(
             }
             let child = first_child.unwrap();
             walk_cps::<N, H, R, F, G>(ctx, child, Cont::Slot {
-                node: idx,
-                slot: SlotRef(0),
+                node: idx, slot: SlotRef(0),
             }, deque);
         }
     }
 }
 
-// ── Execute a defunctionalized task ──────────────────
+// ── Execute task ─────────────────────────────────────
 
 fn execute_task<N, H, R, F, G>(
     ctx: &WalkCtx<F, G, H, R>,
@@ -256,7 +269,7 @@ fn execute_task<N, H, R, F, G>(
     }
 }
 
-// ── Worker loop (typed, lives inside the View) ───────
+// ── Worker loop (inside the View) ────────────────────
 
 fn worker_loop<N, H, R, F, G>(
     ctx: &WalkCtx<F, G, H, R>,
@@ -306,19 +319,20 @@ fn worker_loop<N, H, R, F, G>(
 const CHAIN_ARENA_CAPACITY: usize = 4096;
 const CONT_ARENA_CAPACITY: usize = 8192;
 
-pub fn run_fold<N, H, R>(
-    fold: &(impl FoldOps<N, H, R> + 'static),
-    graph: &(impl TreeOps<N> + 'static),
+pub fn run_fold<N, H, R, F, G>(
+    fold: &F,
+    graph: &G,
     root: &N,
     pool: &FunnelPool,
 ) -> R
 where
+    F: FoldOps<N, H, R> + 'static,
+    G: TreeOps<N> + 'static,
     N: Clone + Send + 'static,
     H: 'static,
     R: Clone + Send + 'static,
 {
-    // All per-fold state: stack-local. The FoldView's active_in_view
-    // counter ensures pool threads exit before this frame is destroyed.
+    // All per-fold state: stack-local.
     let chain_arena = Arena::<ChainNode<H, R>>::new(CHAIN_ARENA_CAPACITY);
     let cont_arena = ContArena::<Cont<H, R>>::new(CONT_ARENA_CAPACITY);
     let root_cell = Arc::new(RootCell::new());
@@ -329,37 +343,31 @@ where
     let view = FoldView {
         pool_inner: pool.inner().clone(),
         fold_done: AtomicBool::new(false),
-        idle_count: std::sync::atomic::AtomicU32::new(0),
-        active_in_view: std::sync::atomic::AtomicU32::new(0),
+        idle_count: AtomicU32::new(0),
+        active_in_view: AtomicU32::new(0),
         n_workers: pool.n_threads(),
     };
 
+    // Immutable shared context — created once, passed by &reference.
     let ctx = WalkCtx {
         fold: fold as *const _,
         graph: graph as *const _,
-        view: &view as *const FoldView as *const (),
+        view: &view as *const FoldView,
         chain_arena: &chain_arena as *const _,
         cont_arena: &cont_arena as *const _,
     };
 
-    // The typed job closure. Captures ctx (Copy — 5 raw pointers to the
-    // stack-local state above). Safe because the body waits for
-    // active_in_view == 0 before returning, ensuring all pool threads
-    // have exited worker_loop before this stack frame is destroyed.
-    // Wrapper to send raw pointers across threads. Safe because run_fold
-    // blocks until all workers exit (active_in_view == 0).
-    struct SendPtr<T>(*const T);
-    unsafe impl<T> Send for SendPtr<T> {}
-    unsafe impl<T> Sync for SendPtr<T> {}
+    // FoldState bridges the pool's type-erased Job → typed worker code.
+    let state = FoldState {
+        ctx: &ctx,
+        deques: deques.as_slice() as *const [WorkerDeque<FunnelTask<N, H, R>>],
+    };
+    let job = Job {
+        call: worker_entry::<N, H, R, F, G>,
+        data: &state as *const FoldState<N, H, R, F, G> as *const (),
+    };
 
-    let deques_ptr = SendPtr(deques.as_slice() as *const [WorkerDeque<FunnelTask<N, H, R>>]);
-    let job: Arc<dyn Fn(usize) + Send + Sync> = Arc::new(move |thread_idx: usize| {
-        let deques = unsafe { &*deques_ptr.0 };
-        let view = unsafe { &*(ctx.view as *const FoldView) };
-        worker_loop::<N, H, R, _, _>(&ctx, view, deques, thread_idx);
-    });
-
-    pool.dispatch(job, || {
+    pool.dispatch(&job, || {
         let caller_idx = view.n_workers;
         let caller_deque = &deques[caller_idx];
 
@@ -382,9 +390,8 @@ where
             }
         }
 
-        // CPS guarantees: all work is done. fold_done was set by
-        // fire_cont(Cont::Root). Workers are exiting. Wait for them
-        // to leave the View before we return and destroy the stack.
+        // CPS guarantees all work is done. fold_done was set by
+        // fire_cont(Cont::Root). Workers exit promptly.
         view.wait_for_workers_to_exit();
 
         root_cell.take()

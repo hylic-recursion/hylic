@@ -45,9 +45,6 @@ impl<T> ContArena<T> {
     pub unsafe fn take(&self, idx: ContIdx) -> T {
         unsafe { (*self.slots[idx.0 as usize].get()).assume_init_read() }
     }
-    pub fn allocated(&self) -> u32 {
-        self.next.load(Ordering::Relaxed)
-    }
 }
 
 impl<T> Drop for ContArena<T> {

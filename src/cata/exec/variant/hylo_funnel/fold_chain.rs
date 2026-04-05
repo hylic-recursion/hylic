@@ -204,20 +204,8 @@ impl<H, R> FoldChain<H, R> {
         None
     }
 
-    pub fn is_done(&self) -> bool { self.done.load(Ordering::Relaxed) }
-
-    pub fn diagnostic(&self) -> String {
-        let appended = self.appended.load(Ordering::Relaxed);
-        let (events_done, total) = unpack(self.state.load(Ordering::Relaxed));
-        let cursor = self.cursor.load(Ordering::Relaxed);
-        let done = self.done.load(Ordering::Relaxed);
-        let sweeping = self.sweeping.load(Ordering::Relaxed);
-        let mut filled = 0u32;
-        for i in 0..appended {
-            if self.slot_at(i).filled.load(Ordering::Relaxed) { filled += 1; }
-        }
-        format!("appended={appended}, total={total}, events_done={events_done}, cursor={cursor}, filled={filled}, done={done}, sweeping={sweeping}")
-    }
+    #[cfg(test)]
+    fn is_done(&self) -> bool { self.done.load(Ordering::Relaxed) }
 
     fn slot_at(&self, index: u32) -> &SlotCell<R> {
         let idx = index as usize;
