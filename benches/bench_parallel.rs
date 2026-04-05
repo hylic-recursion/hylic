@@ -1,11 +1,12 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 use support::scenario::{self, Scale, PreparedScenario};
 use support::modes;
+use support::bench_cell;
 
 fn bench_parallel(c: &mut Criterion) {
     let mut group = c.benchmark_group("parallel");
@@ -15,9 +16,7 @@ fn bench_parallel(c: &mut Criterion) {
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
             let modes = modes::parallel_modes(&s, pool);
             for mode in &modes {
-                group.bench_with_input(
-                    BenchmarkId::new(mode.name, &s.name),
-                    &(),
+                bench_cell(&mut group, mode.name, &s.name,
                     |b, _| b.iter(|| black_box((mode.run)())),
                 );
             }

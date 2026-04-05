@@ -3,7 +3,7 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use hylic::domain::shared as dom;
 use hylic::cata::exec::{PoolIn, PoolSpec, HylomorphicIn, HylomorphicSpec};
@@ -12,6 +12,7 @@ use hylic::prelude::{WorkPool, WorkPoolSpec, PoolExecView};
 use support::scenario::{self, Scale, PreparedScenario};
 use support::tree::NodeId;
 use support::work::WorkSpec;
+use support::bench_cell;
 
 fn bench_executor_compare(c: &mut Criterion) {
     let mut group = c.benchmark_group("executor-compare");
@@ -23,25 +24,20 @@ fn bench_executor_compare(c: &mut Criterion) {
             let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
             let hylo_exec = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
 
-            group.bench_with_input(
-                BenchmarkId::new("hylic.rayon.shared", &s.name), &(),
+            bench_cell(&mut group, "hylic.rayon.shared", &s.name,
                 |b, _| b.iter(|| black_box(dom::RAYON.run(&s.fold, &s.treeish, &s.root))),
             );
-            group.bench_with_input(
-                BenchmarkId::new("hylic.pool.shared", &s.name), &(),
+            bench_cell(&mut group, "hylic.pool.shared", &s.name,
                 |b, _| b.iter(|| black_box(pool_exec.run(&s.fold, &s.treeish, &s.root))),
             );
-            group.bench_with_input(
-                BenchmarkId::new("hylic.hylo.shared", &s.name), &(),
+            bench_cell(&mut group, "hylic.hylo.shared", &s.name,
                 |b, _| b.iter(|| black_box(hylo_exec.run(&s.fold, &s.treeish, &s.root))),
             );
-            group.bench_with_input(
-                BenchmarkId::new("hand.rayon", &s.name), &(),
+            bench_cell(&mut group, "hand.rayon", &s.name,
                 |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
             );
             let work = std::sync::Arc::new(s.work.clone());
-            group.bench_with_input(
-                BenchmarkId::new("hand.pool", &s.name), &(),
+            bench_cell(&mut group, "hand.pool", &s.name,
                 |b, _| b.iter(|| black_box(handrolled_pool(&s.children, &work, pool, s.root))),
             );
         });

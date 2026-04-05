@@ -5,7 +5,7 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::sync::Arc;
 use hylic::domain::shared as dom;
@@ -15,6 +15,7 @@ use hylic::prelude::{WorkPool, WorkPoolSpec};
 use support::scenario::{Scale, PreparedScenario, ScenarioDef};
 use support::tree::{NodeId, TreeSpec};
 use support::work::WorkSpec;
+use support::bench_cell;
 
 /// Targeted scenario subset — representative workloads, not exhaustive.
 fn hylo_scenarios(scale: Scale) -> Vec<ScenarioDef> {
@@ -43,31 +44,20 @@ fn bench_hylo_compare(c: &mut Criterion) {
     for def in hylo_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
 
-        // hylic.rayon.shared
-        group.bench_with_input(
-            BenchmarkId::new("hylic.rayon", &s.name), &(),
+        bench_cell(&mut group, "hylic.rayon", &s.name,
             |b, _| b.iter(|| black_box(dom::RAYON.run(&s.fold, &s.treeish, &s.root))),
         );
-
-        // hand.rayon
-        group.bench_with_input(
-            BenchmarkId::new("hand.rayon", &s.name), &(),
+        bench_cell(&mut group, "hand.rayon", &s.name,
             |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
         );
-
-        // hylic.hylo (shared WorkPool)
         WorkPool::with(WorkPoolSpec::threads(3), |pool| {
             let hylo = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
-            group.bench_with_input(
-                BenchmarkId::new("hylic.hylo", &s.name), &(),
+            bench_cell(&mut group, "hylic.hylo", &s.name,
                 |b, _| b.iter(|| black_box(hylo.run(&s.fold, &s.treeish, &s.root))),
             );
         });
-
-        // hylic.funnel (self-contained, own threads)
         let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(3, HyloFunnelSpec::default_for(3));
-        group.bench_with_input(
-            BenchmarkId::new("hylic.funnel", &s.name), &(),
+        bench_cell(&mut group, "hylic.funnel", &s.name,
             |b, _| b.iter(|| black_box(funnel.run(&s.fold, &s.treeish, &s.root))),
         );
     }
