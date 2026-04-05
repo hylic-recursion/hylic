@@ -1,14 +1,18 @@
-//! Hylo-funnel: self-contained CPS parallel hylomorphism executor.
+//! Hylo-funnel: bare-metal CPS parallel hylomorphism executor.
 //!
-//! Same algorithm as HylomorphicIn (CPS walk, inline-first raker,
-//! defunctionalized continuations). Own parallelization substrate:
-//! BoundedMpmc queue, EventCount parking, dedicated worker threads.
-//! First-child inlining for zero-queue depth-first spines.
+//! Everything is data, nothing is a closure:
+//! - Continuations: Cont<H, R> enum (Root, Direct, Slot)
+//! - Tasks: FunnelTask<N, H, R> enum (Walk, Rake)
+//! - Workers pattern-match on both. No Box, no type erasure.
+//!
+//! Per-worker Chase-Lev deques. Push/pop is local (no atomic).
+//! Steal is a rare CAS from a neighbor. EventCount for parking.
+//! Arena-allocated ChainNodes + ContArena for continuations.
 
-mod mpmc;
+mod deque;
 mod eventcount;
-mod task_ref;
 mod arena;
+mod cont_arena;
 pub(crate) mod fold_chain;
 mod pool;
 mod walk;
@@ -17,7 +21,6 @@ use std::marker::PhantomData;
 use crate::ops::LiftOps;
 use crate::domain::Domain;
 use super::super::Executor;
-use pool::{FunnelPool, FunnelPoolSpec};
 
 pub struct HyloFunnelSpec { pub _reserved: () }
 impl HyloFunnelSpec {
@@ -40,9 +43,7 @@ impl<N, R, D: Domain<N>> Executor<N, R, D> for HyloFunnelIn<D>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
-        FunnelPool::with(FunnelPoolSpec::threads(self.n_workers), |pool| {
-            walk::run_fold(fold, graph, root, pool)
-        })
+        walk::run_fold(fold, graph, root, self.n_workers)
     }
 }
 
@@ -50,9 +51,7 @@ impl<D> HyloFunnelIn<D> {
     pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static {
-        FunnelPool::with(FunnelPoolSpec::threads(self.n_workers), |pool| {
-            walk::run_fold(fold, graph, root, pool)
-        })
+        walk::run_fold(fold, graph, root, self.n_workers)
     }
 
     pub fn run_lifted<N, R, N0, H0, R0, H>(

@@ -1,41 +1,48 @@
-//! CPS walk for hylo-funnel: streaming submission, first-child inlining,
-//! Cont::Direct cascade fast path for single-child nodes.
+//! CPS walk for hylo-funnel: defunctionalized tasks, per-worker deques,
+//! arena-allocated ChainNodes, Cont::Direct with ContArena.
 //!
-//! Streaming: sibling tasks are submitted DURING the visit callback, not after.
-//! Workers start DFS into sibling subtrees immediately.
+//! Tasks are data (FunnelTask enum), not closures. Workers pattern-match.
+//! No Box<dyn FnOnce>, no TaskRef, no type erasure.
 //!
-//! First-child inlining: child 0 is saved for inline walk (no Box, no queue).
-//! Strategy selection (Direct vs Slot) happens after the visit loop.
-//!
-//! Cont::Direct: single-child inlined node. The parent's heap travels with
-//! the continuation. No ChainNode, no FoldChain, no CAS, no slots.
-//! fire_cont accumulates directly and finalizes — sequential speed.
-//!
-//! Arena-allocated ChainNodes: multi-child nodes live in a pre-allocated
-//! slab. ArenaIdx is Copy (u32) — no Arc, no refcounting, bulk-freed.
+//! Per-worker deques: push is local (no atomic), steal is a rare CAS.
+//! The inner DFS traversal runs with zero shared-state contention.
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::ops::{FoldOps, TreeOps};
-use super::pool::FunnelPool;
 use super::fold_chain::{FoldChain, SlotRef};
 use super::arena::{Arena, ArenaIdx};
+use super::cont_arena::{ContArena, ContIdx};
+use super::deque::WorkerDeque;
+use super::pool::{FunnelPoolShared, FunnelPoolSpec, with_pool, steal_from_others};
+
+// ── Defunctionalized task ────────────────────────────
+
+pub(super) enum FunnelTask<N, H, R> {
+    Walk { child: N, cont: Cont<H, R> },
+    Rake { node_idx: ArenaIdx },
+}
+
+// Safety: H may not be Send, but it's only accessed by one thread at a time
+// (via the FoldChain sweeping CAS gate or inline in Cont::Direct).
+// Same safety argument as ChainNode's unsafe impl Send.
+unsafe impl<N: Send, H, R: Send> Send for FunnelTask<N, H, R> {}
 
 // ── Lifetime-erased context ───────────────────────────
 
 struct WalkCtx<F, G, H, R> {
     fold: *const F,
     graph: *const G,
-    pool: *const FunnelPool,
-    arena: *const Arena<ChainNode<H, R>>,
+    shared: *const FunnelPoolShared,
+    chain_arena: *const Arena<ChainNode<H, R>>,
+    cont_arena: *const ContArena<Cont<H, R>>,
 }
 
 impl<F, G, H, R> Clone for WalkCtx<F, G, H, R> {
-    fn clone(&self) -> Self {
-        WalkCtx { fold: self.fold, graph: self.graph, pool: self.pool, arena: self.arena }
-    }
+    fn clone(&self) -> Self { *self }
 }
+impl<F, G, H, R> Copy for WalkCtx<F, G, H, R> {}
 
 unsafe impl<F, G, H, R> Send for WalkCtx<F, G, H, R> {}
 unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
@@ -43,20 +50,18 @@ unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
 impl<F, G, H, R> WalkCtx<F, G, H, R> {
     unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
     unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
-    unsafe fn pool_ref(&self) -> &FunnelPool { unsafe { &*self.pool } }
-    unsafe fn arena_ref(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.arena } }
+    unsafe fn shared_ref(&self) -> &FunnelPoolShared { unsafe { &*self.shared } }
+    unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
+    unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
 }
 
 // ── Defunctionalized continuation ─────────────────────
 
 enum Cont<H, R> {
-    /// Terminal: fold result delivered here.
     Root(Arc<RootCell<R>>),
-    /// Fast path: single-child inlined node. Heap travels with the
-    /// continuation. No FoldChain, no CAS, no slots.
-    Direct { heap: H, parent_cont: Box<Cont<H, R>> },
-    /// General path: multi-child. Result delivered to a FoldChain slot.
-    /// ArenaIdx is Copy — no refcounting.
+    /// Single-child: heap inline, parent by arena index. No FoldChain.
+    Direct { heap: H, parent_idx: ContIdx },
+    /// Multi-child: result delivered to FoldChain slot.
     Slot { node: ArenaIdx, slot: SlotRef },
 }
 
@@ -101,35 +106,13 @@ impl<R> RootCell<R> {
     fn take(&self) -> R { unsafe { (*self.result.get()).take().expect("root result not set") } }
 }
 
-// ── submit_raker ──────────────────────────────────────
-
-fn submit_raker<N, H, R, F, G>(ctx: &WalkCtx<F, G, H, R>, node_idx: ArenaIdx)
-where
-    F: FoldOps<N, H, R> + 'static,
-    G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static,
-    H: 'static,
-    R: Send + 'static,
-{
-    let ctx2 = ctx.clone();
-    let pool = unsafe { ctx.pool_ref() };
-    pool.submit(move || {
-        let fold = unsafe { ctx2.fold_ref() };
-        let arena = unsafe { ctx2.arena_ref() };
-        let node = unsafe { arena.get(node_idx) };
-        if let Some(result) = node.chain.rake(fold) {
-            let parent = node.take_parent_cont();
-            fire_cont::<N, H, R, F, G>(&ctx2, parent, result);
-        }
-    });
-}
-
 // ── fire_cont (trampolined, with Direct fast path) ────
 
 fn fire_cont<N, H, R, F, G>(
     ctx: &WalkCtx<F, G, H, R>,
     mut cont: Cont<H, R>,
     mut result: R,
+    deque: &WorkerDeque<FunnelTask<N, H, R>>,
 ) where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
@@ -143,17 +126,14 @@ fn fire_cont<N, H, R, F, G>(
                 cell.set(result);
                 return;
             }
-            Cont::Direct { mut heap, parent_cont } => {
-                // FAST PATH: single-child inlined node.
-                // No FoldChain, no CAS, no slots. Sequential speed.
+            Cont::Direct { mut heap, parent_idx } => {
                 let fold = unsafe { ctx.fold_ref() };
                 fold.accumulate(&mut heap, &result);
                 result = fold.finalize(&heap);
-                cont = *parent_cont;
+                cont = unsafe { ctx.cont_arena().take(parent_idx) };
             }
             Cont::Slot { node: node_idx, slot } => {
-                // GENERAL PATH: multi-child or submitted child.
-                let arena = unsafe { ctx.arena_ref() };
+                let arena = unsafe { ctx.chain_arena() };
                 let node = unsafe { arena.get(node_idx) };
                 node.chain.deliver(slot, result);
                 let fold = unsafe { ctx.fold_ref() };
@@ -163,7 +143,10 @@ fn fire_cont<N, H, R, F, G>(
                         result = finalized;
                     }
                     None => {
-                        submit_raker::<N, H, R, F, G>(ctx, node_idx);
+                        // Submit raker as data — no Box, no closure.
+                        deque.push(FunnelTask::Rake { node_idx });
+                        let shared = unsafe { ctx.shared_ref() };
+                        shared.notify_one();
                         return;
                     }
                 }
@@ -172,10 +155,14 @@ fn fire_cont<N, H, R, F, G>(
     }
 }
 
-// ── CPS walk: streaming submission + Direct fast path ─
+// ── CPS walk ───────────────────────────────────��──────
 
-fn walk_cps<N, H, R, F, G>(ctx: &WalkCtx<F, G, H, R>, node: N, cont: Cont<H, R>)
-where
+fn walk_cps<N, H, R, F, G>(
+    ctx: &WalkCtx<F, G, H, R>,
+    node: N,
+    cont: Cont<H, R>,
+    deque: &WorkerDeque<FunnelTask<N, H, R>>,
+) where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
     N: Clone + Send + 'static,
@@ -184,8 +171,9 @@ where
 {
     let fold = unsafe { ctx.fold_ref() };
     let graph = unsafe { ctx.graph_ref() };
-    let pool = unsafe { ctx.pool_ref() };
-    let arena = unsafe { ctx.arena_ref() };
+    let chain_arena = unsafe { ctx.chain_arena() };
+    let cont_arena = unsafe { ctx.cont_arena() };
+    let shared = unsafe { ctx.shared_ref() };
     let heap = fold.init(&node);
 
     let mut child_count = 0u32;
@@ -201,99 +189,191 @@ where
             first_child = Some(child.clone());
         } else {
             if child_count == 2 {
-                // Transition to multi-child: arena-allocate ChainNode.
                 let cn = ChainNode::new(
                     heap_opt.take().unwrap(),
                     cont_opt.take().unwrap(),
                 );
-                let idx = arena.alloc(cn);
-                let node_ref = unsafe { arena.get(idx) };
+                let idx = chain_arena.alloc(cn);
+                let node_ref = unsafe { chain_arena.get(idx) };
                 node_ref.chain.append_slot(); // slot 0 for first child
                 chain_idx = Some(idx);
             }
             let idx = chain_idx.unwrap();
-            let node_ref = unsafe { arena.get(idx) };
+            let node_ref = unsafe { chain_arena.get(idx) };
             let slot = node_ref.chain.append_slot();
-            let ctx2 = ctx.clone();
-            let child = child.clone();
-            // ArenaIdx is Copy — no Arc clone.
-            pool.submit(move || {
-                walk_cps::<N, H, R, F, G>(&ctx2, child, Cont::Slot { node: idx, slot });
+            // Push task as DATA — no Box, no closure.
+            deque.push(FunnelTask::Walk {
+                child: child.clone(),
+                cont: Cont::Slot { node: idx, slot },
             });
+            shared.notify_one();
         }
     });
 
     match child_count {
         0 => {
-            // Leaf: no children. Finalize and deliver.
+            // Leaf: finalize and deliver.
             let heap = heap_opt.take().unwrap();
             let cont = cont_opt.take().unwrap();
             let result = fold.finalize(&heap);
-            fire_cont::<N, H, R, F, G>(ctx, cont, result);
+            fire_cont::<N, H, R, F, G>(ctx, cont, result, deque);
         }
         1 => {
-            // Single child: Cont::Direct — zero overhead cascade.
+            // Single child: Cont::Direct — parent cont in arena.
             let child = first_child.unwrap();
             let heap = heap_opt.take().unwrap();
             let parent_cont = cont_opt.take().unwrap();
-            walk_cps::<N, H, R, F, G>(ctx, child, Cont::Direct {
-                heap,
-                parent_cont: Box::new(parent_cont),
-            });
+            let parent_idx = cont_arena.alloc(parent_cont);
+            walk_cps::<N, H, R, F, G>(ctx, child, Cont::Direct { heap, parent_idx }, deque);
         }
         _ => {
             // Multi-child: FoldChain with CAS sweep.
             let idx = chain_idx.unwrap();
-            let cn = unsafe { arena.get(idx) };
+            let cn = unsafe { chain_arena.get(idx) };
             cn.chain.set_total();
             let child = first_child.unwrap();
-            // Walk child 0 inline with Cont::Slot for slot 0.
             walk_cps::<N, H, R, F, G>(ctx, child, Cont::Slot {
                 node: idx,
                 slot: SlotRef(0),
-            });
+            }, deque);
         }
+    }
+}
+
+// ── Execute a defunctionalized task ──────────────────
+
+fn execute_task<N, H, R, F, G>(
+    ctx: &WalkCtx<F, G, H, R>,
+    task: FunnelTask<N, H, R>,
+    deque: &WorkerDeque<FunnelTask<N, H, R>>,
+) where
+    F: FoldOps<N, H, R> + 'static,
+    G: TreeOps<N> + 'static,
+    N: Clone + Send + 'static,
+    H: 'static,
+    R: Send + 'static,
+{
+    match task {
+        FunnelTask::Walk { child, cont } => walk_cps(ctx, child, cont, deque),
+        FunnelTask::Rake { node_idx } => {
+            let fold = unsafe { ctx.fold_ref() };
+            let arena = unsafe { ctx.chain_arena() };
+            let node = unsafe { arena.get(node_idx) };
+            if let Some(result) = node.chain.rake(fold) {
+                let parent = node.take_parent_cont();
+                fire_cont::<N, H, R, F, G>(ctx, parent, result, deque);
+            }
+        }
+    }
+}
+
+// ── Worker loop ──────────────────────────────���───────
+
+fn worker_loop<N, H, R, F, G>(
+    ctx: &WalkCtx<F, G, H, R>,
+    shared: &FunnelPoolShared,
+    deques: &[WorkerDeque<FunnelTask<N, H, R>>],
+    my_idx: usize,
+) where
+    F: FoldOps<N, H, R> + 'static,
+    G: TreeOps<N> + 'static,
+    N: Clone + Send + 'static,
+    H: 'static,
+    R: Send + 'static,
+{
+    let my_deque = &deques[my_idx];
+    loop {
+        // Pop from own deque (LIFO — DFS order, no atomic)
+        if let Some(task) = my_deque.pop() {
+            execute_task(ctx, task, my_deque);
+            continue;
+        }
+        // Steal from neighbors
+        if let Some(task) = steal_from_others(deques, my_idx) {
+            execute_task(ctx, task, my_deque);
+            continue;
+        }
+        // Park
+        let token = shared.event.prepare();
+        if shared.shutdown.load(Ordering::Acquire) { return; }
+        if let Some(task) = my_deque.pop() {
+            execute_task(ctx, task, my_deque);
+            continue;
+        }
+        if let Some(task) = steal_from_others(deques, my_idx) {
+            execute_task(ctx, task, my_deque);
+            continue;
+        }
+        shared.idle_count.fetch_add(1, Ordering::Relaxed);
+        shared.event.wait(token);
+        shared.idle_count.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
 // ── Entry point ───────────────────────────────────────
 
-/// Default arena capacity. Covers trees up to ~2000 interior nodes.
-const ARENA_CAPACITY: usize = 4096;
+const CHAIN_ARENA_CAPACITY: usize = 4096;
+const CONT_ARENA_CAPACITY: usize = 8192;
 
 pub fn run_fold<N, H, R>(
     fold: &(impl FoldOps<N, H, R> + 'static),
     graph: &(impl TreeOps<N> + 'static),
     root: &N,
-    pool: &FunnelPool,
+    n_workers: usize,
 ) -> R
 where
     N: Clone + Send + 'static,
     H: 'static,
     R: Clone + Send + 'static,
 {
-    let arena = Arena::<ChainNode<H, R>>::new(ARENA_CAPACITY);
+    let chain_arena = Arena::<ChainNode<H, R>>::new(CHAIN_ARENA_CAPACITY);
+    let cont_arena = ContArena::<Cont<H, R>>::new(CONT_ARENA_CAPACITY);
     let root_cell = Arc::new(RootCell::new());
+
     let ctx = WalkCtx {
         fold: fold as *const _,
         graph: graph as *const _,
-        pool: pool as *const _,
-        arena: &arena as *const _,
+        shared: std::ptr::null(), // filled below
+        chain_arena: &chain_arena as *const _,
+        cont_arena: &cont_arena as *const _,
     };
 
-    walk_cps(&ctx, root.clone(), Cont::Root(root_cell.clone()));
+    with_pool(
+        FunnelPoolSpec::threads(n_workers),
+        |shared, deques| {
+            // Patch the shared pointer now that we have it
+            let mut ctx = ctx;
+            ctx.shared = shared as *const _;
 
-    let mut spins = 0u64;
-    while !root_cell.is_done() {
-        if pool.help_once() {
-            spins = 0;
-        } else {
-            spins += 1;
-            if spins > 10_000_000 {
-                panic!("run_fold hung: root_done={}", root_cell.is_done());
+            let caller_idx = shared.n_workers; // calling thread's deque
+            let caller_deque = &deques[caller_idx];
+
+            // Seed the initial walk
+            walk_cps(&ctx, root.clone(), Cont::Root(root_cell.clone()), caller_deque);
+
+            // Help-wait loop
+            let mut spins = 0u64;
+            while !root_cell.is_done() {
+                if let Some(task) = caller_deque.pop() {
+                    execute_task(&ctx, task, caller_deque);
+                    spins = 0;
+                } else if let Some(task) = steal_from_others(deques, caller_idx) {
+                    execute_task(&ctx, task, caller_deque);
+                    spins = 0;
+                } else {
+                    spins += 1;
+                    if spins > 10_000_000 {
+                        panic!("run_fold hung: root_done={}", root_cell.is_done());
+                    }
+                    std::hint::spin_loop();
+                }
             }
-            std::hint::spin_loop();
-        }
-    }
-    root_cell.take()
+            root_cell.take()
+        },
+        |shared, deques, worker_idx| {
+            let mut ctx = ctx;
+            ctx.shared = shared as *const _;
+            worker_loop::<N, H, R, _, _>(&ctx, shared, deques, worker_idx);
+        },
+    )
 }

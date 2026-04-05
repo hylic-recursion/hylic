@@ -8,7 +8,6 @@ fn stress_200_runs() {
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
-    // Funnel creates its own pool per run — tests lifecycle under churn
     for i in 0..200 {
         let exec = HyloFunnelIn::<crate::domain::Shared>::new(4, HyloFunnelSpec::default_for(4));
         assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
@@ -34,10 +33,16 @@ fn stress_200_runs_adjacency() {
     }
 }
 
+/// Pool lifecycle under rapid create/destroy — exercises eventcount
+/// shutdown + thread join. Each exec.run creates and destroys a pool.
 #[test]
 fn pool_lifecycle_500() {
-    use super::super::pool::{FunnelPool, FunnelPoolSpec};
+    let tree = big_tree(10, 3);
+    let fold = sum_fold();
+    let graph = n_graph();
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
     for _ in 0..500 {
-        FunnelPool::with(FunnelPoolSpec::threads(4), |_pool| {});
+        let exec = HyloFunnelIn::<crate::domain::Shared>::new(4, HyloFunnelSpec::default_for(4));
+        assert_eq!(exec.run(&fold, &graph, &tree), expected);
     }
 }
