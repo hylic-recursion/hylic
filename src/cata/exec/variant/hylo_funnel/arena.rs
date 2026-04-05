@@ -36,9 +36,16 @@ impl<T> Arena<T> {
         }
     }
 
-    /// Allocate a slot and write `value` into it. Returns an index.
-    ///
-    /// Panics if the arena is full.
+    /// Reset for reuse. Drops all allocated values, resets bump pointer.
+    /// Must only be called when no references to arena contents exist.
+    pub fn reset(&mut self) {
+        let count = *self.next.get_mut();
+        for i in 0..count.min(self.capacity) {
+            unsafe { (*self.slots[i as usize].get()).assume_init_drop(); }
+        }
+        *self.next.get_mut() = 0;
+    }
+
     pub fn alloc(&self, value: T) -> ArenaIdx {
         let idx = self.next.fetch_add(1, Ordering::Relaxed);
         assert!(idx < self.capacity, "arena exhausted: capacity={}, requested={}", self.capacity, idx + 1);

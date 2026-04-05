@@ -325,6 +325,34 @@ fn worker_loop<N, H, R, F, G>(
 const CHAIN_ARENA_CAPACITY: usize = 4096;
 const CONT_ARENA_CAPACITY: usize = 8192;
 
+/// Pre-allocatable typed state for repeated folds. Create once, call
+/// reset() between folds. Avoids deque + arena allocation per fold.
+#[allow(private_interfaces)]
+pub struct FoldContext<N, H, R> {
+    pub deques: Vec<WorkerDeque<FunnelTask<N, H, R>>>,
+    pub chain_arena: Arena<ChainNode<H, R>>,
+    pub cont_arena: ContArena<Cont<H, R>>,
+}
+
+impl<N, H, R> FoldContext<N, H, R> {
+    pub fn new(n_threads: usize) -> Self {
+        FoldContext {
+            deques: (0..n_threads + 1)
+                .map(|_| WorkerDeque::new(DEQUE_CAPACITY))
+                .collect(),
+            chain_arena: Arena::new(CHAIN_ARENA_CAPACITY),
+            cont_arena: ContArena::new(CONT_ARENA_CAPACITY),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        // Deques should be empty after a fold (all tasks executed).
+        // Arenas: drop old data, reset bump pointers.
+        self.chain_arena.reset();
+        self.cont_arena.reset();
+    }
+}
+
 pub fn run_fold<N, H, R, F, G>(
     fold: &F,
     graph: &G,
@@ -339,35 +367,47 @@ where
     H: 'static,
     R: Clone + Send + 'static,
 {
-    // All per-fold state: stack-local.
-    let chain_arena = Arena::<ChainNode<H, R>>::new(CHAIN_ARENA_CAPACITY);
-    let cont_arena = ContArena::<Cont<H, R>>::new(CONT_ARENA_CAPACITY);
+    let mut fctx = FoldContext::<N, H, R>::new(pool.n_threads());
+    run_fold_with(fold, graph, root, pool, accumulate, &mut fctx)
+}
+
+/// Run a fold using pre-allocated typed state. Call fctx.reset() before each fold.
+pub fn run_fold_with<N, H, R, F, G>(
+    fold: &F,
+    graph: &G,
+    root: &N,
+    pool: &FunnelPool,
+    accumulate: AccumulateMode,
+    fctx: &mut FoldContext<N, H, R>,
+) -> R
+where
+    F: FoldOps<N, H, R> + 'static,
+    G: TreeOps<N> + 'static,
+    N: Clone + Send + 'static,
+    H: 'static,
+    R: Clone + Send + 'static,
+{
     let root_cell = Arc::new(RootCell::new());
-    let deques: Vec<WorkerDeque<FunnelTask<N, H, R>>> =
-        (0..pool.n_threads() + 1)
-            .map(|_| WorkerDeque::new(DEQUE_CAPACITY))
-            .collect();
     let view = FoldView {
         pool_inner: pool.inner().clone(),
         fold_done: AtomicBool::new(false),
         idle_count: AtomicU32::new(0),
         n_workers: pool.n_threads(),
     };
+    let deques = fctx.deques.as_slice();
 
-    // Immutable shared context — created once, passed by &reference.
     let ctx = WalkCtx {
         fold: fold as *const _,
         graph: graph as *const _,
         view: &view as *const FoldView,
-        chain_arena: &chain_arena as *const _,
-        cont_arena: &cont_arena as *const _,
+        chain_arena: &fctx.chain_arena as *const _,
+        cont_arena: &fctx.cont_arena as *const _,
         accumulate,
     };
 
-    // FoldState bridges the pool's type-erased Job → typed worker code.
     let state = FoldState {
         ctx: &ctx,
-        deques: deques.as_slice() as *const [WorkerDeque<FunnelTask<N, H, R>>],
+        deques: deques as *const [WorkerDeque<FunnelTask<N, H, R>>],
     };
     let job = Job {
         call: worker_entry::<N, H, R, F, G>,
@@ -385,7 +425,7 @@ where
             if let Some(task) = caller_deque.pop() {
                 execute_task(&ctx, task, caller_deque);
                 spins = 0;
-            } else if let Some(task) = steal_from_others(&deques, caller_idx) {
+            } else if let Some(task) = steal_from_others(deques, caller_idx) {
                 execute_task(&ctx, task, caller_deque);
                 spins = 0;
             } else {

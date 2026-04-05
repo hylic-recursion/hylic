@@ -12,6 +12,8 @@ use std::hint::black_box;
 use std::sync::Arc;
 use hylic::domain::shared as dom;
 use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
+use hylic::cata::exec::variant::hylo_funnel::walk::{FoldContext, run_fold_with};
+use hylic::cata::exec::variant::hylo_funnel::pool::FunnelPool;
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 
 use support::scenario::{Scale, PreparedScenario, ScenarioDef};
@@ -61,15 +63,22 @@ fn bench_hylo_compare(c: &mut Criterion) {
                 |b, _| b.iter(|| black_box(hylo.run(&s.fold, &s.treeish, &s.root))),
             );
         });
-        let funnel_fin = HyloFunnelIn::<hylic::domain::Shared>::new(nw,
-            HyloFunnelSpec { accumulate: AccumulateMode::OnFinalize });
+        // Funnel with pre-allocated FoldContext (fair comparison — no per-fold alloc)
+        let pool_fin = FunnelPool::new(nw);
+        let mut fctx_fin = FoldContext::new(nw);
         bench_cell(&mut group, "funnel.on-finalize", &s.name,
-            |b, _| b.iter(|| black_box(funnel_fin.run(&s.fold, &s.treeish, &s.root))),
+            |b, _| b.iter(|| {
+                fctx_fin.reset();
+                black_box(run_fold_with(&s.fold, &s.treeish, &s.root, &pool_fin, AccumulateMode::OnFinalize, &mut fctx_fin))
+            }),
         );
-        let funnel_arr = HyloFunnelIn::<hylic::domain::Shared>::new(nw,
-            HyloFunnelSpec { accumulate: AccumulateMode::OnArrival });
+        let pool_arr = FunnelPool::new(nw);
+        let mut fctx_arr = FoldContext::new(nw);
         bench_cell(&mut group, "funnel.on-arrival", &s.name,
-            |b, _| b.iter(|| black_box(funnel_arr.run(&s.fold, &s.treeish, &s.root))),
+            |b, _| b.iter(|| {
+                fctx_arr.reset();
+                black_box(run_fold_with(&s.fold, &s.treeish, &s.root, &pool_arr, AccumulateMode::OnArrival, &mut fctx_arr))
+            }),
         );
     }
     group.finish();

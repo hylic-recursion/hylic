@@ -15,7 +15,7 @@ mod arena;
 mod cont_arena;
 pub(crate) mod fold_chain;
 pub mod pool;
-mod walk;
+pub mod walk;
 
 use std::marker::PhantomData;
 use crate::ops::LiftOps;
@@ -40,7 +40,7 @@ pub struct HyloFunnelSpec {
 
 impl HyloFunnelSpec {
     pub fn default_for(_n_workers: usize) -> Self {
-        HyloFunnelSpec { accumulate: AccumulateMode::OnFinalize }
+        HyloFunnelSpec { accumulate: AccumulateMode::OnArrival }
     }
 }
 
