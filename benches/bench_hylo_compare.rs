@@ -12,7 +12,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 use hylic::domain::shared as dom;
 use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
-use hylic::cata::exec::variant::hylo_funnel::walk::{FoldContext, run_fold_with};
+use hylic::cata::exec::variant::hylo_funnel::run::{FoldContext, run_fold_with};
 use hylic::cata::exec::variant::hylo_funnel::pool::FunnelPool;
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 

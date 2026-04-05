@@ -4,10 +4,9 @@
 //! stack-local Job struct). Knows nothing about folds, deques, or tasks.
 //! Pool threads park on an eventcount between dispatches.
 
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use super::deque::WorkerDeque;
 use super::eventcount::EventCount;
 
 pub const DEQUE_CAPACITY: usize = 4096;
@@ -83,28 +82,6 @@ impl Drop for FunnelPool {
     }
 }
 
-// ── FoldView (per-fold, stack-local, executor-owned) ─
-
-pub(super) struct FoldView {
-    pub pool_inner: Arc<PoolInner>,
-    pub fold_done: AtomicBool,
-    pub idle_count: AtomicU32,
-    pub work_available: AtomicU64,
-    pub n_workers: usize,
-}
-
-impl FoldView {
-    pub fn event(&self) -> &EventCount { &self.pool_inner.wake }
-
-    /// Signal that deque `idx` has work. Call after pushing a task.
-    pub fn signal_push(&self, deque_idx: usize) {
-        self.work_available.fetch_or(1u64 << deque_idx, Ordering::Relaxed);
-        if self.idle_count.load(Ordering::Relaxed) > 0 {
-            self.pool_inner.wake.notify_one();
-        }
-    }
-}
-
 // ── Pool thread (generic, knows nothing about folds) ─
 
 fn pool_thread(inner: &PoolInner, thread_idx: usize) {
@@ -132,31 +109,12 @@ fn pool_thread(inner: &PoolInner, thread_idx: usize) {
     }
 }
 
-// ── Steal helper ─────────────────────────────────────
-
-pub(super) fn steal_from_others<T>(
-    deques: &[WorkerDeque<T>],
-    my_idx: usize,
-    view: &FoldView,
-) -> Option<T> {
-    let mut bits = view.work_available.load(Ordering::Relaxed);
-    bits &= !(1u64 << my_idx); // don't steal from self
-    while bits != 0 {
-        let target = bits.trailing_zeros() as usize;
-        if let Some(task) = deques[target].steal() {
-            return Some(task);
-        }
-        // Deque was empty — clear its bit and try next
-        view.work_available.fetch_and(!(1u64 << target), Ordering::Relaxed);
-        bits &= !(1u64 << target);
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU64;
+    use super::super::view::{FoldView, steal_from_others};
+    use super::super::deque::WorkerDeque;
+    use std::sync::atomic::{AtomicU64, AtomicBool, AtomicU32};
 
     fn n_threads() -> usize {
         std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)

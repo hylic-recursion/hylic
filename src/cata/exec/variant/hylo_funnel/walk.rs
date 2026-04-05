@@ -1,153 +1,44 @@
-//! CPS walk for hylo-funnel: defunctionalized tasks, per-worker deques,
-//! packed-ticket streaming sweep, no rakers.
+//! CPS walk: defunctionalized tasks, packed-ticket streaming sweep.
 //!
-//! Tasks are data (FunnelTask::Walk only). Workers pattern-match.
-//! Each delivery callback tries the sweep permission inline.
-//! The packed ticket (Relaxed AtomicU64) determines who finalizes.
-//! Per-slot filled.load(Acquire) provides data visibility.
+//! walk_cps is void — delivers results through defunctionalized continuations.
+//! fire_cont calls deliver_and_sweep inline.
 //! fold_done set inside fire_cont(Cont::Root) — CPS completion signal.
-//!
-//! All per-fold state is stack-local to run_fold. WalkCtx is shared
-//! by &reference (immutable, created once). The Job struct bridges
-//! the pool's type-erased dispatch to the typed worker code.
 
-use std::cell::UnsafeCell;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
-use super::fold_chain::{FoldChain, SlotRef};
-use super::arena::{Arena, ArenaIdx};
-use super::cont_arena::{ContArena, ContIdx};
-use super::deque::WorkerDeque;
-use super::pool::{FunnelPool, FoldView, Job, steal_from_others, DEQUE_CAPACITY};
+use super::cont::{FunnelTask, Cont, ChainNode};
+use super::view::FoldView;
+use super::worker::WorkerCtx;
+use super::fold_chain::SlotRef;
+use super::arena::Arena;
+use super::cont_arena::ContArena;
 use super::AccumulateMode;
-
-// ── Defunctionalized task ────────────────────────────
-
-#[allow(private_interfaces)]
-pub(super) enum FunnelTask<N, H, R> {
-    Walk { child: N, cont: Cont<H, R> },
-}
-
-unsafe impl<N: Send, H, R: Send> Send for FunnelTask<N, H, R> {}
 
 // ── Shared immutable context (created once, passed by &ref) ──
 
-struct WalkCtx<F, G, H, R> {
-    fold: *const F,
-    graph: *const G,
-    view: *const FoldView,
-    chain_arena: *const Arena<ChainNode<H, R>>,
-    cont_arena: *const ContArena<Cont<H, R>>,
-    accumulate: AccumulateMode,
+pub(super) struct WalkCtx<F, G, H, R> {
+    pub(super) fold: *const F,
+    pub(super) graph: *const G,
+    pub(super) view: *const FoldView,
+    pub(super) chain_arena: *const Arena<ChainNode<H, R>>,
+    pub(super) cont_arena: *const ContArena<Cont<H, R>>,
+    pub(super) accumulate: AccumulateMode,
 }
 
 unsafe impl<F, G, H, R> Send for WalkCtx<F, G, H, R> {}
 unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
 
 impl<F, G, H, R> WalkCtx<F, G, H, R> {
-    unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
-    unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
-    unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
-    unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
-    unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
-}
-
-// ── WorkerCtx (per-worker: shared ctx + own deque + index) ──
-
-struct WorkerCtx<'a, N, H, R, F, G> {
-    ctx: &'a WalkCtx<F, G, H, R>,
-    deque: &'a WorkerDeque<FunnelTask<N, H, R>>,
-    deque_idx: usize,
-}
-
-impl<N, H, R, F, G> WorkerCtx<'_, N, H, R, F, G> {
-    fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
-
-    fn push_task(&self, task: FunnelTask<N, H, R>) {
-        let pushed = self.deque.push(task);
-        assert!(pushed, "deque full");
-        self.view().signal_push(self.deque_idx);
-    }
-}
-
-// ── FoldState (bridges Job → typed worker code) ──────
-
-struct FoldState<'a, N, H, R, F, G> {
-    ctx: &'a WalkCtx<F, G, H, R>,
-    deques: *const [WorkerDeque<FunnelTask<N, H, R>>],
-}
-
-unsafe impl<N: Send, H, R: Send, F, G> Send for FoldState<'_, N, H, R, F, G> {}
-unsafe impl<N: Send, H, R: Send, F, G> Sync for FoldState<'_, N, H, R, F, G> {}
-
-/// Monomorphized worker entry point. The pool calls this through the Job.
-unsafe fn worker_entry<N, H, R, F, G>(data: *const (), thread_idx: usize)
-where
-    F: FoldOps<N, H, R> + 'static,
-    G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static,
-    H: 'static,
-    R: Send + 'static,
-{
-    let state = unsafe { &*(data as *const FoldState<N, H, R, F, G>) };
-    let view = unsafe { state.ctx.view_ref() };
-    let deques = unsafe { &*state.deques };
-    worker_loop(state.ctx, view, deques, thread_idx);
-}
-
-// ── Defunctionalized continuation ─────────────────────
-
-enum Cont<H, R> {
-    Root(Arc<RootCell<R>>),
-    Direct { heap: H, parent_idx: ContIdx },
-    Slot { node: ArenaIdx, slot: SlotRef },
-}
-
-unsafe impl<H, R: Send> Send for Cont<H, R> {}
-
-// ── ChainNode (multi-child only, arena-allocated) ────
-
-struct ChainNode<H, R> {
-    chain: FoldChain<H, R>,
-    parent_cont: UnsafeCell<Option<Cont<H, R>>>,
-}
-
-unsafe impl<H, R: Send> Send for ChainNode<H, R> {}
-unsafe impl<H, R: Send> Sync for ChainNode<H, R> {}
-
-impl<H, R> ChainNode<H, R> {
-    fn new(heap: H, cont: Cont<H, R>) -> Self {
-        ChainNode { chain: FoldChain::new(heap), parent_cont: UnsafeCell::new(Some(cont)) }
-    }
-    fn take_parent_cont(&self) -> Cont<H, R> {
-        unsafe { (*self.parent_cont.get()).take().expect("parent cont already taken") }
-    }
-}
-
-// ── Root result cell ──────────────────────────────────
-
-struct RootCell<R> {
-    result: UnsafeCell<Option<R>>,
-    done: AtomicBool,
-}
-
-unsafe impl<R: Send> Send for RootCell<R> {}
-unsafe impl<R: Send> Sync for RootCell<R> {}
-
-impl<R> RootCell<R> {
-    fn new() -> Self { RootCell { result: UnsafeCell::new(None), done: AtomicBool::new(false) } }
-    fn set(&self, r: R) {
-        unsafe { *self.result.get() = Some(r); }
-        self.done.store(true, Ordering::Release);
-    }
-    fn is_done(&self) -> bool { self.done.load(Ordering::Acquire) }
-    fn take(&self) -> R { unsafe { (*self.result.get()).take().expect("root result not set") } }
+    pub(super) unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
+    pub(super) unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
+    pub(super) unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
+    pub(super) unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
+    pub(super) unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
 }
 
 // ── fire_cont (trampolined) ──────────────────────────
 
-fn fire_cont<N, H, R, F, G>(
+pub(super) fn fire_cont<N, H, R, F, G>(
     ctx: &WalkCtx<F, G, H, R>,
     mut cont: Cont<H, R>,
     mut result: R,
@@ -195,7 +86,7 @@ fn fire_cont<N, H, R, F, G>(
 
 // ── CPS walk ─────────────────────────────────────────
 
-fn walk_cps<N, H, R, F, G>(
+pub(super) fn walk_cps<N, H, R, F, G>(
     wctx: &WorkerCtx<N, H, R, F, G>,
     node: N,
     cont: Cont<H, R>,
@@ -215,7 +106,7 @@ fn walk_cps<N, H, R, F, G>(
 
     let mut child_count = 0u32;
     let mut first_child: Option<N> = None;
-    let mut chain_idx: Option<ArenaIdx> = None;
+    let mut chain_idx: Option<super::arena::ArenaIdx> = None;
     let mut heap_opt = Some(heap);
     let mut cont_opt = Some(cont);
 
@@ -276,7 +167,7 @@ fn walk_cps<N, H, R, F, G>(
     }
 }
 
-fn execute_task<N, H, R, F, G>(
+pub(super) fn execute_task<N, H, R, F, G>(
     wctx: &WorkerCtx<N, H, R, F, G>,
     task: FunnelTask<N, H, R>,
 ) where
@@ -289,184 +180,4 @@ fn execute_task<N, H, R, F, G>(
     match task {
         FunnelTask::Walk { child, cont } => walk_cps(wctx, child, cont),
     }
-}
-
-// ── Worker loop (inside the View) ────────────────────
-
-fn worker_loop<N, H, R, F, G>(
-    ctx: &WalkCtx<F, G, H, R>,
-    view: &FoldView,
-    deques: &[WorkerDeque<FunnelTask<N, H, R>>],
-    my_idx: usize,
-) where
-    F: FoldOps<N, H, R> + 'static,
-    G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static,
-    H: 'static,
-    R: Send + 'static,
-{
-    let wctx = WorkerCtx { ctx, deque: &deques[my_idx], deque_idx: my_idx };
-    loop {
-        if let Some(task) = wctx.deque.pop() {
-            execute_task(&wctx, task);
-            continue;
-        }
-        if let Some(task) = steal_from_others(deques, my_idx, view) {
-            execute_task(&wctx, task);
-            continue;
-        }
-        let event = view.event();
-        let token = event.prepare();
-        if view.fold_done.load(Ordering::Acquire) { return; }
-        if let Some(task) = wctx.deque.pop() {
-            execute_task(&wctx, task);
-            continue;
-        }
-        if let Some(task) = steal_from_others(deques, my_idx, view) {
-            execute_task(&wctx, task);
-            continue;
-        }
-        view.idle_count.fetch_add(1, Ordering::Relaxed);
-        event.wait(token);
-        view.idle_count.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-// ── Entry point ───────────────────────────────────────
-
-const CHAIN_ARENA_CAPACITY: usize = 4096;
-const CONT_ARENA_CAPACITY: usize = 8192;
-
-/// Pre-allocatable typed state for repeated folds. Create once, call
-/// reset() between folds. Avoids deque + arena allocation per fold.
-#[allow(private_interfaces)]
-pub struct FoldContext<N, H, R> {
-    pub deques: Vec<WorkerDeque<FunnelTask<N, H, R>>>,
-    pub chain_arena: Arena<ChainNode<H, R>>,
-    pub cont_arena: ContArena<Cont<H, R>>,
-}
-
-impl<N, H, R> FoldContext<N, H, R> {
-    pub fn new(n_threads: usize) -> Self {
-        FoldContext {
-            deques: (0..n_threads + 1)
-                .map(|_| WorkerDeque::new(DEQUE_CAPACITY))
-                .collect(),
-            chain_arena: Arena::new(CHAIN_ARENA_CAPACITY),
-            cont_arena: ContArena::new(CONT_ARENA_CAPACITY),
-        }
-    }
-
-    pub fn reset(&mut self) {
-        // Deques should be empty after a fold (all tasks executed).
-        // Arenas: drop old data, reset bump pointers.
-        self.chain_arena.reset();
-        self.cont_arena.reset();
-    }
-}
-
-pub fn run_fold<N, H, R, F, G>(
-    fold: &F,
-    graph: &G,
-    root: &N,
-    pool: &FunnelPool,
-    accumulate: AccumulateMode,
-) -> R
-where
-    F: FoldOps<N, H, R> + 'static,
-    G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static,
-    H: 'static,
-    R: Clone + Send + 'static,
-{
-    let mut fctx = FoldContext::<N, H, R>::new(pool.n_threads());
-    run_fold_with(fold, graph, root, pool, accumulate, &mut fctx)
-}
-
-/// Run a fold using pre-allocated typed state. Call fctx.reset() before each fold.
-pub fn run_fold_with<N, H, R, F, G>(
-    fold: &F,
-    graph: &G,
-    root: &N,
-    pool: &FunnelPool,
-    accumulate: AccumulateMode,
-    fctx: &mut FoldContext<N, H, R>,
-) -> R
-where
-    F: FoldOps<N, H, R> + 'static,
-    G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static,
-    H: 'static,
-    R: Clone + Send + 'static,
-{
-    let root_cell = Arc::new(RootCell::new());
-    let view = FoldView {
-        pool_inner: pool.inner().clone(),
-        fold_done: AtomicBool::new(false),
-        idle_count: AtomicU32::new(0),
-        work_available: AtomicU64::new(0),
-        n_workers: pool.n_threads(),
-    };
-    let deques = fctx.deques.as_slice();
-
-    let ctx = WalkCtx {
-        fold: fold as *const _,
-        graph: graph as *const _,
-        view: &view as *const FoldView,
-        chain_arena: &fctx.chain_arena as *const _,
-        cont_arena: &fctx.cont_arena as *const _,
-        accumulate,
-    };
-
-    let state = FoldState {
-        ctx: &ctx,
-        deques: deques as *const [WorkerDeque<FunnelTask<N, H, R>>],
-    };
-    let job = Job {
-        call: worker_entry::<N, H, R, F, G>,
-        data: &state as *const FoldState<N, H, R, F, G> as *const (),
-    };
-
-    pool.dispatch(&job, || {
-        let caller_idx = view.n_workers;
-        let wctx = WorkerCtx { ctx: &ctx, deque: &deques[caller_idx], deque_idx: caller_idx };
-
-        walk_cps(&wctx, root.clone(), Cont::Root(root_cell.clone()));
-
-        let mut spins = 0u64;
-        while !root_cell.is_done() {
-            if let Some(task) = wctx.deque.pop() {
-                execute_task(&wctx, task);
-                spins = 0;
-            } else if let Some(task) = steal_from_others(deques, caller_idx, &view) {
-                execute_task(&wctx, task);
-                spins = 0;
-            } else {
-                spins += 1;
-                if spins > 10_000_000 {
-                    panic!("run_fold hung: root_done={}", root_cell.is_done());
-                }
-                std::hint::spin_loop();
-            }
-        }
-
-        // Clear job_ptr BEFORE the latch. This prevents new workers from
-        // entering the job after the latch passes. Workers that already
-        // incremented in_job will either call the job (stack still alive)
-        // or see null and skip. The latch waits for all of them.
-        view.pool_inner.job_ptr.store(std::ptr::null_mut(), Ordering::Release);
-
-        // Latch: wait for all pool threads to exit the job call.
-        let mut latch_spins = 0u32;
-        while view.pool_inner.in_job.load(Ordering::Acquire) > 0 {
-            latch_spins += 1;
-            if latch_spins > 5_000_000 {
-                panic!("latch: {} threads still in job after fold complete",
-                    view.pool_inner.in_job.load(Ordering::Relaxed));
-            }
-            std::hint::spin_loop();
-        }
-
-        root_cell.take()
-    })
 }
