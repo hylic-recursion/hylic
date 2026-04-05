@@ -117,11 +117,6 @@ impl<T> WorkerDeque<T> {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        let t = self.top.load(Ordering::Relaxed);
-        let b = self.bottom.load(Ordering::Relaxed);
-        b <= t
-    }
 
     pub fn len(&self) -> usize {
         let t = self.top.load(Ordering::Relaxed);

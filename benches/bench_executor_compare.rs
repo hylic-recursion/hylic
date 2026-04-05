@@ -6,7 +6,7 @@ mod support;
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{PoolIn, PoolSpec, HylomorphicIn, HylomorphicSpec};
+use hylic::cata::exec::{PoolIn, PoolSpec, HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec};
 use hylic::prelude::{WorkPool, WorkPoolSpec, PoolExecView};
 
 use support::config;
@@ -43,6 +43,10 @@ fn bench_executor_compare(c: &mut Criterion) {
                 |b, _| b.iter(|| black_box(handrolled_pool(&s.children, &work, pool, s.root))),
             );
         });
+        let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(nw, HyloFunnelSpec::default_for(nw));
+        bench_cell(&mut group, "hylic.funnel.shared", &s.name,
+            |b, _| b.iter(|| black_box(funnel.run(&s.fold, &s.treeish, &s.root))),
+        );
     }
     group.finish();
 }

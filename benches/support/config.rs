@@ -22,6 +22,7 @@ pub const POOL_SHARED:          &str = "hylic.pool.shared";
 pub const POOL_LOCAL:           &str = "hylic.pool.local";
 pub const POOL_OWNED:           &str = "hylic.pool.owned";
 pub const HYLO_SHARED:          &str = "hylic.hylo.shared";
+pub const FUNNEL_SHARED:        &str = "hylic.funnel.shared";
 
 // ── Parallel (with lifts — Shared) ───────────────
 

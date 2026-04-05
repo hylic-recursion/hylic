@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::hint::black_box;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{PoolIn, PoolSpec};
+use hylic::cata::exec::{PoolIn, PoolSpec, HyloFunnelIn, HyloFunnelSpec};
 use hylic::prelude::{ParLazy, ParEager, WorkPool, PoolExecView};
 
 use super::config as id;
@@ -203,6 +203,14 @@ pub fn parallel_modes<'a>(
             run: Box::new(move || hylic::domain::local::FUSED.run_lifted(&par_eager_fused_local, &local_fold_elf, &local_tree_elf, root)) },
         BenchMode { name: id::EAGER_POOL_LOCAL,
             run: Box::new(move || pool_local3.run_lifted(&par_eager_pool_local, &local_fold_ell, &local_tree_ell, root)) },
+
+        // ── hylic funnel (own persistent pool) ────────
+        BenchMode { name: id::FUNNEL_SHARED,
+            run: {
+                let nw = super::config::bench_workers();
+                let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(nw, HyloFunnelSpec::default_for(nw));
+                Box::new(move || funnel.run(fold, treeish, root))
+            }},
 
         // ── handrolled parallel ───────────────────────
         BenchMode { name: id::HAND_RAYON,

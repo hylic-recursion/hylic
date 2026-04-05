@@ -10,12 +10,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Copy, Clone)]
 pub(super) struct Token(u32);
 
+impl Token {
+    pub fn epoch(self) -> u32 { self.0 }
+}
+
 pub(super) struct EventCount {
     epoch: AtomicU32,
 }
 
 impl EventCount {
     pub fn new() -> Self { EventCount { epoch: AtomicU32::new(0) } }
+
+    pub fn current_epoch(&self) -> u32 { self.epoch.load(Ordering::Relaxed) }
 
     /// Snapshot the current epoch. Call BEFORE checking conditions.
     pub fn prepare(&self) -> Token {
@@ -44,7 +50,7 @@ impl EventCount {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Barrier};
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU32 as AU32};
 
     #[test]
