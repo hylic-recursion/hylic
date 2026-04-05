@@ -4,7 +4,7 @@
 //! stack-local Job struct). Knows nothing about folds, deques, or tasks.
 //! Pool threads park on an eventcount between dispatches.
 
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use super::deque::WorkerDeque;
@@ -65,22 +65,9 @@ impl FunnelPool {
     pub(super) fn dispatch<R>(&self, job: &Job, body: impl FnOnce() -> R) -> R {
         self.inner.job_ptr.store(job as *const Job as *mut (), Ordering::Release);
         self.inner.wake.notify_all();
-        let result = body();
-        // Wait for all pool threads to exit the job call.
-        // The body already called wait_for_workers_to_exit (typed code done).
-        // This waits for the pool_thread wrapper around the call to finish too
-        // (the window between loading job_ptr and entering/exiting the function).
-        let mut spins = 0u32;
-        while self.inner.in_job.load(Ordering::Acquire) > 0 {
-            spins += 1;
-            if spins > 5_000_000 {
-                panic!("dispatch: {} threads still in job after body returned",
-                    self.inner.in_job.load(Ordering::Relaxed));
-            }
-            std::hint::spin_loop();
-        }
-        self.inner.job_ptr.store(std::ptr::null_mut(), Ordering::Release);
-        result
+        body()
+        // job_ptr is cleared by the body (before the latch) — not here.
+        // This ensures no worker can enter the job after the latch passes.
     }
 }
 
@@ -102,13 +89,16 @@ pub(super) struct FoldView {
     pub pool_inner: Arc<PoolInner>,
     pub fold_done: AtomicBool,
     pub idle_count: AtomicU32,
+    pub work_available: AtomicU64,
     pub n_workers: usize,
 }
 
 impl FoldView {
     pub fn event(&self) -> &EventCount { &self.pool_inner.wake }
 
-    pub fn notify_one(&self) {
+    /// Signal that deque `idx` has work. Call after pushing a task.
+    pub fn signal_push(&self, deque_idx: usize) {
+        self.work_available.fetch_or(1u64 << deque_idx, Ordering::Relaxed);
         if self.idle_count.load(Ordering::Relaxed) > 0 {
             self.pool_inner.wake.notify_one();
         }
@@ -130,28 +120,35 @@ fn pool_thread(inner: &PoolInner, thread_idx: usize) {
             }
             inner.wake.wait(token);
         }
-        // Call the job if set
+        // Increment in_job BEFORE loading job_ptr. This ensures dispatch's
+        // in_job spin cannot see 0 while we're between load and dereference.
+        inner.in_job.fetch_add(1, Ordering::Relaxed);
         let ptr = inner.job_ptr.load(Ordering::Acquire);
         if !ptr.is_null() {
-            inner.in_job.fetch_add(1, Ordering::Relaxed);
             let job = unsafe { &*(ptr as *const Job) };
             unsafe { (job.call)(job.data, thread_idx); }
-            inner.in_job.fetch_sub(1, Ordering::Release);
         }
+        inner.in_job.fetch_sub(1, Ordering::Release);
     }
 }
 
 // ── Steal helper ─────────────────────────────────────
 
-pub(super) fn steal_from_others<T>(deques: &[WorkerDeque<T>], my_idx: usize) -> Option<T> {
-    let n = deques.len();
-    let start = my_idx.wrapping_add(1);
-    for i in 0..n {
-        let idx = (start + i) % n;
-        if idx == my_idx { continue; }
-        if let Some(task) = deques[idx].steal() {
+pub(super) fn steal_from_others<T>(
+    deques: &[WorkerDeque<T>],
+    my_idx: usize,
+    view: &FoldView,
+) -> Option<T> {
+    let mut bits = view.work_available.load(Ordering::Relaxed);
+    bits &= !(1u64 << my_idx); // don't steal from self
+    while bits != 0 {
+        let target = bits.trailing_zeros() as usize;
+        if let Some(task) = deques[target].steal() {
             return Some(task);
         }
+        // Deque was empty — clear its bit and try next
+        view.work_available.fetch_and(!(1u64 << target), Ordering::Relaxed);
+        bits &= !(1u64 << target);
     }
     None
 }
@@ -173,7 +170,7 @@ mod tests {
                 state.counter.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            if let Some(_) = steal_from_others(state.deques, thread_idx) {
+            if let Some(_) = steal_from_others(state.deques, thread_idx, state.view) {
                 state.counter.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
@@ -202,6 +199,7 @@ mod tests {
                 pool_inner: pool.inner().clone(),
                 fold_done: AtomicBool::new(false),
                 idle_count: AtomicU32::new(0),
+                work_available: AtomicU64::new(0),
                 n_workers: nt,
             };
             let state = TestState {
@@ -217,7 +215,7 @@ mod tests {
             pool.dispatch(&job, || {
                 let caller = &deques[nt];
                 for v in 0..10u64 { caller.push(v); }
-                view.event().notify_all();
+                view.signal_push(nt);
                 while counter.load(Ordering::Relaxed) < 10 {
                     if let Some(_) = caller.pop() {
                         counter.fetch_add(1, Ordering::Relaxed);
@@ -242,6 +240,7 @@ mod tests {
                 pool_inner: pool.inner().clone(),
                 fold_done: AtomicBool::new(false),
                 idle_count: AtomicU32::new(0),
+                work_available: AtomicU64::new(0),
                 n_workers: nt,
             };
 

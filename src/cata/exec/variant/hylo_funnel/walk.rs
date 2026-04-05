@@ -13,7 +13,7 @@
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use crate::ops::{FoldOps, TreeOps};
 use super::fold_chain::{FoldChain, SlotRef};
 use super::arena::{Arena, ArenaIdx};
@@ -51,6 +51,24 @@ impl<F, G, H, R> WalkCtx<F, G, H, R> {
     unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
     unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
     unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
+}
+
+// ── WorkerCtx (per-worker: shared ctx + own deque + index) ──
+
+struct WorkerCtx<'a, N, H, R, F, G> {
+    ctx: &'a WalkCtx<F, G, H, R>,
+    deque: &'a WorkerDeque<FunnelTask<N, H, R>>,
+    deque_idx: usize,
+}
+
+impl<N, H, R, F, G> WorkerCtx<'_, N, H, R, F, G> {
+    fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
+
+    fn push_task(&self, task: FunnelTask<N, H, R>) {
+        let pushed = self.deque.push(task);
+        assert!(pushed, "deque full");
+        self.view().signal_push(self.deque_idx);
+    }
 }
 
 // ── FoldState (bridges Job → typed worker code) ──────
@@ -178,10 +196,9 @@ fn fire_cont<N, H, R, F, G>(
 // ── CPS walk ─────────────────────────────────────────
 
 fn walk_cps<N, H, R, F, G>(
-    ctx: &WalkCtx<F, G, H, R>,
+    wctx: &WorkerCtx<N, H, R, F, G>,
     node: N,
     cont: Cont<H, R>,
-    deque: &WorkerDeque<FunnelTask<N, H, R>>,
 ) where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
@@ -189,11 +206,11 @@ fn walk_cps<N, H, R, F, G>(
     H: 'static,
     R: Send + 'static,
 {
+    let ctx = wctx.ctx;
     let fold = unsafe { ctx.fold_ref() };
     let graph = unsafe { ctx.graph_ref() };
     let chain_arena = unsafe { ctx.chain_arena() };
     let cont_arena = unsafe { ctx.cont_arena() };
-    let view = unsafe { ctx.view_ref() };
     let heap = fold.init(&node);
 
     let mut child_count = 0u32;
@@ -217,12 +234,10 @@ fn walk_cps<N, H, R, F, G>(
             let idx = chain_idx.unwrap();
             let node_ref = unsafe { chain_arena.get(idx) };
             let slot = node_ref.chain.append_slot();
-            let pushed = deque.push(FunnelTask::Walk {
+            wctx.push_task(FunnelTask::Walk {
                 child: child.clone(),
                 cont: Cont::Slot { node: idx, slot },
             });
-            assert!(pushed, "deque full");
-            view.notify_one();
         }
     });
 
@@ -238,7 +253,7 @@ fn walk_cps<N, H, R, F, G>(
             let heap = heap_opt.take().unwrap();
             let parent_cont = cont_opt.take().unwrap();
             let parent_idx = cont_arena.alloc(parent_cont);
-            walk_cps::<N, H, R, F, G>(ctx, child, Cont::Direct { heap, parent_idx }, deque);
+            walk_cps(wctx, child, Cont::Direct { heap, parent_idx });
         }
         _ => {
             let idx = chain_idx.unwrap();
@@ -254,19 +269,16 @@ fn walk_cps<N, H, R, F, G>(
                 return;
             }
             let child = first_child.unwrap();
-            walk_cps::<N, H, R, F, G>(ctx, child, Cont::Slot {
+            walk_cps(wctx, child, Cont::Slot {
                 node: idx, slot: SlotRef(0),
-            }, deque);
+            });
         }
     }
 }
 
-// ── Execute task ─────────────────────────────────────
-
 fn execute_task<N, H, R, F, G>(
-    ctx: &WalkCtx<F, G, H, R>,
+    wctx: &WorkerCtx<N, H, R, F, G>,
     task: FunnelTask<N, H, R>,
-    deque: &WorkerDeque<FunnelTask<N, H, R>>,
 ) where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
@@ -275,7 +287,7 @@ fn execute_task<N, H, R, F, G>(
     R: Send + 'static,
 {
     match task {
-        FunnelTask::Walk { child, cont } => walk_cps(ctx, child, cont, deque),
+        FunnelTask::Walk { child, cont } => walk_cps(wctx, child, cont),
     }
 }
 
@@ -293,25 +305,25 @@ fn worker_loop<N, H, R, F, G>(
     H: 'static,
     R: Send + 'static,
 {
-    let my_deque = &deques[my_idx];
+    let wctx = WorkerCtx { ctx, deque: &deques[my_idx], deque_idx: my_idx };
     loop {
-        if let Some(task) = my_deque.pop() {
-            execute_task(ctx, task, my_deque);
+        if let Some(task) = wctx.deque.pop() {
+            execute_task(&wctx, task);
             continue;
         }
-        if let Some(task) = steal_from_others(deques, my_idx) {
-            execute_task(ctx, task, my_deque);
+        if let Some(task) = steal_from_others(deques, my_idx, view) {
+            execute_task(&wctx, task);
             continue;
         }
         let event = view.event();
         let token = event.prepare();
         if view.fold_done.load(Ordering::Acquire) { return; }
-        if let Some(task) = my_deque.pop() {
-            execute_task(ctx, task, my_deque);
+        if let Some(task) = wctx.deque.pop() {
+            execute_task(&wctx, task);
             continue;
         }
-        if let Some(task) = steal_from_others(deques, my_idx) {
-            execute_task(ctx, task, my_deque);
+        if let Some(task) = steal_from_others(deques, my_idx, view) {
+            execute_task(&wctx, task);
             continue;
         }
         view.idle_count.fetch_add(1, Ordering::Relaxed);
@@ -392,6 +404,7 @@ where
         pool_inner: pool.inner().clone(),
         fold_done: AtomicBool::new(false),
         idle_count: AtomicU32::new(0),
+        work_available: AtomicU64::new(0),
         n_workers: pool.n_threads(),
     };
     let deques = fctx.deques.as_slice();
@@ -416,17 +429,17 @@ where
 
     pool.dispatch(&job, || {
         let caller_idx = view.n_workers;
-        let caller_deque = &deques[caller_idx];
+        let wctx = WorkerCtx { ctx: &ctx, deque: &deques[caller_idx], deque_idx: caller_idx };
 
-        walk_cps(&ctx, root.clone(), Cont::Root(root_cell.clone()), caller_deque);
+        walk_cps(&wctx, root.clone(), Cont::Root(root_cell.clone()));
 
         let mut spins = 0u64;
         while !root_cell.is_done() {
-            if let Some(task) = caller_deque.pop() {
-                execute_task(&ctx, task, caller_deque);
+            if let Some(task) = wctx.deque.pop() {
+                execute_task(&wctx, task);
                 spins = 0;
-            } else if let Some(task) = steal_from_others(deques, caller_idx) {
-                execute_task(&ctx, task, caller_deque);
+            } else if let Some(task) = steal_from_others(deques, caller_idx, &view) {
+                execute_task(&wctx, task);
                 spins = 0;
             } else {
                 spins += 1;
@@ -435,6 +448,23 @@ where
                 }
                 std::hint::spin_loop();
             }
+        }
+
+        // Clear job_ptr BEFORE the latch. This prevents new workers from
+        // entering the job after the latch passes. Workers that already
+        // incremented in_job will either call the job (stack still alive)
+        // or see null and skip. The latch waits for all of them.
+        view.pool_inner.job_ptr.store(std::ptr::null_mut(), Ordering::Release);
+
+        // Latch: wait for all pool threads to exit the job call.
+        let mut latch_spins = 0u32;
+        while view.pool_inner.in_job.load(Ordering::Acquire) > 0 {
+            latch_spins += 1;
+            if latch_spins > 5_000_000 {
+                panic!("latch: {} threads still in job after fold complete",
+                    view.pool_inner.in_job.load(Ordering::Relaxed));
+            }
+            std::hint::spin_loop();
         }
 
         root_cell.take()
