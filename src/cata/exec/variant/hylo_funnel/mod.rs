@@ -2,11 +2,11 @@
 //!
 //! Everything is data, nothing is a closure:
 //! - Continuations: Cont<H, R> enum (Root, Direct, Slot)
-//! - Tasks: FunnelTask<N, H, R> enum (Walk, Rake)
-//! - Workers pattern-match on both. No Box, no type erasure.
+//! - Tasks: FunnelTask<N, H, R> enum (Walk only)
+//! - Workers pattern-match. No Box, no type erasure.
 //!
-//! Per-worker Chase-Lev deques. Push/pop is local (no atomic).
-//! Steal is a rare CAS from a neighbor. EventCount for parking.
+//! Persistent thread pool. Per-worker Chase-Lev deques (typed per fold).
+//! Packed AtomicU64 ticket for last-event detection. Streaming sweep.
 //! Arena-allocated ChainNodes + ContArena for continuations.
 
 mod deque;
@@ -14,13 +14,14 @@ mod eventcount;
 mod arena;
 mod cont_arena;
 pub(crate) mod fold_chain;
-mod pool;
+pub mod pool;
 mod walk;
 
 use std::marker::PhantomData;
 use crate::ops::LiftOps;
 use crate::domain::Domain;
 use super::super::Executor;
+use pool::FunnelPool;
 
 pub struct HyloFunnelSpec { pub _reserved: () }
 impl HyloFunnelSpec {
@@ -28,14 +29,14 @@ impl HyloFunnelSpec {
 }
 
 pub struct HyloFunnelIn<D> {
-    n_workers: usize,
+    pool: FunnelPool,
     _spec: HyloFunnelSpec,
     _domain: PhantomData<D>,
 }
 
 impl<D> HyloFunnelIn<D> {
     pub fn new(n_workers: usize, spec: HyloFunnelSpec) -> Self {
-        HyloFunnelIn { n_workers, _spec: spec, _domain: PhantomData }
+        HyloFunnelIn { pool: FunnelPool::new(n_workers), _spec: spec, _domain: PhantomData }
     }
 }
 
@@ -43,7 +44,7 @@ impl<N, R, D: Domain<N>> Executor<N, R, D> for HyloFunnelIn<D>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
-        walk::run_fold(fold, graph, root, self.n_workers)
+        walk::run_fold(fold, graph, root, &self.pool)
     }
 }
 
@@ -51,7 +52,7 @@ impl<D> HyloFunnelIn<D> {
     pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static {
-        walk::run_fold(fold, graph, root, self.n_workers)
+        walk::run_fold(fold, graph, root, &self.pool)
     }
 
     pub fn run_lifted<N, R, N0, H0, R0, H>(

@@ -15,7 +15,7 @@ use super::fold_chain::{FoldChain, SlotRef};
 use super::arena::{Arena, ArenaIdx};
 use super::cont_arena::{ContArena, ContIdx};
 use super::deque::WorkerDeque;
-use super::pool::{FunnelPoolShared, FunnelPoolSpec, with_pool, steal_from_others};
+use super::pool::{FunnelPool, FunnelPoolShared, steal_from_others};
 
 // ── Defunctionalized task ────────────────────────────
 
@@ -30,7 +30,7 @@ unsafe impl<N: Send, H, R: Send> Send for FunnelTask<N, H, R> {}
 struct WalkCtx<F, G, H, R> {
     fold: *const F,
     graph: *const G,
-    shared: *const FunnelPoolShared,
+    shared: *const (), // type-erased FunnelPoolShared<'_>
     chain_arena: *const Arena<ChainNode<H, R>>,
     cont_arena: *const ContArena<Cont<H, R>>,
 }
@@ -46,7 +46,9 @@ unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
 impl<F, G, H, R> WalkCtx<F, G, H, R> {
     unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
     unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
-    unsafe fn shared_ref(&self) -> &FunnelPoolShared { unsafe { &*self.shared } }
+    unsafe fn shared_ref(&self) -> &FunnelPoolShared<'_> {
+        unsafe { &*(self.shared as *const FunnelPoolShared<'_>) }
+    }
     unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
     unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
 }
@@ -272,7 +274,7 @@ fn worker_loop<N, H, R, F, G>(
             continue;
         }
         let token = shared.event.prepare();
-        if shared.shutdown.load(Ordering::Acquire) { return; }
+        if shared.fold_done.load(Ordering::Acquire) { return; }
         if let Some(task) = my_deque.pop() {
             execute_task(ctx, task, my_deque);
             continue;
@@ -296,7 +298,7 @@ pub fn run_fold<N, H, R>(
     fold: &(impl FoldOps<N, H, R> + 'static),
     graph: &(impl TreeOps<N> + 'static),
     root: &N,
-    n_workers: usize,
+    pool: &FunnelPool,
 ) -> R
 where
     N: Clone + Send + 'static,
@@ -315,11 +317,10 @@ where
         cont_arena: &cont_arena as *const _,
     };
 
-    with_pool(
-        FunnelPoolSpec::threads(n_workers),
+    pool.run_job(
         |shared, deques| {
             let mut ctx = ctx;
-            ctx.shared = shared as *const _;
+            ctx.shared = shared as *const FunnelPoolShared as *const ();
 
             let caller_idx = shared.n_workers;
             let caller_deque = &deques[caller_idx];
@@ -357,11 +358,13 @@ where
                     std::hint::spin_loop();
                 }
             }
+            shared.fold_done.store(true, Ordering::Release);
+            shared.event.notify_all();
             root_cell.take()
         },
         |shared, deques, worker_idx| {
             let mut ctx = ctx;
-            ctx.shared = shared as *const _;
+            ctx.shared = shared as *const FunnelPoolShared as *const ();
             worker_loop::<N, H, R, _, _>(&ctx, shared, deques, worker_idx);
         },
     )

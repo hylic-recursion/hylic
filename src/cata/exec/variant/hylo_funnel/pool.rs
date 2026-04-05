@@ -1,33 +1,122 @@
-//! FunnelPool: per-worker deques with work-stealing.
+//! FunnelPool: persistent thread pool for the hylo-funnel executor.
 //!
-//! Each worker owns a typed WorkerDeque. Tasks are data (FunnelTask enum),
-//! not closures. Push is local (no atomic). Steal is a rare CAS.
-//! EventCount for parking. No Mutex, no shared queue.
+//! Workers spawn once and park between folds. Each fold stores a
+//! type-erased job, bumps a job counter, and signals workers.
+//! Workers call the job, signal completion, park until next job.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
+use std::sync::Arc;
 
 use super::deque::WorkerDeque;
 use super::eventcount::EventCount;
 
-const DEQUE_CAPACITY: usize = 4096;
+pub const DEQUE_CAPACITY: usize = 4096;
 
-pub(super) struct FunnelPoolSpec {
-    pub n_workers: usize,
+// ── FunnelPool (persistent) ───��──────────────────────
+
+pub struct FunnelPool {
+    inner: Arc<PoolInner>,
+    _workers: Vec<std::thread::JoinHandle<()>>,
 }
 
-impl FunnelPoolSpec {
-    pub fn threads(n: usize) -> Self { FunnelPoolSpec { n_workers: n } }
+struct PoolInner {
+    shutdown: AtomicBool,
+    /// Type-erased job: `*const &dyn Fn(usize)`.
+    job_ptr: AtomicPtr<()>,
+    /// Monotonic job counter. Bumped per fold.
+    job_epoch: AtomicU32,
+    /// Workers decrement when done with current job.
+    workers_done: AtomicU32,
+    /// Wake workers when new job is ready.
+    wake: EventCount,
+    n_workers: usize,
 }
 
-/// Shared state visible to all workers + the calling thread.
-pub(super) struct FunnelPoolShared {
-    pub event: EventCount,
-    pub shutdown: AtomicBool,
+impl FunnelPool {
+    pub fn new(n_workers: usize) -> Self {
+        let inner = Arc::new(PoolInner {
+            shutdown: AtomicBool::new(false),
+            job_ptr: AtomicPtr::new(std::ptr::null_mut()),
+            job_epoch: AtomicU32::new(0),
+            workers_done: AtomicU32::new(0),
+            wake: EventCount::new(),
+            n_workers,
+        });
+        let workers: Vec<_> = (0..n_workers).map(|i| {
+            let inner = inner.clone();
+            std::thread::spawn(move || persistent_worker(&inner, i))
+        }).collect();
+        FunnelPool { inner, _workers: workers }
+    }
+
+    pub fn n_workers(&self) -> usize { self.inner.n_workers }
+
+    /// Run a typed fold on the persistent pool.
+    pub(super) fn run_job<T: Send, R>(
+        &self,
+        body: impl FnOnce(&FunnelPoolShared, &[WorkerDeque<T>]) -> R,
+        worker_fn: impl Fn(&FunnelPoolShared, &[WorkerDeque<T>], usize) + Sync,
+    ) -> R {
+        let n = self.inner.n_workers;
+        let deques: Vec<WorkerDeque<T>> = (0..n + 1)
+            .map(|_| WorkerDeque::new(DEQUE_CAPACITY))
+            .collect();
+
+        let shared = FunnelPoolShared {
+            event: &self.inner.wake,
+            fold_done: AtomicBool::new(false),
+            idle_count: AtomicU32::new(0),
+            n_workers: n,
+        };
+
+        // Type-erased job: workers call this with their index.
+        let typed_job = |worker_idx: usize| {
+            worker_fn(&shared, &deques, worker_idx);
+        };
+        let job_ref: &dyn Fn(usize) = &typed_job;
+        let job_ptr = &job_ref as *const &dyn Fn(usize) as *mut ();
+
+        // Publish job + bump epoch
+        self.inner.workers_done.store(0, Ordering::Relaxed);
+        self.inner.job_ptr.store(job_ptr, Ordering::Release);
+        self.inner.job_epoch.fetch_add(1, Ordering::Release);
+        self.inner.wake.notify_all();
+
+        // Run the caller's body (which seeds the walk and helps)
+        let result = body(&shared, &deques);
+
+        // Wait for all workers to complete this job
+        while self.inner.workers_done.load(Ordering::Acquire) < n as u32 {
+            std::hint::spin_loop();
+        }
+
+        // Clear job pointer (workers see null, park until next epoch)
+        self.inner.job_ptr.store(std::ptr::null_mut(), Ordering::Release);
+
+        result
+    }
+}
+
+impl Drop for FunnelPool {
+    fn drop(&mut self) {
+        self.inner.shutdown.store(true, Ordering::Release);
+        self.inner.wake.notify_all();
+        for w in self._workers.drain(..) {
+            let _ = w.join();
+        }
+    }
+}
+
+// ── FunnelPoolShared (per-fold borrowing view) ───────
+
+pub(super) struct FunnelPoolShared<'a> {
+    pub event: &'a EventCount,
+    pub fold_done: AtomicBool,
     pub idle_count: AtomicU32,
     pub n_workers: usize,
 }
 
-impl FunnelPoolShared {
+impl FunnelPoolShared<'_> {
     pub fn notify_one(&self) {
         if self.idle_count.load(Ordering::Relaxed) > 0 {
             self.event.notify_one();
@@ -35,43 +124,38 @@ impl FunnelPoolShared {
     }
 }
 
-/// Runs the scoped thread pool. Workers are typed over the task type T.
-/// The caller provides a body that receives the shared state and an array
-/// of deque references. Deque index `n_workers` is the calling thread's.
-pub(super) fn with_pool<T: Send, R>(
-    spec: FunnelPoolSpec,
-    body: impl FnOnce(&FunnelPoolShared, &[WorkerDeque<T>]) -> R,
-    worker_fn: impl Fn(&FunnelPoolShared, &[WorkerDeque<T>], usize) + Send + Sync,
-) -> R {
-    let n = spec.n_workers;
-    let deques: Vec<WorkerDeque<T>> = (0..n + 1).map(|_| WorkerDeque::new(DEQUE_CAPACITY)).collect();
-    let shared = FunnelPoolShared {
-        event: EventCount::new(),
-        shutdown: AtomicBool::new(false),
-        idle_count: AtomicU32::new(0),
-        n_workers: n,
-    };
+// ── Persistent worker ────────────────────────────────
 
-    std::thread::scope(|s| {
-        let wf = &worker_fn;
-        for i in 0..n {
-            let shared_ref = &shared;
-            let deques_ref = deques.as_slice();
-            s.spawn(move || wf(shared_ref, deques_ref, i));
-        }
-        struct ShutdownGuard<'a>(&'a FunnelPoolShared);
-        impl Drop for ShutdownGuard<'_> {
-            fn drop(&mut self) {
-                self.0.shutdown.store(true, Ordering::Release);
-                self.0.event.notify_all();
+fn persistent_worker(inner: &PoolInner, worker_idx: usize) {
+    let mut last_epoch = 0u32;
+
+    loop {
+        // Wait for a new job (epoch > last_epoch) or shutdown
+        loop {
+            let token = inner.wake.prepare();
+            if inner.shutdown.load(Ordering::Acquire) { return; }
+            let epoch = inner.job_epoch.load(Ordering::Acquire);
+            if epoch > last_epoch {
+                last_epoch = epoch;
+                break;
             }
+            inner.wake.wait(token);
         }
-        let _guard = ShutdownGuard(&shared);
-        body(&shared, &deques)
-    })
+
+        // Load and call the type-erased job
+        let ptr = inner.job_ptr.load(Ordering::Acquire);
+        if !ptr.is_null() {
+            let job: &dyn Fn(usize) = unsafe { *(ptr as *const &dyn Fn(usize)) };
+            job(worker_idx);
+        }
+
+        // Signal completion
+        inner.workers_done.fetch_add(1, Ordering::Release);
+    }
 }
 
-/// Try to steal a task from any deque other than `my_idx`.
+// ── Steal helper ─────────────────────────────────────
+
 pub(super) fn steal_from_others<T>(deques: &[WorkerDeque<T>], my_idx: usize) -> Option<T> {
     let n = deques.len();
     let start = my_idx.wrapping_add(1);
@@ -88,147 +172,57 @@ pub(super) fn steal_from_others<T>(deques: &[WorkerDeque<T>], my_idx: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
-
-    /// Simple typed task for pool-level tests. No walk_cps dependency.
-    enum TestTask {
-        Increment(Arc<AtomicU64>),
-    }
-
-    unsafe impl Send for TestTask {}
-
-    fn test_worker(
-        shared: &FunnelPoolShared,
-        deques: &[WorkerDeque<TestTask>],
-        my_idx: usize,
-    ) {
-        let my_deque = &deques[my_idx];
-        loop {
-            if let Some(TestTask::Increment(c)) = my_deque.pop() {
-                c.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            if let Some(TestTask::Increment(c)) = steal_from_others(deques, my_idx) {
-                c.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            let token = shared.event.prepare();
-            if shared.shutdown.load(Ordering::Acquire) { return; }
-            if let Some(TestTask::Increment(c)) = my_deque.pop() {
-                c.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            if let Some(TestTask::Increment(c)) = steal_from_others(deques, my_idx) {
-                c.fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            shared.idle_count.fetch_add(1, Ordering::Relaxed);
-            shared.event.wait(token);
-            shared.idle_count.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
+    use std::sync::atomic::AtomicU64;
 
     #[test]
-    fn basic_submit_and_steal() {
-        let counter = Arc::new(AtomicU64::new(0));
-        with_pool(
-            FunnelPoolSpec::threads(2),
-            |shared, deques| {
-                let caller_deque = &deques[shared.n_workers];
-                for _ in 0..10 {
-                    caller_deque.push(TestTask::Increment(counter.clone()));
-                    shared.notify_one();
-                }
-                while counter.load(Ordering::Relaxed) < 10 {
-                    if let Some(TestTask::Increment(c)) = caller_deque.pop() {
-                        c.fetch_add(1, Ordering::Relaxed);
-                    } else {
-                        std::hint::spin_loop();
-                    }
-                }
-                assert_eq!(counter.load(Ordering::Relaxed), 10);
-            },
-            test_worker,
-        );
-    }
-
-    #[test]
-    fn zero_workers_caller_processes_all() {
-        let counter = Arc::new(AtomicU64::new(0));
-        with_pool(
-            FunnelPoolSpec::threads(0),
-            |shared, deques| {
-                let caller_deque = &deques[shared.n_workers];
-                for _ in 0..20 {
-                    caller_deque.push(TestTask::Increment(counter.clone()));
-                }
-                while counter.load(Ordering::Relaxed) < 20 {
-                    if let Some(TestTask::Increment(c)) = caller_deque.pop() {
-                        c.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-                assert_eq!(counter.load(Ordering::Relaxed), 20);
-            },
-            test_worker,
-        );
-    }
-
-    #[test]
-    fn lifecycle_stress_500() {
-        for _ in 0..500 {
-            with_pool(
-                FunnelPoolSpec::threads(4),
-                |_, _| {},
-                test_worker,
-            );
-        }
-    }
-
-    #[test]
-    fn lifecycle_with_work_500() {
-        for _ in 0..500 {
+    fn persistent_pool_reuse() {
+        let pool = FunnelPool::new(3);
+        for round in 0..20 {
             let counter = Arc::new(AtomicU64::new(0));
-            with_pool(
-                FunnelPoolSpec::threads(4),
-                |shared, deques| {
-                    let caller_deque = &deques[shared.n_workers];
-                    caller_deque.push(TestTask::Increment(counter.clone()));
-                    shared.notify_one();
-                    while counter.load(Ordering::Relaxed) < 1 {
-                        if let Some(TestTask::Increment(c)) = caller_deque.pop() {
+            let c = counter.clone();
+            pool.run_job(
+                |shared, deques: &[WorkerDeque<u64>]| {
+                    let caller = &deques[shared.n_workers];
+                    for v in 0..10u64 { caller.push(v); }
+                    shared.event.notify_all();
+                    while c.load(Ordering::Relaxed) < 10 {
+                        if let Some(v) = caller.pop() {
                             c.fetch_add(1, Ordering::Relaxed);
                         } else {
                             std::hint::spin_loop();
                         }
                     }
                 },
-                test_worker,
+                |shared, deques, my_idx| {
+                    let my_deque = &deques[my_idx];
+                    loop {
+                        if let Some(_) = my_deque.pop() {
+                            counter.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
+                        if let Some(_) = steal_from_others(deques, my_idx) {
+                            counter.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
+                        let token = shared.event.prepare();
+                        if counter.load(Ordering::Relaxed) >= 10 { return; }
+                        shared.event.wait(token);
+                        if counter.load(Ordering::Relaxed) >= 10 { return; }
+                    }
+                },
             );
+            assert!(counter.load(Ordering::Relaxed) >= 10, "round {round}");
         }
     }
 
     #[test]
-    fn workers_steal_from_caller() {
-        let counter = Arc::new(AtomicU64::new(0));
-        with_pool(
-            FunnelPoolSpec::threads(3),
-            |shared, deques| {
-                let caller_deque = &deques[shared.n_workers];
-                // Push 100 tasks to caller's deque. Workers steal them.
-                for _ in 0..100 {
-                    caller_deque.push(TestTask::Increment(counter.clone()));
-                }
-                shared.event.notify_all();
-                while counter.load(Ordering::Relaxed) < 100 {
-                    if let Some(TestTask::Increment(c)) = caller_deque.pop() {
-                        c.fetch_add(1, Ordering::Relaxed);
-                    } else {
-                        std::hint::spin_loop();
-                    }
-                }
-            },
-            test_worker,
-        );
+    fn lifecycle_no_work_500() {
+        let pool = FunnelPool::new(4);
+        for _ in 0..500 {
+            pool.run_job(
+                |_, _: &[WorkerDeque<u32>]| {},
+                |_, _, _| {},  // worker does nothing, returns immediately
+            );
+        }
     }
 }
