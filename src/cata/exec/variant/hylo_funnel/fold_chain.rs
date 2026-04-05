@@ -61,7 +61,7 @@ impl<R> OverflowBuf<R> {
 // ── SlotRef ──────────────────────────────────────────
 
 #[derive(Clone, Copy)]
-pub struct SlotRef(u32);
+pub struct SlotRef(pub(super) u32);
 unsafe impl Send for SlotRef {}
 unsafe impl Sync for SlotRef {}
 

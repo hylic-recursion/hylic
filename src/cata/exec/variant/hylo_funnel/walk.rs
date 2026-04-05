@@ -1,11 +1,15 @@
-//! CPS walk for hylo-funnel: hardcoded to FunnelPool, first-child inlining.
+//! CPS walk for hylo-funnel: streaming submission, first-child inlining,
+//! Cont::Direct cascade fast path for single-child nodes.
 //!
-//! walk_cps is void — delivers results through defunctionalized continuations.
-//! fire_cont rakes inline, trampolines up on success, submits raker on CAS failure.
+//! Streaming: sibling tasks are submitted DURING the visit callback, not after.
+//! Workers start DFS into sibling subtrees immediately.
 //!
-//! First-child inlining: child 0 is walked inline (no Box, no queue push).
-//! Remaining children are submitted as tasks. The thread follows the leftmost
-//! spine depth-first with zero queue overhead.
+//! First-child inlining: child 0 is saved for inline walk (no Box, no queue).
+//! Strategy selection (Direct vs Slot) happens after the visit loop.
+//!
+//! Cont::Direct: single-child inlined node. The parent's heap travels with
+//! the continuation. No ChainNode, no FoldChain, no CAS, no slots.
+//! fire_cont accumulates directly and finalizes — sequential speed.
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
@@ -40,13 +44,18 @@ impl<F, G> WalkCtx<F, G> {
 // ── Defunctionalized continuation ─────────────────────
 
 enum Cont<H, R> {
-    Slot { node: Arc<ChainNode<H, R>>, slot: SlotRef },
+    /// Terminal: fold result delivered here.
     Root(Arc<RootCell<R>>),
+    /// Fast path: single-child inlined node. Heap travels with the
+    /// continuation. No FoldChain, no CAS, no slots.
+    Direct { heap: H, parent_cont: Box<Cont<H, R>> },
+    /// General path: multi-child. Result delivered to a FoldChain slot.
+    Slot { node: Arc<ChainNode<H, R>>, slot: SlotRef },
 }
 
 unsafe impl<H, R: Send> Send for Cont<H, R> {}
 
-// ── ChainNode ────────────────────────────────────────
+// ── ChainNode (multi-child only) ─────────────────────
 
 struct ChainNode<H, R> {
     chain: FoldChain<H, R>,
@@ -106,7 +115,7 @@ where
     });
 }
 
-// ── fire_cont (trampolined, inline-first) ─────────────
+// ── fire_cont (trampolined, with Direct fast path) ────
 
 fn fire_cont<N, H, R, F, G>(
     ctx: &WalkCtx<F, G>,
@@ -125,7 +134,16 @@ fn fire_cont<N, H, R, F, G>(
                 cell.set(result);
                 return;
             }
+            Cont::Direct { mut heap, parent_cont } => {
+                // FAST PATH: single-child inlined node.
+                // No FoldChain, no CAS, no slots. Sequential speed.
+                let fold = unsafe { ctx.fold_ref() };
+                fold.accumulate(&mut heap, &result);
+                result = fold.finalize(&heap);
+                cont = *parent_cont;
+            }
             Cont::Slot { node, slot } => {
+                // GENERAL PATH: multi-child or submitted child.
                 node.chain.deliver(slot, result);
                 let fold = unsafe { ctx.fold_ref() };
                 match node.chain.rake(fold) {
@@ -143,7 +161,7 @@ fn fire_cont<N, H, R, F, G>(
     }
 }
 
-// ── CPS walk with first-child inlining ───────────────
+// ── CPS walk: streaming submission + Direct fast path ─
 
 fn walk_cps<N, H, R, F, G>(ctx: &WalkCtx<F, G>, node: N, cont: Cont<H, R>)
 where
@@ -158,26 +176,37 @@ where
     let pool = unsafe { ctx.pool_ref() };
     let heap = fold.init(&node);
 
+    // State for streaming child dispatch:
+    // - child_count: total children seen so far
+    // - first_child: saved for inline walk (never submitted)
+    // - chain: created lazily on second child (multi-child case)
+    // - heap/cont held in Options, taken when ChainNode is created
+    let mut child_count = 0u32;
+    let mut first_child: Option<N> = None;
     let mut chain: Option<Arc<ChainNode<H, R>>> = None;
     let mut heap_opt = Some(heap);
     let mut cont_opt = Some(cont);
-    let mut first_child: Option<(N, SlotRef)> = None;
 
     graph.visit(&node, &mut |child: &N| {
-        if chain.is_none() {
-            chain = Some(Arc::new(ChainNode::new(
-                heap_opt.take().unwrap(),
-                cont_opt.take().unwrap(),
-            )));
-        }
-        let cn = chain.as_ref().unwrap();
-        let slot = cn.chain.append_slot();
+        child_count += 1;
 
-        if first_child.is_none() {
-            // Keep first child for inline walk — no Box, no queue
-            first_child = Some((child.clone(), slot));
+        if child_count == 1 {
+            // First child: save for inline walk. Don't allocate anything.
+            first_child = Some(child.clone());
         } else {
-            // Submit remaining children as tasks
+            // Second+ child: streaming submission.
+            if child_count == 2 {
+                // Transition to multi-child: create FoldChain now.
+                chain = Some(Arc::new(ChainNode::new(
+                    heap_opt.take().unwrap(),
+                    cont_opt.take().unwrap(),
+                )));
+                // Register slot 0 for the saved first child.
+                chain.as_ref().unwrap().chain.append_slot();
+            }
+            let cn = chain.as_ref().unwrap();
+            let slot = cn.chain.append_slot();
+            // SUBMIT IMMEDIATELY — worker starts DFS into this subtree now.
             let ctx2 = ctx.clone();
             let cn2 = cn.clone();
             let child = child.clone();
@@ -187,53 +216,36 @@ where
         }
     });
 
-    match chain {
-        None => {
-            // Leaf: no children
+    // Post-visit: choose strategy based on final child count.
+    match child_count {
+        0 => {
+            // Leaf: no children. Finalize and deliver.
             let heap = heap_opt.take().unwrap();
             let cont = cont_opt.take().unwrap();
             let result = fold.finalize(&heap);
             fire_cont::<N, H, R, F, G>(ctx, cont, result);
         }
-        Some(cn) => {
+        1 => {
+            // Single child: Cont::Direct — zero overhead cascade.
+            // No FoldChain, no Arc, no atomics, no slots.
+            let child = first_child.unwrap();
+            let heap = heap_opt.take().unwrap();
+            let parent_cont = cont_opt.take().unwrap();
+            walk_cps::<N, H, R, F, G>(ctx, child, Cont::Direct {
+                heap,
+                parent_cont: Box::new(parent_cont),
+            });
+        }
+        _ => {
+            // Multi-child: FoldChain with CAS sweep.
+            let cn = chain.unwrap();
             cn.chain.set_total();
-
-            let (first_node, first_slot) = first_child.unwrap();
-
-            // Try inline rake for the set_total event (covers case where
-            // all submitted children already delivered before we get here).
-            let fold = unsafe { ctx.fold_ref() };
-            match cn.chain.rake(fold) {
-                Some(finalized) => {
-                    // All children done before we walk child 0.
-                    // This is unusual but possible. Cascade result.
-                    let parent = cn.take_parent_cont();
-                    fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
-                    // Still need to walk child 0 — but chain is finalized.
-                    // Actually: if chain finalized, child 0's result was already
-                    // delivered (by some worker). But we haven't walked child 0
-                    // inline yet... wait, child 0 IS the first_child we kept.
-                    // If the chain finalized, it means some worker ALSO walked
-                    // child 0 — but we didn't submit child 0! Only we have it.
-                    //
-                    // So this can't happen: child 0 was never submitted, its
-                    // slot can't be filled, the chain can't finalize without it.
-                    // The rake here can return Some only if total == 0 (no children),
-                    // but we're in the Some(cn) branch meaning there IS at least 1 child.
-                    //
-                    // Therefore: this path is unreachable when first_child is Some.
-                    unreachable!("chain finalized before first child walked");
-                }
-                None => {
-                    // Expected: chain not complete (child 0 hasn't delivered yet).
-                    // Don't submit a raker here — we're about to walk child 0
-                    // inline, which will deliver and trigger the cascade.
-                }
-            }
-
-            // Walk first child inline — depth-first down the leftmost spine.
-            // No Box, no queue push, no context switch.
-            walk_cps::<N, H, R, F, G>(ctx, first_node, Cont::Slot { node: cn, slot: first_slot });
+            let child = first_child.unwrap();
+            // Walk child 0 inline with Cont::Slot for slot 0.
+            walk_cps::<N, H, R, F, G>(ctx, child, Cont::Slot {
+                node: cn,
+                slot: SlotRef(0),
+            });
         }
     }
 }
