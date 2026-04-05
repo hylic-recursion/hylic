@@ -11,19 +11,19 @@ fn stress_200_pools() {
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
+    let nt = n_threads();
     for i in 0..200 {
-        WorkPool::with(WorkPoolSpec::threads(4), |pool| {
-            let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(4));
+        WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
+            let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(nt));
             assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
         });
     }
 }
 
-/// 200 folds on ONE pool. Adjacency-list representation.
-/// Guards: StealQueue monotonic index growth across many runs.
-/// Guards: hang regression for the noop/adjacency pattern.
+/// 50k folds on ONE pool. Adjacency-list, noop fold, full thread count.
+/// Guards: raker stranding bug (now fixed by ticket-based on-arrival sweep).
 #[test]
-fn stress_200_runs_one_pool() {
+fn stress_50k_runs_one_pool() {
     let adj = gen_adj(200, 8);
     let ch = adj.clone();
     let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
@@ -36,10 +36,11 @@ fn stress_200_runs_one_pool() {
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
 
-    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+    let nt = n_threads();
+    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
         let exec = HylomorphicIn::<crate::domain::Shared>::new(
-            pool, HylomorphicSpec::default_for(3));
-        for i in 0..200 {
+            pool, HylomorphicSpec::default_for(nt));
+        for i in 0..50_000 {
             let result = exec.run(&fold, &treeish, &0usize);
             assert_eq!(result, expected, "iteration {i}");
         }
@@ -51,8 +52,9 @@ fn stress_200_runs_one_pool() {
 /// This is the pure pool lifecycle regression test.
 #[test]
 fn pool_lifecycle_500() {
+    let nt = n_threads();
     for _ in 0..500 {
-        WorkPool::with(WorkPoolSpec::threads(4), |_pool| {});
+        WorkPool::with(WorkPoolSpec::threads(nt), |_pool| {});
     }
 }
 
@@ -61,8 +63,9 @@ fn pool_lifecycle_500() {
 #[test]
 fn pool_lifecycle_with_work_500() {
     use std::sync::atomic::{AtomicBool, Ordering};
+    let nt = n_threads();
     for _ in 0..500 {
-        WorkPool::with(WorkPoolSpec::threads(4), |pool| {
+        WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
             let view = crate::prelude::PoolExecView::new(pool);
             let handle = view.handle();
             let done = Arc::new(AtomicBool::new(false));

@@ -4,12 +4,12 @@ use super::*;
 
 #[test]
 fn matches_fused() {
-    assert_matches_fused(&big_tree(60, 4), 3);
+    assert_matches_fused(&big_tree(60, 4), n_threads());
 }
 
 #[test]
 fn matches_fused_200() {
-    assert_matches_fused(&big_tree(200, 6), 4);
+    assert_matches_fused(&big_tree(200, 6), n_threads());
 }
 
 #[test]
@@ -30,6 +30,7 @@ fn adjacency_list_noop() {
         |h: &u64| *h,
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
-    let exec = HyloFunnelIn::<crate::domain::Shared>::new(3, HyloFunnelSpec::default_for(3));
+    let nt = n_threads();
+    let exec = HyloFunnelIn::<crate::domain::Shared>::new(nt, HyloFunnelSpec::default_for(nt));
     assert_eq!(exec.run(&fold, &treeish, &0usize), expected);
 }

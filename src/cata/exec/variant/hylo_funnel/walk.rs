@@ -20,6 +20,7 @@ use super::arena::{Arena, ArenaIdx};
 use super::cont_arena::{ContArena, ContIdx};
 use super::deque::WorkerDeque;
 use super::pool::{FunnelPool, FoldView, Job, steal_from_others, DEQUE_CAPACITY};
+use super::AccumulateMode;
 
 // ── Defunctionalized task ────────────────────────────
 
@@ -38,6 +39,7 @@ struct WalkCtx<F, G, H, R> {
     view: *const FoldView,
     chain_arena: *const Arena<ChainNode<H, R>>,
     cont_arena: *const ContArena<Cont<H, R>>,
+    accumulate: AccumulateMode,
 }
 
 unsafe impl<F, G, H, R> Send for WalkCtx<F, G, H, R> {}
@@ -157,7 +159,11 @@ fn fire_cont<N, H, R, F, G>(
                 let arena = unsafe { ctx.chain_arena() };
                 let node = unsafe { arena.get(node_idx) };
                 let fold = unsafe { ctx.fold_ref() };
-                match node.chain.deliver_and_sweep(slot, result, fold) {
+                let delivered = match ctx.accumulate {
+                    AccumulateMode::OnArrival => node.chain.deliver_and_sweep(slot, result, fold),
+                    AccumulateMode::OnFinalize => node.chain.deliver_and_finalize(slot, result, fold),
+                };
+                match delivered {
                     Some(finalized) => {
                         cont = node.take_parent_cont();
                         result = finalized;
@@ -238,7 +244,11 @@ fn walk_cps<N, H, R, F, G>(
             let idx = chain_idx.unwrap();
             let cn = unsafe { chain_arena.get(idx) };
             let fold = unsafe { ctx.fold_ref() };
-            if let Some(finalized) = cn.chain.set_total_and_sweep(fold) {
+            let set_total_result = match ctx.accumulate {
+                AccumulateMode::OnArrival => cn.chain.set_total_and_sweep(fold),
+                AccumulateMode::OnFinalize => cn.chain.set_total_and_finalize(fold),
+            };
+            if let Some(finalized) = set_total_result {
                 let parent = cn.take_parent_cont();
                 fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
                 return;
@@ -283,7 +293,6 @@ fn worker_loop<N, H, R, F, G>(
     H: 'static,
     R: Send + 'static,
 {
-    view.active_in_view.fetch_add(1, Ordering::Relaxed);
     let my_deque = &deques[my_idx];
     loop {
         if let Some(task) = my_deque.pop() {
@@ -296,10 +305,7 @@ fn worker_loop<N, H, R, F, G>(
         }
         let event = view.event();
         let token = event.prepare();
-        if view.fold_done.load(Ordering::Acquire) {
-            view.active_in_view.fetch_sub(1, Ordering::Release);
-            return;
-        }
+        if view.fold_done.load(Ordering::Acquire) { return; }
         if let Some(task) = my_deque.pop() {
             execute_task(ctx, task, my_deque);
             continue;
@@ -324,6 +330,7 @@ pub fn run_fold<N, H, R, F, G>(
     graph: &G,
     root: &N,
     pool: &FunnelPool,
+    accumulate: AccumulateMode,
 ) -> R
 where
     F: FoldOps<N, H, R> + 'static,
@@ -344,7 +351,6 @@ where
         pool_inner: pool.inner().clone(),
         fold_done: AtomicBool::new(false),
         idle_count: AtomicU32::new(0),
-        active_in_view: AtomicU32::new(0),
         n_workers: pool.n_threads(),
     };
 
@@ -355,6 +361,7 @@ where
         view: &view as *const FoldView,
         chain_arena: &chain_arena as *const _,
         cont_arena: &cont_arena as *const _,
+        accumulate,
     };
 
     // FoldState bridges the pool's type-erased Job → typed worker code.
@@ -389,10 +396,6 @@ where
                 std::hint::spin_loop();
             }
         }
-
-        // CPS guarantees all work is done. fold_done was set by
-        // fire_cont(Cont::Root). Workers exit promptly.
-        view.wait_for_workers_to_exit();
 
         root_cell.take()
     })

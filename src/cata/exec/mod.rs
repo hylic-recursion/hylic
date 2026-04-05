@@ -16,7 +16,7 @@ pub use variant::sequential::SequentialIn;
 pub use variant::rayon::RayonIn;
 pub use variant::pool::{PoolIn, PoolSpec};
 pub use variant::hylomorphic::{HylomorphicIn, HylomorphicSpec};
-pub use variant::hylo_funnel::{HyloFunnelIn, HyloFunnelSpec};
+pub use variant::hylo_funnel::{HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
 pub use variant::custom::Custom;
 
 use std::marker::PhantomData;

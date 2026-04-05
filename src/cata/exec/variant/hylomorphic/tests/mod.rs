@@ -17,6 +17,10 @@ use crate::domain::shared as dom;
 use crate::prelude::{WorkPool, WorkPoolSpec};
 use super::{HylomorphicIn, HylomorphicSpec};
 
+pub(super) fn n_threads() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+}
+
 // ── Shared tree types ────────────────────────────────
 
 #[derive(Clone)]

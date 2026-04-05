@@ -131,11 +131,17 @@ impl<H, R> FoldChain<H, R> {
             if let Some(r) = self.try_sweep(fold) { return Some(r); }
         }
 
-        // Finalizer: must complete. Retry until done.
+        // Finalizer: must complete. Retry until gate holder releases.
+        // Bounded by the gate holder's sweep work (K accumulates).
         if am_finalizer {
+            let mut spins = 0u32;
             loop {
                 if self.done.load(Ordering::Acquire) { return None; }
                 if let Some(r) = self.try_sweep(fold) { return Some(r); }
+                spins += 1;
+                if spins > 50_000_000 {
+                    panic!("deliver_and_sweep finalizer stuck: gate holder not releasing");
+                }
                 std::hint::spin_loop();
             }
         }
@@ -148,7 +154,6 @@ impl<H, R> FoldChain<H, R> {
     pub fn set_total_and_sweep<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
         let total = self.appended.load(Ordering::Relaxed);
 
-        // Ticket: write total into high bits. Relaxed — just a counter.
         let prev = self.state.fetch_add(pack_total(total), Ordering::Relaxed);
         let (done_before, _) = unpack(prev);
         let am_finalizer = done_before >= total;
@@ -156,15 +161,67 @@ impl<H, R> FoldChain<H, R> {
         if let Some(r) = self.try_sweep(fold) { return Some(r); }
 
         if am_finalizer {
+            let mut spins = 0u32;
             loop {
                 if self.done.load(Ordering::Acquire) { return None; }
                 if let Some(r) = self.try_sweep(fold) { return Some(r); }
+                spins += 1;
+                if spins > 50_000_000 {
+                    panic!("set_total_and_sweep finalizer stuck: gate holder not releasing");
+                }
                 std::hint::spin_loop();
             }
         }
 
         None
     }
+
+    // ── OnFinalize mode: store + ticket only, bulk sweep by last event ──
+
+    /// Deliver a result. If last event: bulk-sweep all, finalize, return Some.
+    pub fn deliver_and_finalize<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) -> Option<R> {
+        let cell = self.slot_at(slot.0);
+        unsafe { (*cell.result.get()).write(result); }
+        cell.filled.store(true, Ordering::Release);
+
+        let prev = self.state.fetch_add(1, Ordering::Relaxed);
+        let (done_before, total) = unpack(prev);
+        if total > 0 && done_before + 1 >= total {
+            return Some(self.bulk_finalize(fold));
+        }
+        None
+    }
+
+    /// Mark total known. If all deliveries done: bulk finalize.
+    pub fn set_total_and_finalize<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
+        let total = self.appended.load(Ordering::Relaxed);
+        let prev = self.state.fetch_add(pack_total(total), Ordering::Relaxed);
+        let (done_before, _) = unpack(prev);
+        if done_before >= total {
+            return Some(self.bulk_finalize(fold));
+        }
+        None
+    }
+
+    fn bulk_finalize<N>(&self, fold: &impl FoldOps<N, H, R>) -> R {
+        self.done.store(true, Ordering::Relaxed);
+        let heap = unsafe { &mut *self.heap.get() };
+        let total = self.appended.load(Ordering::Relaxed);
+        for pos in 0..total {
+            let mut spins = 0u32;
+            while !self.slot_at(pos).filled.load(Ordering::Acquire) {
+                spins += 1;
+                if spins > 50_000_000 {
+                    panic!("bulk_finalize: slot {} not filled after ticket confirmed all events", pos);
+                }
+                std::hint::spin_loop();
+            }
+            fold.accumulate(heap, unsafe { (*self.slot_at(pos).result.get()).assume_init_ref() });
+        }
+        fold.finalize(unsafe { &*self.heap.get() })
+    }
+
+    // ── OnArrival mode: streaming sweep with CAS gate ────────────────
 
     /// Try to sweep contiguous filled slots from cursor. Zero cost on CAS miss.
     /// Each slot's filled.load(Acquire) provides visibility for that slot's data.

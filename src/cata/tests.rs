@@ -1,6 +1,10 @@
 use crate::domain::shared as dom;
 use crate::prelude::{WorkPool, WorkPoolSpec};
 
+fn n_threads() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+}
+
 #[derive(Clone)]
 struct N { val: i32, children: Vec<N> }
 
@@ -51,9 +55,10 @@ fn parallel_lifts() {
     let my_fold = dom::simple_fold(|n: &N| n.val as u64, |a: &mut u64, c: &u64| { *a += c; });
 
     use crate::prelude::{ParLazy, ParEager, EagerSpec};
-    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+    let nt = n_threads();
+    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
         assert_eq!(dom::FUSED.run_lifted(&ParLazy::lift(pool), &my_fold, &graph, &tree), 10);
-        assert_eq!(dom::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &my_fold, &graph, &tree), 10);
+        assert_eq!(dom::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &my_fold, &graph, &tree), 10);
     });
 }
 
@@ -85,18 +90,19 @@ fn lifts_domain_generic_comprehensive() {
         for c in &n.children { cb(c); }
     });
 
-    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-        let pool_shared = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(3));
-        let pool_local = PoolIn::<crate::domain::Local>::new(pool, PoolSpec::default_for(3));
+    let nt = n_threads();
+    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
+        let pool_shared = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(nt));
+        let pool_local = PoolIn::<crate::domain::Local>::new(pool, PoolSpec::default_for(nt));
 
         // Shared: all executor × lift combos
         assert_eq!(dom::FUSED.run_lifted(&ParLazy::lift(pool), &shared_fold, &shared_graph, &tree), expected, "Lazy+Fused+Shared");
         assert_eq!(dom::RAYON.run_lifted(&ParLazy::lift(pool), &shared_fold, &shared_graph, &tree), expected, "Lazy+Rayon+Shared");
         assert_eq!(pool_shared.run_lifted(&ParLazy::lift(pool), &shared_fold, &shared_graph, &tree), expected, "Lazy+Pool+Shared");
 
-        assert_eq!(dom::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &shared_fold, &shared_graph, &tree), expected, "Eager+Fused+Shared");
-        assert_eq!(dom::RAYON.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &shared_fold, &shared_graph, &tree), expected, "Eager+Rayon+Shared");
-        assert_eq!(pool_shared.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &shared_fold, &shared_graph, &tree), expected, "Eager+Pool+Shared");
+        assert_eq!(dom::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &shared_fold, &shared_graph, &tree), expected, "Eager+Fused+Shared");
+        assert_eq!(dom::RAYON.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &shared_fold, &shared_graph, &tree), expected, "Eager+Rayon+Shared");
+        assert_eq!(pool_shared.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &shared_fold, &shared_graph, &tree), expected, "Eager+Pool+Shared");
 
         // Local: Fused + Pool × lift combos
         let (lf, lg) = (make_local_fold(), make_local_graph());
@@ -104,9 +110,9 @@ fn lifts_domain_generic_comprehensive() {
         let (lf, lg) = (make_local_fold(), make_local_graph());
         assert_eq!(pool_local.run_lifted(&ParLazy::lift(pool), &lf, &lg, &tree), expected, "Lazy+Pool+Local");
         let (lf, lg) = (make_local_fold(), make_local_graph());
-        assert_eq!(local::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &lf, &lg, &tree), expected, "Eager+Fused+Local");
+        assert_eq!(local::FUSED.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &lf, &lg, &tree), expected, "Eager+Fused+Local");
         let (lf, lg) = (make_local_fold(), make_local_graph());
-        assert_eq!(pool_local.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(3)), &lf, &lg, &tree), expected, "Eager+Pool+Local");
+        assert_eq!(pool_local.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &lf, &lg, &tree), expected, "Eager+Pool+Local");
     });
 }
 
@@ -121,11 +127,12 @@ fn stress_eager_pool_200_nodes() {
     let graph = dom::treeish(|n: &N| n.children.clone());
     let expected = dom::FUSED.run(&fold, &graph, &tree);
 
+    let nt = n_threads();
     for iteration in 0..20 {
-        WorkPool::with(WorkPoolSpec::threads(4), |pool| {
-            let pool_exec = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(4));
+        WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
+            let pool_exec = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(nt));
             let result = pool_exec.run_lifted(
-                &ParEager::lift(pool, EagerSpec::default_for(4)),
+                &ParEager::lift(pool, EagerSpec::default_for(nt)),
                 &fold, &graph, &tree,
             );
             assert_eq!(result, expected, "eager stress iteration {iteration}");
@@ -144,9 +151,10 @@ fn stress_lazy_pool_200_nodes() {
     let graph = dom::treeish(|n: &N| n.children.clone());
     let expected = dom::FUSED.run(&fold, &graph, &tree);
 
+    let nt = n_threads();
     for iteration in 0..20 {
-        WorkPool::with(WorkPoolSpec::threads(4), |pool| {
-            let pool_exec = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(4));
+        WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
+            let pool_exec = PoolIn::<crate::domain::Shared>::new(pool, PoolSpec::default_for(nt));
             let result = pool_exec.run_lifted(
                 &ParLazy::lift(pool),
                 &fold, &graph, &tree,

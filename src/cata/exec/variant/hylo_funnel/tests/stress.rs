@@ -1,21 +1,23 @@
 //! Stress tests: repeated execution, lifecycle churn.
+//! High iteration counts to catch timing-sensitive races.
 
 use super::*;
 
 #[test]
-fn stress_200_runs() {
+fn stress_1500_runs() {
     let tree = big_tree(200, 6);
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
-    for i in 0..200 {
-        let exec = HyloFunnelIn::<crate::domain::Shared>::new(4, HyloFunnelSpec::default_for(4));
+    let nt = n_threads();
+    for i in 0..1500 {
+        let exec = HyloFunnelIn::<crate::domain::Shared>::new(nt, HyloFunnelSpec::default_for(nt));
         assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
     }
 }
 
 #[test]
-fn stress_200_runs_adjacency() {
+fn stress_1500_runs_adjacency() {
     let adj = gen_adj(200, 8);
     let ch = adj.clone();
     let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
@@ -27,22 +29,22 @@ fn stress_200_runs_adjacency() {
         |h: &u64| *h,
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
-    let exec = HyloFunnelIn::<crate::domain::Shared>::new(3, HyloFunnelSpec::default_for(3));
-    for i in 0..200 {
+    let nt = n_threads();
+    let exec = HyloFunnelIn::<crate::domain::Shared>::new(nt, HyloFunnelSpec::default_for(nt));
+    for i in 0..1500 {
         assert_eq!(exec.run(&fold, &treeish, &0usize), expected, "iteration {i}");
     }
 }
 
-/// Pool lifecycle under rapid create/destroy — exercises eventcount
-/// shutdown + thread join. Each exec.run creates and destroys a pool.
 #[test]
-fn pool_lifecycle_500() {
+fn pool_lifecycle_1500() {
     let tree = big_tree(10, 3);
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
-    for _ in 0..500 {
-        let exec = HyloFunnelIn::<crate::domain::Shared>::new(4, HyloFunnelSpec::default_for(4));
+    let nt = n_threads();
+    for _ in 0..5000 {
+        let exec = HyloFunnelIn::<crate::domain::Shared>::new(nt, HyloFunnelSpec::default_for(nt));
         assert_eq!(exec.run(&fold, &graph, &tree), expected);
     }
 }

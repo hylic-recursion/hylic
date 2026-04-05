@@ -1,8 +1,8 @@
-//! CPS walk with inline-first raker.
+//! CPS walk with on-arrival accumulation (ticket-based streaming sweep).
 //!
 //! walk_cps is void — delivers results through defunctionalized continuations.
-//! fire_cont tries to rake inline (same thread, zero alloc). Falls back to
-//! submitting a raker task on CAS failure.
+//! fire_cont calls deliver_and_sweep inline — no separate rake, no rakers.
+//! The packed ticket (AtomicU64) determines who finalizes.
 //!
 //! Generic over TaskSubmitter/TaskRunner — no dependency on concrete pool types.
 
@@ -63,7 +63,7 @@ impl<H, R> ChainNode<H, R> {
     }
 }
 
-// ── Root result cell ──────────────────────────────────
+// ── Root result cell ───────────────���──────────────────
 
 struct RootCell<R> {
     result: UnsafeCell<Option<R>>,
@@ -83,32 +83,8 @@ impl<R> RootCell<R> {
     fn take(&self) -> R { unsafe { (*self.result.get()).take().expect("root result not set") } }
 }
 
-// ── submit_raker ──────────────────────────────────────
+// ── fire_cont (trampolined, on-arrival accumulation) ──
 
-/// Fallback: submit a raker task when inline CAS failed.
-fn submit_raker<N, H, R, F, G, S: TaskSubmitter>(ctx: &WalkCtx<F, G, S>, node: Arc<ChainNode<H, R>>)
-where
-    F: FoldOps<N, H, R> + 'static,
-    G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static,
-    H: 'static,
-    R: Send + 'static,
-{
-    let ctx2 = ctx.clone();
-    ctx.handle.submit(move || {
-        let fold = unsafe { ctx2.fold_ref() };
-        if let Some(result) = node.chain.rake(fold) {
-            let parent = node.take_parent_cont();
-            fire_cont::<N, H, R, F, G, S>(&ctx2, parent, result);
-        }
-    });
-}
-
-// ── fire_cont (trampolined, inline-first) ─────────────
-
-/// Deliver result to continuation target. Tries inline rake first.
-/// On CAS failure, submits a raker task as fallback.
-/// Trampolined: cascades without stack growth.
 fn fire_cont<N, H, R, F, G, S: TaskSubmitter>(
     ctx: &WalkCtx<F, G, S>,
     mut cont: Cont<H, R>,
@@ -127,20 +103,13 @@ fn fire_cont<N, H, R, F, G, S: TaskSubmitter>(
                 return;
             }
             Cont::Slot { node, slot } => {
-                node.chain.deliver(slot, result);
                 let fold = unsafe { ctx.fold_ref() };
-                match node.chain.rake(fold) {
+                match node.chain.deliver_and_finalize(slot, result, fold) {
                     Some(finalized) => {
                         cont = node.take_parent_cont();
                         result = finalized;
-                        // Trampoline: loop to cascade inline
                     }
-                    None => {
-                        // CAS failed or chain not complete.
-                        // Submit raker task as fallback.
-                        submit_raker::<N, H, R, F, G, S>(ctx, node);
-                        return;
-                    }
+                    None => return,
                 }
             }
         }
@@ -191,20 +160,13 @@ where
             fire_cont::<N, H, R, F, G, S>(ctx, cont, result);
         }
         Some(cn) => {
-            // Interior: children stream finished.
-            cn.chain.set_total();
-            // Inline rake for the set_total event.
+            // Interior: set_total is an event — might finalize.
             let fold = unsafe { ctx.fold_ref() };
-            match cn.chain.rake(fold) {
-                Some(finalized) => {
-                    let parent = cn.take_parent_cont();
-                    fire_cont::<N, H, R, F, G, S>(ctx, parent, finalized);
-                }
-                None => {
-                    // CAS failed or chain not complete. Submit fallback.
-                    submit_raker::<N, H, R, F, G, S>(ctx, cn);
-                }
+            if let Some(finalized) = cn.chain.set_total_and_finalize(fold) {
+                let parent = cn.take_parent_cont();
+                fire_cont::<N, H, R, F, G, S>(ctx, parent, finalized);
             }
+            // If None: children will deliver and one of them will finalize.
         }
     }
 }

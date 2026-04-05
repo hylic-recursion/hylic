@@ -35,6 +35,7 @@ pub struct FunnelPool {
 pub(super) struct PoolInner {
     pub shutdown: AtomicBool,
     pub job_ptr: AtomicPtr<()>,
+    pub in_job: AtomicU32,
     pub wake: EventCount,
     pub n_threads: usize,
 }
@@ -44,6 +45,7 @@ impl FunnelPool {
         let inner = Arc::new(PoolInner {
             shutdown: AtomicBool::new(false),
             job_ptr: AtomicPtr::new(std::ptr::null_mut()),
+            in_job: AtomicU32::new(0),
             wake: EventCount::new(),
             n_threads,
         });
@@ -64,6 +66,19 @@ impl FunnelPool {
         self.inner.job_ptr.store(job as *const Job as *mut (), Ordering::Release);
         self.inner.wake.notify_all();
         let result = body();
+        // Wait for all pool threads to exit the job call.
+        // The body already called wait_for_workers_to_exit (typed code done).
+        // This waits for the pool_thread wrapper around the call to finish too
+        // (the window between loading job_ptr and entering/exiting the function).
+        let mut spins = 0u32;
+        while self.inner.in_job.load(Ordering::Acquire) > 0 {
+            spins += 1;
+            if spins > 5_000_000 {
+                panic!("dispatch: {} threads still in job after body returned",
+                    self.inner.in_job.load(Ordering::Relaxed));
+            }
+            std::hint::spin_loop();
+        }
         self.inner.job_ptr.store(std::ptr::null_mut(), Ordering::Release);
         result
     }
@@ -87,7 +102,6 @@ pub(super) struct FoldView {
     pub pool_inner: Arc<PoolInner>,
     pub fold_done: AtomicBool,
     pub idle_count: AtomicU32,
-    pub active_in_view: AtomicU32,
     pub n_workers: usize,
 }
 
@@ -97,23 +111,6 @@ impl FoldView {
     pub fn notify_one(&self) {
         if self.idle_count.load(Ordering::Relaxed) > 0 {
             self.pool_inner.wake.notify_one();
-        }
-    }
-
-    /// Assert all pool threads have exited this View's typed code.
-    /// CPS guarantees all work is done — workers are in the idle path.
-    /// If they don't exit promptly, it's a structural bug.
-    pub fn wait_for_workers_to_exit(&self) {
-        let mut spins = 0u32;
-        while self.active_in_view.load(Ordering::Acquire) > 0 {
-            spins += 1;
-            if spins > 5_000_000 {
-                panic!(
-                    "FoldView teardown: {} workers still active after fold_done",
-                    self.active_in_view.load(Ordering::Relaxed),
-                );
-            }
-            std::hint::spin_loop();
         }
     }
 }
@@ -136,8 +133,10 @@ fn pool_thread(inner: &PoolInner, thread_idx: usize) {
         // Call the job if set
         let ptr = inner.job_ptr.load(Ordering::Acquire);
         if !ptr.is_null() {
+            inner.in_job.fetch_add(1, Ordering::Relaxed);
             let job = unsafe { &*(ptr as *const Job) };
             unsafe { (job.call)(job.data, thread_idx); }
+            inner.in_job.fetch_sub(1, Ordering::Release);
         }
     }
 }
@@ -162,10 +161,12 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicU64;
 
-    /// Type-erased worker entry for the pool test.
+    fn n_threads() -> usize {
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+    }
+
     unsafe fn test_worker_entry(data: *const (), thread_idx: usize) {
         let state = unsafe { &*(data as *const TestState) };
-        state.view.active_in_view.fetch_add(1, Ordering::Relaxed);
         let my_deque = &state.deques[thread_idx];
         loop {
             if let Some(_) = my_deque.pop() {
@@ -176,15 +177,9 @@ mod tests {
                 state.counter.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            if state.view.fold_done.load(Ordering::Acquire) {
-                state.view.active_in_view.fetch_sub(1, Ordering::Release);
-                return;
-            }
+            if state.view.fold_done.load(Ordering::Acquire) { return; }
             let token = state.view.event().prepare();
-            if state.view.fold_done.load(Ordering::Acquire) {
-                state.view.active_in_view.fetch_sub(1, Ordering::Release);
-                return;
-            }
+            if state.view.fold_done.load(Ordering::Acquire) { return; }
             state.view.event().wait(token);
         }
     }
@@ -197,17 +192,17 @@ mod tests {
 
     #[test]
     fn dispatch_reuse_500() {
-        let pool = FunnelPool::new(3);
+        let nt = n_threads();
+        let pool = FunnelPool::new(nt);
         for round in 0..500 {
             let counter = AtomicU64::new(0);
             let deques: Vec<WorkerDeque<u64>> =
-                (0..4).map(|_| WorkerDeque::new(DEQUE_CAPACITY)).collect();
+                (0..nt + 1).map(|_| WorkerDeque::new(DEQUE_CAPACITY)).collect();
             let view = FoldView {
                 pool_inner: pool.inner().clone(),
                 fold_done: AtomicBool::new(false),
                 idle_count: AtomicU32::new(0),
-                active_in_view: AtomicU32::new(0),
-                n_workers: 3,
+                n_workers: nt,
             };
             let state = TestState {
                 view: &view,
@@ -220,7 +215,7 @@ mod tests {
             };
 
             pool.dispatch(&job, || {
-                let caller = &deques[3];
+                let caller = &deques[nt];
                 for v in 0..10u64 { caller.push(v); }
                 view.event().notify_all();
                 while counter.load(Ordering::Relaxed) < 10 {
@@ -232,7 +227,7 @@ mod tests {
                 }
                 view.fold_done.store(true, Ordering::Release);
                 view.event().notify_all();
-                view.wait_for_workers_to_exit();
+                // dispatch handles waiting for in_job == 0
             });
             assert!(counter.load(Ordering::Relaxed) >= 10, "round {round}");
         }
@@ -240,30 +235,22 @@ mod tests {
 
     #[test]
     fn lifecycle_no_work_500() {
-        let pool = FunnelPool::new(4);
+        let nt = n_threads();
+        let pool = FunnelPool::new(nt);
         for _ in 0..500 {
             let view = FoldView {
                 pool_inner: pool.inner().clone(),
                 fold_done: AtomicBool::new(false),
                 idle_count: AtomicU32::new(0),
-                active_in_view: AtomicU32::new(0),
-                n_workers: 4,
+                n_workers: nt,
             };
 
             unsafe fn noop_entry(data: *const (), _thread_idx: usize) {
                 let view = unsafe { &*(data as *const FoldView) };
-                view.active_in_view.fetch_add(1, Ordering::Relaxed);
-                if view.fold_done.load(Ordering::Acquire) {
-                    view.active_in_view.fetch_sub(1, Ordering::Release);
-                    return;
-                }
+                if view.fold_done.load(Ordering::Acquire) { return; }
                 let token = view.event().prepare();
-                if view.fold_done.load(Ordering::Acquire) {
-                    view.active_in_view.fetch_sub(1, Ordering::Release);
-                    return;
-                }
+                if view.fold_done.load(Ordering::Acquire) { return; }
                 view.event().wait(token);
-                view.active_in_view.fetch_sub(1, Ordering::Release);
             }
 
             let job = Job {
@@ -273,7 +260,6 @@ mod tests {
             pool.dispatch(&job, || {
                 view.fold_done.store(true, Ordering::Release);
                 view.event().notify_all();
-                view.wait_for_workers_to_exit();
             });
         }
     }

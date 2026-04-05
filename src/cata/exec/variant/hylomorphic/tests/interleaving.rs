@@ -119,7 +119,7 @@ fn tagged_tree(n: usize, bf: usize) -> TaggedN {
 #[test]
 fn cross_subtree_interleaving() {
     let tree = tagged_tree(85, 4);
-    let n_workers = 3;
+    let n_workers = n_threads();
     let mut proven = false;
 
     // Shared across attempts — reset each iteration, readable on failure.

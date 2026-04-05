@@ -11,7 +11,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::sync::Arc;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec};
+use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 
 use support::scenario::{Scale, PreparedScenario, ScenarioDef};
@@ -61,9 +61,15 @@ fn bench_hylo_compare(c: &mut Criterion) {
                 |b, _| b.iter(|| black_box(hylo.run(&s.fold, &s.treeish, &s.root))),
             );
         });
-        let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(nw, HyloFunnelSpec::default_for(nw));
-        bench_cell(&mut group, "hylic.funnel", &s.name,
-            |b, _| b.iter(|| black_box(funnel.run(&s.fold, &s.treeish, &s.root))),
+        let funnel_fin = HyloFunnelIn::<hylic::domain::Shared>::new(nw,
+            HyloFunnelSpec { accumulate: AccumulateMode::OnFinalize });
+        bench_cell(&mut group, "funnel.on-finalize", &s.name,
+            |b, _| b.iter(|| black_box(funnel_fin.run(&s.fold, &s.treeish, &s.root))),
+        );
+        let funnel_arr = HyloFunnelIn::<hylic::domain::Shared>::new(nw,
+            HyloFunnelSpec { accumulate: AccumulateMode::OnArrival });
+        bench_cell(&mut group, "funnel.on-arrival", &s.name,
+            |b, _| b.iter(|| black_box(funnel_arr.run(&s.fold, &s.treeish, &s.root))),
         );
     }
     group.finish();

@@ -2,16 +2,16 @@
 
 use super::*;
 
-/// 60 nodes, bf=4 (3 levels), 3 workers.
+/// 60 nodes, bf=4 (3 levels), all available threads.
 #[test]
 fn matches_fused() {
-    assert_matches_fused(&big_tree(60, 4), 3);
+    assert_matches_fused(&big_tree(60, 4), n_threads());
 }
 
-/// 200 nodes, bf=6 (3 levels), 4 workers.
+/// 200 nodes, bf=6 (3 levels), all available threads.
 #[test]
 fn matches_fused_200() {
-    assert_matches_fused(&big_tree(200, 6), 4);
+    assert_matches_fused(&big_tree(200, 6), n_threads());
 }
 
 /// All work done by the calling thread (no worker threads).
@@ -36,9 +36,10 @@ fn adjacency_list_noop() {
         |h: &u64| *h,
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
-    WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+    let nt = n_threads();
+    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
         let exec = HylomorphicIn::<crate::domain::Shared>::new(
-            pool, HylomorphicSpec::default_for(3));
+            pool, HylomorphicSpec::default_for(nt));
         assert_eq!(exec.run(&fold, &treeish, &0usize), expected);
     });
 }
