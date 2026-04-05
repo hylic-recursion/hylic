@@ -34,13 +34,6 @@ fn hylo_scenarios(scale: Scale) -> Vec<ScenarioDef> {
         ScenarioDef { name: "wide-shallow",moniker: "wide",     tree: TreeSpec { node_count: n, branch_factor: 20 }, work: w(50_000, 10_000, 10_000, 10_000, 0) },
         ScenarioDef { name: "deep-narrow", moniker: "deep",     tree: TreeSpec { node_count: n, branch_factor: 2 },  work: w(50_000, 10_000, 10_000, 10_000, 0) },
         ScenarioDef { name: "large-dense", moniker: "lg-dense", tree: TreeSpec { node_count: n_large, branch_factor: 10 }, work: w(50_000, 10_000, 10_000, 10_000, 0) },
-        // ── diagnostic scenarios ───────────────────────────
-        // Chain: bf=1 linked list with real work. Pure Cont::Direct cascade.
-        // Acid test: funnel should match sequential speed (no parallelism possible).
-        ScenarioDef { name: "chain",       moniker: "chain",    tree: TreeSpec { node_count: n, branch_factor: 1 },  work: w(50_000, 10_000, 10_000, 10_000, 0) },
-        // Chain-noop: bf=1, zero work. Pure framework overhead on Direct path.
-        // Tests Box allocation cost in Cont::Direct.
-        ScenarioDef { name: "chain-noop",  moniker: "ch-noop",  tree: TreeSpec { node_count: n, branch_factor: 1 },  work: w(0, 0, 0, 0, 0) },
     ]
 }
 
