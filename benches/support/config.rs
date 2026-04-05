@@ -39,6 +39,14 @@ pub const PARREF_POOL_LOCAL:    &str = "hylic.parref.pool.local";
 pub const EAGER_FUSED_LOCAL:    &str = "hylic.eager.fused.local";
 pub const EAGER_POOL_LOCAL:     &str = "hylic.eager.pool.local";
 
+// ── Thread count (match rayon's default) ────────
+
+/// Number of worker threads for all pool-based benchmarks.
+/// Reads rayon's actual thread count for exact fairness.
+pub fn bench_workers() -> usize {
+    rayon::current_num_threads()
+}
+
 // ── Baselines ────────────────────────────────────
 
 pub const HAND_SEQ:      &str = "hand.seq";

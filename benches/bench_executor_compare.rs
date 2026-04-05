@@ -9,6 +9,7 @@ use hylic::domain::shared as dom;
 use hylic::cata::exec::{PoolIn, PoolSpec, HylomorphicIn, HylomorphicSpec};
 use hylic::prelude::{WorkPool, WorkPoolSpec, PoolExecView};
 
+use support::config;
 use support::scenario::{self, Scale, PreparedScenario};
 use support::tree::NodeId;
 use support::work::WorkSpec;
@@ -20,9 +21,10 @@ fn bench_executor_compare(c: &mut Criterion) {
     for def in scenario::all_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
 
-        WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-            let hylo_exec = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
+        let nw = config::bench_workers();
+        WorkPool::with(WorkPoolSpec::threads(nw), |pool| {
+            let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(nw));
+            let hylo_exec = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(nw));
 
             bench_cell(&mut group, "hylic.rayon.shared", &s.name,
                 |b, _| b.iter(|| black_box(dom::RAYON.run(&s.fold, &s.treeish, &s.root))),

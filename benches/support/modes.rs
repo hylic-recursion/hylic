@@ -144,24 +144,24 @@ pub fn parallel_modes<'a>(
     let par_lazy_fused = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
     let par_lazy_rayon = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
     let par_lazy_pool  = ParLazy::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool);
-    let par_eager_fused = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
-    let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
-    let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_fused = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
+    let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
+    let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
 
     // Lifts (Local domain)
     let par_lazy_fused_local  = ParLazy::lift::<hylic::domain::Local, NodeId, u64, u64>(pool);
     let par_lazy_pool_local   = ParLazy::lift::<hylic::domain::Local, NodeId, u64, u64>(pool);
-    let par_eager_fused_local = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
-    let par_eager_pool_local  = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_fused_local = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
+    let par_eager_pool_local  = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
 
     // Pool executors
-    let pool_shared  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-    let pool_shared2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-    let pool_shared3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-    let pool_local   = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
-    let pool_local2  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
-    let pool_local3  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(3));
-    let pool_owned   = PoolIn::<hylic::domain::Owned>::new(pool, PoolSpec::default_for(3));
+    let pool_shared  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_shared2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_shared3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_local   = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_local2  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_local3  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_owned   = PoolIn::<hylic::domain::Owned>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
 
     let work = Arc::new(s.work.clone());
 

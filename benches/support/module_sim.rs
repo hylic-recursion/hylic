@@ -206,13 +206,13 @@ where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
     let par_lazy_fused  = ParLazy::lift::<hylic::domain::Shared, String, u64, u64>(pool);
     let par_lazy_rayon  = ParLazy::lift::<hylic::domain::Shared, String, u64, u64>(pool);
     let par_lazy_pool   = ParLazy::lift::<hylic::domain::Shared, String, u64, u64>(pool);
-    let par_eager_fused = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
-    let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
-    let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(3));
+    let par_eager_fused = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
+    let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
+    let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
 
-    let pool_exec  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-    let pool_exec2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
-    let pool_exec3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+    let pool_exec  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_exec2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_exec3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
 
     let modes: Vec<BenchMode<u64>> = vec![
         // ── baselines ─────────────────────────────────

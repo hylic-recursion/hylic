@@ -1,6 +1,8 @@
 //! Focused benchmark: Hylomorphic vs Rayon — four-way comparison.
 //!
 //! hylic.rayon, hand.rayon, hylic.hylo (shared pool), hylic.funnel (self-contained)
+//!
+//! Thread count: all executors use rayon::current_num_threads() for fairness.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -15,6 +17,7 @@ use hylic::prelude::{WorkPool, WorkPoolSpec};
 use support::scenario::{Scale, PreparedScenario, ScenarioDef};
 use support::tree::{NodeId, TreeSpec};
 use support::work::WorkSpec;
+use support::config;
 use support::bench_cell;
 
 /// Targeted scenario subset — representative workloads, not exhaustive.
@@ -40,6 +43,8 @@ fn hylo_scenarios(scale: Scale) -> Vec<ScenarioDef> {
 
 fn bench_hylo_compare(c: &mut Criterion) {
     let mut group = c.benchmark_group("hylo-compare");
+    let nw = config::bench_workers();
+    eprintln!("[hylo-compare] using {nw} worker threads (matching rayon)");
 
     for def in hylo_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
@@ -50,13 +55,13 @@ fn bench_hylo_compare(c: &mut Criterion) {
         bench_cell(&mut group, "hand.rayon", &s.name,
             |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
         );
-        WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-            let hylo = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(3));
+        WorkPool::with(WorkPoolSpec::threads(nw), |pool| {
+            let hylo = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(nw));
             bench_cell(&mut group, "hylic.hylo", &s.name,
                 |b, _| b.iter(|| black_box(hylo.run(&s.fold, &s.treeish, &s.root))),
             );
         });
-        let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(3, HyloFunnelSpec::default_for(3));
+        let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(nw, HyloFunnelSpec::default_for(nw));
         bench_cell(&mut group, "hylic.funnel", &s.name,
             |b, _| b.iter(|| black_box(funnel.run(&s.fold, &s.treeish, &s.root))),
         );

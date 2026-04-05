@@ -13,7 +13,8 @@ fn bench_parallel(c: &mut Criterion) {
 
     for def in scenario::all_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
-        WorkPool::with(WorkPoolSpec::threads(3), |pool| {
+        let nw = support::config::bench_workers();
+        WorkPool::with(WorkPoolSpec::threads(nw), |pool| {
             let modes = modes::parallel_modes(&s, pool);
             for mode in &modes {
                 bench_cell(&mut group, mode.name, &s.name,
