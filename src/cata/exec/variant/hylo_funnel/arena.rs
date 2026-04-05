@@ -16,6 +16,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Clone, Copy)]
 pub struct ArenaIdx(u32);
 
+impl ArenaIdx {
+    pub fn from_raw(v: u32) -> Self { ArenaIdx(v) }
+}
+
 pub struct Arena<T> {
     slots: Box<[UnsafeCell<MaybeUninit<T>>]>,
     next: AtomicU32,
@@ -54,6 +58,9 @@ impl<T> Arena<T> {
         unsafe { (*self.slots[idx.0 as usize].get()).assume_init_ref() }
     }
 
+    pub fn allocated(&self) -> u32 {
+        self.next.load(Ordering::Relaxed)
+    }
 }
 
 impl<T> Drop for Arena<T> {

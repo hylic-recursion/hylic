@@ -17,6 +17,50 @@ use super::cont_arena::{ContArena, ContIdx};
 use super::deque::WorkerDeque;
 use super::pool::{FunnelPoolShared, FunnelPoolSpec, with_pool, steal_from_others};
 
+// ── Debug counters (test only) ───────────────────────
+
+#[cfg(test)]
+mod counters {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    pub static SUBMITTED: AtomicU64 = AtomicU64::new(0);
+    pub static WALK_EXEC: AtomicU64 = AtomicU64::new(0);
+    pub static RAKE_EXEC: AtomicU64 = AtomicU64::new(0);
+    pub static DELIVERIES: AtomicU64 = AtomicU64::new(0);
+    pub static FIRE_CONT_CALLS: AtomicU64 = AtomicU64::new(0);
+    pub fn reset() {
+        SUBMITTED.store(0, Ordering::Relaxed);
+        WALK_EXEC.store(0, Ordering::Relaxed);
+        RAKE_EXEC.store(0, Ordering::Relaxed);
+        DELIVERIES.store(0, Ordering::Relaxed);
+        FIRE_CONT_CALLS.store(0, Ordering::Relaxed);
+    }
+    pub fn inc_submitted() { SUBMITTED.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_walk() { WALK_EXEC.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_rake() { RAKE_EXEC.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_delivery() { DELIVERIES.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_fire_cont() { FIRE_CONT_CALLS.fetch_add(1, Ordering::Relaxed); }
+    pub fn snapshot() -> String {
+        format!("submitted={}, walk_exec={}, rake_exec={}, deliveries={}, fire_cont={}",
+            SUBMITTED.load(Ordering::Relaxed),
+            WALK_EXEC.load(Ordering::Relaxed),
+            RAKE_EXEC.load(Ordering::Relaxed),
+            DELIVERIES.load(Ordering::Relaxed),
+            FIRE_CONT_CALLS.load(Ordering::Relaxed),
+        )
+    }
+}
+
+#[cfg(not(test))]
+mod counters {
+    pub fn reset() {}
+    pub fn inc_submitted() {}
+    pub fn inc_walk() {}
+    pub fn inc_rake() {}
+    pub fn inc_delivery() {}
+    pub fn inc_fire_cont() {}
+    pub fn snapshot() -> String { String::new() }
+}
+
 // ── Defunctionalized task ────────────────────────────
 
 pub(super) enum FunnelTask<N, H, R> {
@@ -136,6 +180,7 @@ fn fire_cont<N, H, R, F, G>(
                 let arena = unsafe { ctx.chain_arena() };
                 let node = unsafe { arena.get(node_idx) };
                 node.chain.deliver(slot, result);
+                counters::inc_delivery();
                 let fold = unsafe { ctx.fold_ref() };
                 match node.chain.rake(fold) {
                     Some(finalized) => {
@@ -144,7 +189,9 @@ fn fire_cont<N, H, R, F, G>(
                     }
                     None => {
                         // Submit raker as data — no Box, no closure.
-                        deque.push(FunnelTask::Rake { node_idx });
+                        let pushed = deque.push(FunnelTask::Rake { node_idx });
+                        assert!(pushed, "deque full: raker lost");
+                        counters::inc_submitted();
                         let shared = unsafe { ctx.shared_ref() };
                         shared.notify_one();
                         return;
@@ -202,10 +249,12 @@ fn walk_cps<N, H, R, F, G>(
             let node_ref = unsafe { chain_arena.get(idx) };
             let slot = node_ref.chain.append_slot();
             // Push task as DATA — no Box, no closure.
-            deque.push(FunnelTask::Walk {
+            let pushed = deque.push(FunnelTask::Walk {
                 child: child.clone(),
                 cont: Cont::Slot { node: idx, slot },
             });
+            assert!(pushed, "deque full: task lost");
+            counters::inc_submitted();
             shared.notify_one();
         }
     });
@@ -254,8 +303,8 @@ fn execute_task<N, H, R, F, G>(
     R: Send + 'static,
 {
     match task {
-        FunnelTask::Walk { child, cont } => walk_cps(ctx, child, cont, deque),
-        FunnelTask::Rake { node_idx } => {
+        FunnelTask::Walk { child, cont } => { counters::inc_walk(); walk_cps(ctx, child, cont, deque) },
+        FunnelTask::Rake { node_idx } => { counters::inc_rake();
             let fold = unsafe { ctx.fold_ref() };
             let arena = unsafe { ctx.chain_arena() };
             let node = unsafe { arena.get(node_idx) };
@@ -326,6 +375,7 @@ where
     H: 'static,
     R: Clone + Send + 'static,
 {
+    counters::reset();
     let chain_arena = Arena::<ChainNode<H, R>>::new(CHAIN_ARENA_CAPACITY);
     let cont_arena = ContArena::<Cont<H, R>>::new(CONT_ARENA_CAPACITY);
     let root_cell = Arc::new(RootCell::new());
@@ -341,7 +391,6 @@ where
     with_pool(
         FunnelPoolSpec::threads(n_workers),
         |shared, deques| {
-            // Patch the shared pointer now that we have it
             let mut ctx = ctx;
             ctx.shared = shared as *const _;
 
@@ -353,17 +402,37 @@ where
 
             // Help-wait loop
             let mut spins = 0u64;
+            let mut helped = 0u64;
             while !root_cell.is_done() {
                 if let Some(task) = caller_deque.pop() {
                     execute_task(&ctx, task, caller_deque);
+                    helped += 1;
                     spins = 0;
                 } else if let Some(task) = steal_from_others(deques, caller_idx) {
                     execute_task(&ctx, task, caller_deque);
+                    helped += 1;
                     spins = 0;
                 } else {
                     spins += 1;
                     if spins > 10_000_000 {
-                        panic!("run_fold hung: root_done={}", root_cell.is_done());
+                        let deque_lens: Vec<usize> = deques.iter().map(|d| d.len()).collect();
+                        let n_chains = chain_arena.allocated();
+                        let mut chain_diags = Vec::new();
+                        for i in 0..n_chains {
+                            let cn = unsafe { chain_arena.get(ArenaIdx::from_raw(i)) };
+                            let diag = cn.chain.diagnostic();
+                            if !cn.chain.is_done() {
+                                chain_diags.push(format!("  chain[{i}]: {diag} ← INCOMPLETE"));
+                            }
+                        }
+                        panic!(
+                            "run_fold hung: root_done={}, helped={}, idle={}, deque_lens={:?}, chains={}, conts={}, {}\n{}",
+                            root_cell.is_done(), helped,
+                            shared.idle_count.load(Ordering::Relaxed),
+                            deque_lens, n_chains, cont_arena.allocated(),
+                            counters::snapshot(),
+                            chain_diags.join("\n"),
+                        );
                     }
                     std::hint::spin_loop();
                 }

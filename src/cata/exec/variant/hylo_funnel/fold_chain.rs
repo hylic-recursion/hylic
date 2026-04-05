@@ -167,6 +167,22 @@ impl<H, R> FoldChain<H, R> {
         None
     }
 
+    pub fn is_done(&self) -> bool { self.done.load(Ordering::Relaxed) }
+
+    pub fn diagnostic(&self) -> String {
+        let appended = self.appended.load(Ordering::Relaxed);
+        let total = self.total.load(Ordering::Relaxed);
+        let total_known = self.total_known.load(Ordering::Relaxed);
+        let cursor = self.cursor.load(Ordering::Relaxed);
+        let done = self.done.load(Ordering::Relaxed);
+        let sweeping = self.sweeping.load(Ordering::Relaxed);
+        let mut filled_count = 0u32;
+        for i in 0..appended {
+            if self.slot_at(i).filled.load(Ordering::Relaxed) { filled_count += 1; }
+        }
+        format!("appended={appended}, total={total}, total_known={total_known}, cursor={cursor}, filled={filled_count}, done={done}, sweeping={sweeping}")
+    }
+
     fn slot_at(&self, index: u32) -> &SlotCell<R> {
         let idx = index as usize;
         if idx < INITIAL_CAP {
