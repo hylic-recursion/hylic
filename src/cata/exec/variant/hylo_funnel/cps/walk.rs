@@ -92,8 +92,8 @@ pub(crate) fn fire_cont<N, H, R, F, G>(
 
 pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
     wctx: &WorkerCtx<N, H, R, F, G, W>,
-    node: N,
-    cont: Cont<H, R>,
+    mut node: N,
+    mut cont: Cont<H, R>,
 ) where
     F: FoldOps<N, H, R> + 'static,
     G: TreeOps<N> + 'static,
@@ -102,71 +102,74 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
     R: Send + 'static,
 {
     let ctx = wctx.ctx;
-    let fold = unsafe { ctx.fold_ref() };
-    let graph = unsafe { ctx.graph_ref() };
-    let chain_arena = unsafe { ctx.chain_arena() };
-    let cont_arena = unsafe { ctx.cont_arena() };
-    let heap = fold.init(&node);
+    loop {
+        let fold = unsafe { ctx.fold_ref() };
+        let graph = unsafe { ctx.graph_ref() };
+        let chain_arena = unsafe { ctx.chain_arena() };
+        let cont_arena = unsafe { ctx.cont_arena() };
+        let heap = fold.init(&node);
 
-    let mut child_count = 0u32;
-    let mut first_child: Option<N> = None;
-    let mut chain_idx: Option<super::super::arena::ArenaIdx> = None;
-    let mut heap_opt = Some(heap);
-    let mut cont_opt = Some(cont);
+        let mut child_count = 0u32;
+        let mut first_child: Option<N> = None;
+        let mut chain_idx: Option<super::super::arena::ArenaIdx> = None;
+        let mut heap_opt = Some(heap);
+        let mut cont_opt = Some(cont);
 
-    graph.visit(&node, &mut |child: &N| {
-        child_count += 1;
-        if child_count == 1 {
-            first_child = Some(child.clone());
-        } else {
-            if child_count == 2 {
-                let cn = ChainNode::new(heap_opt.take().unwrap(), cont_opt.take().unwrap());
-                let idx = chain_arena.alloc(cn);
+        graph.visit(&node, &mut |child: &N| {
+            child_count += 1;
+            if child_count == 1 {
+                first_child = Some(child.clone());
+            } else {
+                if child_count == 2 {
+                    let cn = ChainNode::new(heap_opt.take().unwrap(), cont_opt.take().unwrap());
+                    let idx = chain_arena.alloc(cn);
+                    let node_ref = unsafe { chain_arena.get(idx) };
+                    node_ref.chain.append_slot();
+                    chain_idx = Some(idx);
+                }
+                let idx = chain_idx.unwrap();
                 let node_ref = unsafe { chain_arena.get(idx) };
-                node_ref.chain.append_slot();
-                chain_idx = Some(idx);
+                let slot = node_ref.chain.append_slot();
+                wctx.push_task(FunnelTask::Walk {
+                    child: child.clone(),
+                    cont: Cont::Slot { node: idx, slot },
+                });
             }
-            let idx = chain_idx.unwrap();
-            let node_ref = unsafe { chain_arena.get(idx) };
-            let slot = node_ref.chain.append_slot();
-            wctx.push_task(FunnelTask::Walk {
-                child: child.clone(),
-                cont: Cont::Slot { node: idx, slot },
-            });
-        }
-    });
+        });
 
-    match child_count {
-        0 => {
-            let heap = heap_opt.take().unwrap();
-            let cont = cont_opt.take().unwrap();
-            let result = fold.finalize(&heap);
-            fire_cont::<N, H, R, F, G>(ctx, cont, result);
-        }
-        1 => {
-            let child = first_child.unwrap();
-            let heap = heap_opt.take().unwrap();
-            let parent_cont = cont_opt.take().unwrap();
-            let parent_idx = cont_arena.alloc(parent_cont);
-            walk_cps(wctx, child, Cont::Direct { heap, parent_idx });
-        }
-        _ => {
-            let idx = chain_idx.unwrap();
-            let cn = unsafe { chain_arena.get(idx) };
-            let fold = unsafe { ctx.fold_ref() };
-            let set_total_result = match ctx.accumulate {
-                AccumulateMode::OnArrival => cn.chain.set_total_and_sweep(fold),
-                AccumulateMode::OnFinalize => cn.chain.set_total_and_finalize(fold),
-            };
-            if let Some(finalized) = set_total_result {
-                let parent = cn.take_parent_cont();
-                fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
+        match child_count {
+            0 => {
+                let heap = heap_opt.take().unwrap();
+                let cont = cont_opt.take().unwrap();
+                let result = fold.finalize(&heap);
+                fire_cont::<N, H, R, F, G>(ctx, cont, result);
                 return;
             }
-            let child = first_child.unwrap();
-            walk_cps(wctx, child, Cont::Slot {
-                node: idx, slot: SlotRef(0),
-            });
+            1 => {
+                let child = first_child.unwrap();
+                let heap = heap_opt.take().unwrap();
+                let parent_cont = cont_opt.take().unwrap();
+                let parent_idx = cont_arena.alloc(parent_cont);
+                node = child;
+                cont = Cont::Direct { heap, parent_idx };
+            }
+            _ => {
+                let idx = chain_idx.unwrap();
+                let cn = unsafe { chain_arena.get(idx) };
+                let fold = unsafe { ctx.fold_ref() };
+                let set_total_result = match ctx.accumulate {
+                    AccumulateMode::OnArrival => cn.chain.set_total_and_sweep(fold),
+                    AccumulateMode::OnFinalize => cn.chain.set_total_and_finalize(fold),
+                };
+                if let Some(finalized) = set_total_result {
+                    let parent = cn.take_parent_cont();
+                    fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
+                    return;
+                }
+                let child = first_child.unwrap();
+                node = child;
+                cont = Cont::Slot { node: idx, slot: SlotRef(0) };
+            }
         }
     }
 }
