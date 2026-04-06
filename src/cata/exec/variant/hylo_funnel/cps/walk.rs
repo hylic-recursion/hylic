@@ -13,6 +13,7 @@ use super::cont::{FunnelTask, Cont, ChainNode};
 use super::super::view::FoldView;
 use super::super::worker::WorkerCtx;
 use super::super::queue::WorkStealing;
+use super::chain::SlotRef;
 use super::super::arena::Arena;
 use super::super::cont_arena::ContArena;
 use super::super::AccumulateMode;
@@ -116,21 +117,14 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
     graph.visit(&node, &mut |child: &N| {
         child_count += 1;
         if child_count == 1 {
-            // Save first child — may be inlined (bf=1) or submitted (bf≥2).
             first_child = Some(child.clone());
         } else {
             if child_count == 2 {
-                // Second child: create ChainNode, submit first child as task.
                 let cn = ChainNode::new(heap_opt.take().unwrap(), cont_opt.take().unwrap());
                 let idx = chain_arena.alloc(cn);
                 let node_ref = unsafe { chain_arena.get(idx) };
-                let slot0 = node_ref.chain.append_slot();
+                node_ref.chain.append_slot();
                 chain_idx = Some(idx);
-                // Submit child 0 — no inline walk for multi-child nodes.
-                wctx.push_task(FunnelTask::Walk {
-                    child: first_child.take().unwrap(),
-                    cont: Cont::Slot { node: idx, slot: slot0 },
-                });
             }
             let idx = chain_idx.unwrap();
             let node_ref = unsafe { chain_arena.get(idx) };
@@ -144,14 +138,12 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
 
     match child_count {
         0 => {
-            // Leaf: finalize heap, fire continuation.
             let heap = heap_opt.take().unwrap();
             let cont = cont_opt.take().unwrap();
             let result = fold.finalize(&heap);
             fire_cont::<N, H, R, F, G>(ctx, cont, result);
         }
         1 => {
-            // Single child: walk inline with Cont::Direct (zero queue overhead).
             let child = first_child.unwrap();
             let heap = heap_opt.take().unwrap();
             let parent_cont = cont_opt.take().unwrap();
@@ -159,7 +151,6 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
             walk_cps(wctx, child, Cont::Direct { heap, parent_idx });
         }
         _ => {
-            // Multi-child: all children already submitted. Set total.
             let idx = chain_idx.unwrap();
             let cn = unsafe { chain_arena.get(idx) };
             let fold = unsafe { ctx.fold_ref() };
@@ -170,8 +161,12 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
             if let Some(finalized) = set_total_result {
                 let parent = cn.take_parent_cont();
                 fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
+                return;
             }
-            // No inline walk — caller returns to help loop.
+            let child = first_child.unwrap();
+            walk_cps(wctx, child, Cont::Slot {
+                node: idx, slot: SlotRef(0),
+            });
         }
     }
 }

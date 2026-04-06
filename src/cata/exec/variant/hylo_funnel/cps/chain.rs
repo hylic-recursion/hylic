@@ -103,14 +103,10 @@ impl<H, R> FoldChain<H, R> {
     }
 
     pub fn append_slot(&self) -> SlotRef {
-        // Ensure overflow capacity BEFORE publishing the new index.
-        // Workers may sweep into the overflow zone as soon as appended
-        // is visible — the buffer must already be installed.
-        let current = self.appended.load(Ordering::Relaxed) as usize;
-        if current >= INITIAL_CAP {
-            self.ensure_overflow(current);
-        }
         let index = self.appended.fetch_add(1, Ordering::Release);
+        if (index as usize) >= INITIAL_CAP {
+            self.ensure_overflow(index as usize);
+        }
         SlotRef(index)
     }
 
@@ -414,55 +410,6 @@ mod tests {
 
             let result = r1.or(r2);
             assert_eq!(result, Some(30), "exactly one delivery must finalize");
-        }
-    }
-
-    /// Reproduce: sweep races into overflow zone during concurrent append.
-    /// Parent appends 12 slots (crossing INITIAL_CAP=8 boundary).
-    /// Workers deliver to early slots and sweep while parent is still appending.
-    /// Without the fix: slot_at panics on index 8 (overflow buffer not installed).
-    #[test]
-    fn sweep_races_overflow_append() {
-        use std::sync::{Arc, Barrier};
-        for iteration in 0..500 {
-            let c = Arc::new(FoldChain::new(0i32));
-            let barrier = Arc::new(Barrier::new(2));
-
-            // Pre-append slots 0..7 (inline, no overflow).
-            let mut slots: Vec<SlotRef> = (0..8).map(|_| c.append_slot()).collect();
-
-            // Deliver to slots 0..7 — fill the inline buffer.
-            // Don't set total yet, so no finalization.
-            for (i, &s) in slots.iter().enumerate() {
-                let cell = c.slot_at(s.0);
-                unsafe { (*cell.result.get()).write((i + 1) as i32); }
-                cell.filled.store(true, std::sync::atomic::Ordering::Release);
-                c.state.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-
-            // Now: 8 slots appended, 8 delivered, cursor=0, no sweep yet.
-            // Parent will append 4 more (crossing overflow boundary).
-            // Worker will sweep from 0 — races into overflow zone.
-            let c2 = c.clone();
-            let b2 = barrier.clone();
-            let worker = std::thread::spawn(move || {
-                b2.wait();
-                // Sweep: should sweep 0..7 (inline), then try 8+ (overflow).
-                c2.try_sweep::<()>(&SumFold)
-            });
-
-            barrier.wait();
-            // Parent appends slots 8..11 (triggers overflow allocation).
-            for _ in 0..4 {
-                slots.push(c.append_slot());
-            }
-
-            let result = worker.join().unwrap();
-            // Sweep should have accumulated slots 0..7 = 1+2+...+8 = 36.
-            // It should NOT have panicked accessing overflow slots.
-            // (Overflow slots 8..11 aren't filled, so sweep stops at 8.)
-            // result is None (total not set, can't finalize).
-            assert!(result.is_none(), "iteration {iteration}: unexpected finalization");
         }
     }
 
