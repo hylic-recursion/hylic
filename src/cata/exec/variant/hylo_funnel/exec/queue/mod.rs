@@ -2,7 +2,7 @@
 //!
 //! Each strategy implements `WorkStealing` with associated types for
 //! per-fold resources (Store) and per-worker handles (Handle).
-//! The rest of the system interacts through `TaskOps` — push, pop, steal.
+//! The rest of the system interacts through `TaskOps` — push, try_acquire.
 
 pub mod per_worker;
 pub mod shared;
@@ -13,10 +13,17 @@ pub use shared::Shared;
 use super::super::cont::FunnelTask;
 
 /// Per-worker task operations. Each WorkStealing::Handle implements this.
+///
+/// `push` submits a task to the queue. Notification of idle workers is
+/// the caller's responsibility (WorkerCtx holds the view reference).
+///
+/// `try_acquire` returns the next task to execute. Each strategy
+/// encapsulates its own acquisition policy:
+/// - PerWorker: pop local deque first, then bitmask-guided steal
+/// - Shared: steal from the global queue
 pub trait TaskOps<N, H, R> {
-    fn push(&self, task: FunnelTask<N, H, R>, notify: &dyn Fn());
-    fn pop(&self) -> Option<FunnelTask<N, H, R>>;
-    fn steal(&self) -> Option<FunnelTask<N, H, R>>;
+    fn push(&self, task: FunnelTask<N, H, R>);
+    fn try_acquire(&self) -> Option<FunnelTask<N, H, R>>;
 }
 
 /// A work-stealing strategy. Associates typed Store and Handle via GATs.

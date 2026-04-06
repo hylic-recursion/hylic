@@ -1,10 +1,12 @@
 //! Hylomorphism proof: fold interleaves with traversal across subtrees.
 //! Same methodology as the hylo interleaving test — lock-free tracing,
 //! subtree tagging, cross-subtree assertion.
+//! Each test runs for both PerWorker and Shared queue strategies.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use super::*;
+use super::super::queue;
 
 const MAX_TRACE: usize = 2048;
 const OP_VISIT: u8 = 0;
@@ -79,8 +81,7 @@ fn tagged_tree(n: usize, bf: usize) -> TaggedN {
     }
 }
 
-#[test]
-fn cross_subtree_interleaving() {
+fn cross_subtree_interleaving_impl<W: WorkStealing>() {
     let tree = tagged_tree(85, 4);
     let n_workers = n_threads();
     let mut proven = false;
@@ -113,7 +114,7 @@ fn cross_subtree_interleaving() {
         seq.store(0, Ordering::Relaxed);
         trace.len.store(0, Ordering::Relaxed);
 
-        let exec = HyloFunnelIn::<crate::domain::Shared>::new(n_workers, HyloFunnelSpec::default_for(n_workers));
+        let exec = make_exec::<W>(n_workers);
         let result = exec.run(&fold, &graph, &tree);
         assert_eq!(result, expected, "result mismatch on attempt {attempt}");
 
@@ -159,3 +160,9 @@ fn cross_subtree_interleaving() {
         panic!("Failed to observe cross-subtree interleaving in 20 attempts.\nLast trace ({} entries):\n{dump}", entries.len());
     }
 }
+
+#[test]
+fn cross_subtree_interleaving_pw() { cross_subtree_interleaving_impl::<queue::PerWorker>(); }
+
+#[test]
+fn cross_subtree_interleaving_sh() { cross_subtree_interleaving_impl::<queue::Shared>(); }

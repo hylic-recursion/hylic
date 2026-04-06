@@ -1,6 +1,11 @@
 //! Focused benchmark: Hylomorphic vs Rayon — all executor variants.
 //!
-//! Axes: executor × accumulate mode × queue strategy × workload.
+//! Naming: `{origin}.{executor}[.{queue}]`
+//!   rayon, hand.rayon            — rayon baselines
+//!   hylo                         — baseline hylomorphic executor
+//!   funnel.pw                    — funnel, PerWorker queue
+//!   funnel.sh                    — funnel, Shared queue
+//!
 //! Thread count: rayon::current_num_threads() for fairness.
 
 #[path = "support/mod.rs"]
@@ -50,28 +55,28 @@ fn bench_hylo_compare(c: &mut Criterion) {
     for def in hylo_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
 
-        // ── Rayon baselines ──────────────────────────
-        bench_cell(&mut group, "hylic.rayon", &s.name,
+        // ── Rayon baselines ─────────────────────────
+        bench_cell(&mut group, "rayon", &s.name,
             |b, _| b.iter(|| black_box(dom::RAYON.run(&s.fold, &s.treeish, &s.root))),
         );
         bench_cell(&mut group, "hand.rayon", &s.name,
             |b, _| b.iter(|| black_box(handrolled_rayon(&s))),
         );
 
-        // ── Hylo baseline (bulk finalize, shared StealQueue) ──
+        // ── Hylo (baseline hylomorphic executor) ────
         WorkPool::with(WorkPoolSpec::threads(nw), |pool| {
             let hylo = HylomorphicIn::<hylic::domain::Shared>::new(pool, HylomorphicSpec::default_for(nw));
-            bench_cell(&mut group, "hylic.hylo", &s.name,
+            bench_cell(&mut group, "hylo", &s.name,
                 |b, _| b.iter(|| black_box(hylo.run(&s.fold, &s.treeish, &s.root))),
             );
         });
 
-        // ── Funnel: PerWorker × OnArrival ────────────
+        // ── Funnel: PerWorker queue ─────────────────
         {
             let pool = FunnelPool::new(nw);
             let pw_spec = queue::per_worker::PerWorkerSpec { deque_capacity: 4096 };
             let mut fctx = FoldContext::<_, _, _, queue::PerWorker>::new(&pw_spec, nw);
-            bench_cell(&mut group, "funnel.pw.arrive", &s.name,
+            bench_cell(&mut group, "funnel.pw", &s.name,
                 |b, _| b.iter(|| {
                     fctx.reset();
                     black_box(run_fold_with::<_, _, _, _, _, queue::PerWorker>(
@@ -82,49 +87,17 @@ fn bench_hylo_compare(c: &mut Criterion) {
             );
         }
 
-        // ── Funnel: PerWorker × OnFinalize ───────────
-        {
-            let pool = FunnelPool::new(nw);
-            let pw_spec = queue::per_worker::PerWorkerSpec { deque_capacity: 4096 };
-            let mut fctx = FoldContext::<_, _, _, queue::PerWorker>::new(&pw_spec, nw);
-            bench_cell(&mut group, "funnel.pw.final", &s.name,
-                |b, _| b.iter(|| {
-                    fctx.reset();
-                    black_box(run_fold_with::<_, _, _, _, _, queue::PerWorker>(
-                        &s.fold, &s.treeish, &s.root, &pool,
-                        AccumulateMode::OnFinalize, &mut fctx,
-                    ))
-                }),
-            );
-        }
-
-        // ── Funnel: Shared × OnArrival ───────────────
+        // ── Funnel: Shared queue ────────────────────
         {
             let pool = FunnelPool::new(nw);
             let sh_spec = queue::shared::SharedSpec;
             let mut fctx = FoldContext::<_, _, _, queue::Shared>::new(&sh_spec, nw);
-            bench_cell(&mut group, "funnel.sh.arrive", &s.name,
+            bench_cell(&mut group, "funnel.sh", &s.name,
                 |b, _| b.iter(|| {
                     fctx.reset();
                     black_box(run_fold_with::<_, _, _, _, _, queue::Shared>(
                         &s.fold, &s.treeish, &s.root, &pool,
                         AccumulateMode::OnArrival, &mut fctx,
-                    ))
-                }),
-            );
-        }
-
-        // ── Funnel: Shared × OnFinalize ──────────────
-        {
-            let pool = FunnelPool::new(nw);
-            let sh_spec = queue::shared::SharedSpec;
-            let mut fctx = FoldContext::<_, _, _, queue::Shared>::new(&sh_spec, nw);
-            bench_cell(&mut group, "funnel.sh.final", &s.name,
-                |b, _| b.iter(|| {
-                    fctx.reset();
-                    black_box(run_fold_with::<_, _, _, _, _, queue::Shared>(
-                        &s.fold, &s.treeish, &s.root, &pool,
-                        AccumulateMode::OnFinalize, &mut fctx,
                     ))
                 }),
             );

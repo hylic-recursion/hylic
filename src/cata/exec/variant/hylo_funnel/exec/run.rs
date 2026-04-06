@@ -113,10 +113,7 @@ where
 
         let mut spins = 0u64;
         while !root_cell.is_done() {
-            if let Some(task) = wctx.handle.pop() {
-                execute_task(&wctx, task);
-                spins = 0;
-            } else if let Some(task) = wctx.handle.steal() {
+            if let Some(task) = wctx.handle.try_acquire() {
                 execute_task(&wctx, task);
                 spins = 0;
             } else {

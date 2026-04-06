@@ -20,8 +20,8 @@ impl<N: Send + 'static, H: 'static, R: Send + 'static, F, G, W: WorkStealing>
     pub(crate) fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
 
     pub(crate) fn push_task(&self, task: FunnelTask<N, H, R>) {
-        let view = self.view();
-        self.handle.push(task, &|| view.notify_idle());
+        self.handle.push(task);
+        self.view().notify_idle();
     }
 }
 
@@ -67,22 +67,14 @@ fn worker_loop<N, H, R, F, G, W: WorkStealing>(
     let handle = W::handle(store, my_idx);
     let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx, handle };
     loop {
-        if let Some(task) = wctx.handle.pop() {
-            execute_task(&wctx, task);
-            continue;
-        }
-        if let Some(task) = wctx.handle.steal() {
+        if let Some(task) = wctx.handle.try_acquire() {
             execute_task(&wctx, task);
             continue;
         }
         let event = view.event();
         let token = event.prepare();
         if view.fold_done.load(Ordering::Acquire) { return; }
-        if let Some(task) = wctx.handle.pop() {
-            execute_task(&wctx, task);
-            continue;
-        }
-        if let Some(task) = wctx.handle.steal() {
+        if let Some(task) = wctx.handle.try_acquire() {
             execute_task(&wctx, task);
             continue;
         }

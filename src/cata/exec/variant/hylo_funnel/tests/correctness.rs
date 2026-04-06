@@ -1,24 +1,48 @@
 //! Correctness: funnel result matches sequential Fused.
+//! Each test runs for both PerWorker and Shared queue strategies.
 
 use super::*;
+use super::super::queue;
+
+// ── matches_fused ─────────────────��───────────────��──
 
 #[test]
-fn matches_fused() {
-    assert_matches_fused(&big_tree(60, 4), n_threads());
+fn matches_fused_pw() {
+    assert_matches_fused_with::<queue::PerWorker>(&big_tree(60, 4), n_threads());
 }
 
 #[test]
-fn matches_fused_200() {
-    assert_matches_fused(&big_tree(200, 6), n_threads());
+fn matches_fused_sh() {
+    assert_matches_fused_with::<queue::Shared>(&big_tree(60, 4), n_threads());
+}
+
+// ── matches_fused_200 ───────────────────���────────────
+
+#[test]
+fn matches_fused_200_pw() {
+    assert_matches_fused_with::<queue::PerWorker>(&big_tree(200, 6), n_threads());
 }
 
 #[test]
-fn zero_workers() {
-    assert_matches_fused(&big_tree(60, 4), 0);
+fn matches_fused_200_sh() {
+    assert_matches_fused_with::<queue::Shared>(&big_tree(200, 6), n_threads());
+}
+
+// ── zero_workers ───────────────────────────��─────────
+
+#[test]
+fn zero_workers_pw() {
+    assert_matches_fused_with::<queue::PerWorker>(&big_tree(60, 4), 0);
 }
 
 #[test]
-fn adjacency_list_noop() {
+fn zero_workers_sh() {
+    assert_matches_fused_with::<queue::Shared>(&big_tree(60, 4), 0);
+}
+
+// ── adjacency_list_noop ────────────────────���─────────
+
+fn adjacency_list_noop_impl<W: WorkStealing>() {
     let adj = gen_adj(200, 8);
     let ch = adj.clone();
     let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
@@ -30,7 +54,12 @@ fn adjacency_list_noop() {
         |h: &u64| *h,
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
-    let nt = n_threads();
-    let exec = HyloFunnelIn::<crate::domain::Shared>::new(nt, HyloFunnelSpec::default_for(nt));
+    let exec = make_exec::<W>(n_threads());
     assert_eq!(exec.run(&fold, &treeish, &0usize), expected);
 }
+
+#[test]
+fn adjacency_list_noop_pw() { adjacency_list_noop_impl::<queue::PerWorker>(); }
+
+#[test]
+fn adjacency_list_noop_sh() { adjacency_list_noop_impl::<queue::Shared>(); }

@@ -75,17 +75,15 @@ impl WorkStealing for PerWorker {
 impl<N: Send + 'static, H: 'static, R: Send + 'static> TaskOps<N, H, R>
     for PerWorkerHandle<'_, N, H, R>
 {
-    fn push(&self, task: FunnelTask<N, H, R>, notify: &dyn Fn()) {
+    fn push(&self, task: FunnelTask<N, H, R>) {
         assert!(self.my_deque.push(task), "deque full");
         self.work_available.fetch_or(1u64 << self.my_idx, Ordering::Relaxed);
-        notify();
     }
 
-    fn pop(&self) -> Option<FunnelTask<N, H, R>> {
-        self.my_deque.pop()
-    }
-
-    fn steal(&self) -> Option<FunnelTask<N, H, R>> {
+    fn try_acquire(&self) -> Option<FunnelTask<N, H, R>> {
+        // Local deque first — LIFO pop, cache-warm, no contention.
+        if let Some(task) = self.my_deque.pop() { return Some(task); }
+        // Bitmask-guided steal from other deques.
         let mut bits = self.work_available.load(Ordering::Relaxed);
         bits &= !(1u64 << self.my_idx);
         while bits != 0 {

@@ -1,5 +1,6 @@
 //! Hylo-funnel test suite — same rigor as hylo, same test patterns.
 //!
+//! Every test runs for both queue strategies (PerWorker, Shared).
 //! `make hylic-test-hylo-funnel` runs all funnel tests.
 
 mod correctness;
@@ -7,7 +8,8 @@ mod stress;
 mod interleaving;
 
 use crate::domain::shared as dom;
-use super::{HyloFunnelIn, HyloFunnelSpec};
+use super::{HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
+use super::queue::WorkStealing;
 
 pub(super) fn n_threads() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
@@ -76,10 +78,17 @@ pub(super) fn n_graph() -> dom::Treeish<N> {
     dom::treeish(|n: &N| n.children.clone())
 }
 
-pub(super) fn assert_matches_fused(tree: &N, n_workers: usize) {
+// ── Strategy-generic helpers ─────────────────────────
+
+pub(super) fn make_exec<W: WorkStealing>(n_workers: usize) -> HyloFunnelIn<crate::domain::Shared, W> {
+    let spec = HyloFunnelSpec::<W>::new(AccumulateMode::OnArrival, Default::default());
+    HyloFunnelIn::<crate::domain::Shared, W>::new(n_workers, spec)
+}
+
+pub(super) fn assert_matches_fused_with<W: WorkStealing>(tree: &N, n_workers: usize) {
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, tree);
-    let exec = HyloFunnelIn::<crate::domain::Shared>::new(n_workers, HyloFunnelSpec::default_for(n_workers));
+    let exec = make_exec::<W>(n_workers);
     assert_eq!(exec.run(&fold, &graph, tree), expected);
 }

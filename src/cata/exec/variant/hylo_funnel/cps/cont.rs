@@ -9,7 +9,7 @@ use super::super::cont_arena::ContIdx;
 
 // ── Defunctionalized task ────────────────────────────
 
-pub(crate) enum FunnelTask<N, H, R> {
+pub enum FunnelTask<N, H, R> {
     Walk { child: N, cont: Cont<H, R> },
 }
 
@@ -17,7 +17,7 @@ unsafe impl<N: Send, H, R: Send> Send for FunnelTask<N, H, R> {}
 
 // ── Defunctionalized continuation ─────────────────────
 
-pub(crate) enum Cont<H, R> {
+pub enum Cont<H, R> {
     Root(Arc<RootCell<R>>),
     Direct { heap: H, parent_idx: ContIdx },
     Slot { node: ArenaIdx, slot: SlotRef },
@@ -46,7 +46,7 @@ impl<H, R> ChainNode<H, R> {
 
 // ── Root result cell ──────────────────────────────────
 
-pub(crate) struct RootCell<R> {
+pub struct RootCell<R> {
     result: UnsafeCell<Option<R>>,
     done: AtomicBool,
 }
