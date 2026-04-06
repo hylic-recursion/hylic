@@ -75,9 +75,14 @@ impl WorkStealing for PerWorker {
 impl<N: Send + 'static, H: 'static, R: Send + 'static> TaskOps<N, H, R>
     for PerWorkerHandle<'_, N, H, R>
 {
-    fn push(&self, task: FunnelTask<N, H, R>) {
-        assert!(self.my_deque.push(task), "deque full");
-        self.work_available.fetch_or(1u64 << self.my_idx, Ordering::Relaxed);
+    fn push(&self, task: FunnelTask<N, H, R>) -> Option<FunnelTask<N, H, R>> {
+        match self.my_deque.push(task) {
+            Ok(()) => {
+                self.work_available.fetch_or(1u64 << self.my_idx, Ordering::Relaxed);
+                None
+            }
+            Err(task) => Some(task),
+        }
     }
 
     fn try_acquire(&self) -> Option<FunnelTask<N, H, R>> {
