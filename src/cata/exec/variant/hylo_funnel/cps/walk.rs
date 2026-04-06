@@ -3,12 +3,16 @@
 //! walk_cps is void — delivers results through defunctionalized continuations.
 //! fire_cont calls deliver_and_sweep inline.
 //! fold_done set inside fire_cont(Cont::Root) — CPS completion signal.
+//!
+//! Generic over W: WorkStealing — the queue strategy is invisible here.
+//! walk_cps calls wctx.push_task() which goes through the handle.
 
 use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
 use super::cont::{FunnelTask, Cont, ChainNode};
 use super::super::view::FoldView;
 use super::super::worker::WorkerCtx;
+use super::super::queue::WorkStealing;
 use super::chain::SlotRef;
 use super::super::arena::Arena;
 use super::super::cont_arena::ContArena;
@@ -86,8 +90,8 @@ pub(crate) fn fire_cont<N, H, R, F, G>(
 
 // ── CPS walk ─────────────────────────────────────────
 
-pub(crate) fn walk_cps<N, H, R, F, G>(
-    wctx: &WorkerCtx<N, H, R, F, G>,
+pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
+    wctx: &WorkerCtx<N, H, R, F, G, W>,
     node: N,
     cont: Cont<H, R>,
 ) where
@@ -167,8 +171,8 @@ pub(crate) fn walk_cps<N, H, R, F, G>(
     }
 }
 
-pub(crate) fn execute_task<N, H, R, F, G>(
-    wctx: &WorkerCtx<N, H, R, F, G>,
+pub(crate) fn execute_task<N, H, R, F, G, W: WorkStealing>(
+    wctx: &WorkerCtx<N, H, R, F, G, W>,
     task: FunnelTask<N, H, R>,
 ) where
     F: FoldOps<N, H, R> + 'static,
