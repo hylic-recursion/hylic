@@ -4,9 +4,10 @@
 //! (high 32). Each event's fetch_add atomically reads both and writes its
 //! contribution. Exactly one event sees the complete state — the finalizer.
 //!
-//! Streaming sweep: CAS permission for exclusive heap access. Any callback
-//! that wins sweeps contiguous filled slots from cursor. The finalizer
-//! retries once if it missed the permission on first attempt.
+//! Streaming sweep: `sweep: AtomicU32` fuses cursor (bits 0-30) and sweep
+//! gate (bit 31) into one word. CAS sets the gate and reads cursor
+//! atomically. Store advances cursor and releases gate in one write.
+//! No separate sweeping flag, no separate cursor store.
 
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
@@ -74,13 +75,15 @@ fn unpack(state: u64) -> (u32, u32) { (state as u32, (state >> 32) as u32) }
 
 // ── FoldChain ────────────────────────────────────────
 
+/// Bit 31 of `sweep`: gate flag. Set = someone is sweeping the heap.
+const SWEEPING: u32 = 1 << 31;
+
 pub struct FoldChain<H, R> {
     heap: UnsafeCell<H>,
     first: SlotBuf<R>,
     appended: AtomicU32,
     state: AtomicU64,       // low32: events_done, high32: total (0=unknown)
-    cursor: AtomicU32,
-    sweeping: AtomicBool,   // permission to mutate heap
+    sweep: AtomicU32,       // bit31: sweeping gate, bits 0-30: cursor position
     done: AtomicBool,       // finalized
 }
 
@@ -94,8 +97,7 @@ impl<H, R> FoldChain<H, R> {
             first: SlotBuf::new(),
             appended: AtomicU32::new(0),
             state: AtomicU64::new(0),
-            cursor: AtomicU32::new(0),
-            sweeping: AtomicBool::new(false),
+            sweep: AtomicU32::new(0),
             done: AtomicBool::new(false),
         }
     }
@@ -108,31 +110,19 @@ impl<H, R> FoldChain<H, R> {
         SlotRef(index)
     }
 
-    /// Deliver a result, take a ticket, try to sweep if at the frontier.
+    /// Deliver a result, take a ticket, try to sweep.
     /// Returns Some(R) if this call finalized the chain.
     pub fn deliver_and_sweep<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) -> Option<R> {
-        // Store result (write-once, non-atomic)
         let cell = self.slot_at(slot.0);
         unsafe { (*cell.result.get()).write(result); }
-        // Publish via filled flag — the sweep's Acquire on this flag
-        // is the synchronization point for this slot's data.
         cell.filled.store(true, Ordering::Release);
 
-        // Ticket: just a counter. Relaxed — no ordering needed.
-        // Slot visibility comes from per-slot filled Release→Acquire.
         let prev = self.state.fetch_add(1, Ordering::Relaxed);
         let (done_before, total) = unpack(prev);
         let am_finalizer = total > 0 && done_before + 1 >= total;
 
-        // Frontier check: only try the sweep if we're at the cursor position.
-        // Stale-low reads are safe (cursor only advances).
-        let cursor = self.cursor.load(Ordering::Relaxed);
-        if slot.0 >= cursor && slot.0 <= cursor + 1 {
-            if let Some(r) = self.try_sweep(fold) { return Some(r); }
-        }
+        if let Some(r) = self.try_sweep(fold) { return Some(r); }
 
-        // Finalizer: must complete. Retry until gate holder releases.
-        // Bounded by the gate holder's sweep work (K accumulates).
         if am_finalizer {
             let mut spins = 0u32;
             loop {
@@ -221,43 +211,42 @@ impl<H, R> FoldChain<H, R> {
         fold.finalize(unsafe { &*self.heap.get() })
     }
 
-    // ── OnArrival mode: streaming sweep with CAS gate ────────────────
+    // ── OnArrival mode: fused sweep (cursor + gate in one AtomicU32) ──
 
-    /// Try to sweep contiguous filled slots from cursor. Zero cost on CAS miss.
-    /// Each slot's filled.load(Acquire) provides visibility for that slot's data.
+    /// Try to sweep contiguous filled slots from cursor.
+    /// CAS on `sweep` acquires the gate and reads cursor atomically.
+    /// Store on `sweep` advances cursor and releases gate in one write.
     fn try_sweep<N>(&self, fold: &impl FoldOps<N, H, R>) -> Option<R> {
-        if self.sweeping.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        let s = self.sweep.load(Ordering::Relaxed);
+        if s & SWEEPING != 0 { return None; }
+        if self.sweep.compare_exchange(s, s | SWEEPING, Ordering::Acquire, Ordering::Relaxed).is_err() {
             return None;
         }
         if self.done.load(Ordering::Relaxed) {
-            self.sweeping.store(false, Ordering::Release);
+            self.sweep.store(s, Ordering::Release);
             return None;
         }
 
         let heap = unsafe { &mut *self.heap.get() };
-        let mut pos = self.cursor.load(Ordering::Relaxed);
+        let mut pos = s; // s is the cursor (SWEEPING bit was 0)
         let appended = self.appended.load(Ordering::Relaxed);
 
-        // Sweep contiguous filled slots from cursor.
-        // Each filled.load(Acquire) synchronizes with that slot's
-        // filled.store(Release), making the result data visible.
         while pos < appended {
             if !self.slot_at(pos).filled.load(Ordering::Acquire) { break; }
             fold.accumulate(heap, unsafe { (*self.slot_at(pos).result.get()).assume_init_ref() });
             pos += 1;
         }
-        self.cursor.store(pos, Ordering::Release);
 
         // Check completion: cursor reached total?
         let (_, total) = unpack(self.state.load(Ordering::Relaxed));
         if total > 0 && pos >= total {
             self.done.store(true, Ordering::Release);
             let result = fold.finalize(unsafe { &*self.heap.get() });
-            self.sweeping.store(false, Ordering::Release);
+            self.sweep.store(pos, Ordering::Release);
             return Some(result);
         }
 
-        self.sweeping.store(false, Ordering::Release);
+        self.sweep.store(pos, Ordering::Release); // advance cursor + release gate
         None
     }
 
