@@ -1,5 +1,6 @@
 //! Worker infrastructure: per-worker context, worker loop, job bridge.
 
+use std::cell::Cell;
 use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
 use super::super::cont::FunnelTask;
@@ -12,7 +13,17 @@ use super::queue::{WorkStealing, TaskOps};
 pub(crate) struct WorkerCtx<'a, N: Send + 'static, H: 'static, R: Send + 'static, F, G, W: WorkStealing> {
     pub(crate) ctx: &'a WalkCtx<F, G, H, R>,
     pub(crate) handle: W::Handle<'a, N, H, R>,
+    /// Notify dedup: true = already notified for this visit batch.
+    /// Reset by walk_cps before each graph.visit call.
+    /// Single-thread access only (owning thread's walk_cps).
+    pub(crate) notified: Cell<bool>,
 }
+
+// SAFETY: WorkerCtx is only accessed by one thread at a time.
+// Cell<bool> is !Sync but WorkerCtx is never shared across threads —
+// it's created per-thread in worker_loop and passed by &ref within
+// that thread's call stack only.
+unsafe impl<N: Send, H, R: Send, F, G, W: WorkStealing> Sync for WorkerCtx<'_, N, H, R, F, G, W> {}
 
 impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, R> + 'static, G: TreeOps<N> + 'static, W: WorkStealing>
     WorkerCtx<'_, N, H, R, F, G, W>
@@ -24,7 +35,14 @@ impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, 
             execute_task(self, overflow);
             return;
         }
-        self.view().notify_idle();
+        if !self.notified.get() {
+            self.view().notify_idle();
+            self.notified.set(true);
+        }
+    }
+
+    pub(crate) fn reset_notify(&self) {
+        self.notified.set(false);
     }
 }
 
@@ -68,7 +86,7 @@ fn worker_loop<N, H, R, F, G, W: WorkStealing>(
     R: Send + 'static,
 {
     let handle = W::handle(store, my_idx);
-    let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx, handle };
+    let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx, handle, notified: Cell::new(false) };
     loop {
         if let Some(task) = wctx.handle.try_acquire() {
             execute_task(&wctx, task);
