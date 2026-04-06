@@ -63,3 +63,34 @@ fn adjacency_list_noop_pw() { adjacency_list_noop_impl::<queue::PerWorker>(); }
 
 #[test]
 fn adjacency_list_noop_sh() { adjacency_list_noop_impl::<queue::Shared>(); }
+
+// ── wide tree (bf=20, triggers overflow in FoldChain) ──
+
+fn wide_tree_impl<W: WorkStealing>() {
+    assert_matches_fused_with::<W>(&big_tree(200, 20), n_threads());
+}
+
+#[test]
+fn wide_tree_pw() { wide_tree_impl::<queue::PerWorker>(); }
+
+#[test]
+fn wide_tree_sh() { wide_tree_impl::<queue::Shared>(); }
+
+// ── wide tree stress (catches overflow race under contention) ──
+
+fn wide_tree_stress_impl<W: WorkStealing>() {
+    let tree = big_tree(200, 20);
+    let fold = sum_fold();
+    let graph = n_graph();
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
+    let exec = make_exec::<W>(n_threads());
+    for i in 0..500 {
+        assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
+    }
+}
+
+#[test]
+fn wide_tree_stress_pw() { wide_tree_stress_impl::<queue::PerWorker>(); }
+
+#[test]
+fn wide_tree_stress_sh() { wide_tree_stress_impl::<queue::Shared>(); }
