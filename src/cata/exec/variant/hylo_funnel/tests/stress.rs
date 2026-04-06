@@ -105,3 +105,101 @@ fn wide_foldctx_reuse_pw() { wide_foldctx_reuse_impl::<queue::PerWorker>(); }
 
 #[test]
 fn wide_foldctx_reuse_sh() { wide_foldctx_reuse_impl::<queue::Shared>(); }
+
+// ── noop with reused FoldContext (reproduces latch panic on Shared) ──
+
+fn noop_foldctx_reuse_impl<W: WorkStealing>() {
+    use super::super::run::{FoldContext, run_fold_with};
+    use super::super::pool::FunnelPool;
+    use super::super::AccumulateMode;
+    let tree = big_tree(200, 8);
+    let fold = sum_fold();
+    let graph = n_graph();
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
+    let nt = n_threads();
+    let pool = FunnelPool::new(nt);
+    let mut fctx = FoldContext::<N, i32, i32, W>::new(&Default::default(), nt);
+    for i in 0..20_000 {
+        fctx.reset();
+        let result = run_fold_with::<_, _, _, _, _, W>(
+            &fold, &graph, &tree, &pool, AccumulateMode::OnArrival, &mut fctx,
+        );
+        assert_eq!(result, expected, "iteration {i}");
+        if i % 100 == 0 { std::thread::yield_now(); }
+    }
+}
+
+#[test]
+fn noop_foldctx_reuse_pw() { noop_foldctx_reuse_impl::<queue::PerWorker>(); }
+
+#[test]
+fn noop_foldctx_reuse_sh() { noop_foldctx_reuse_impl::<queue::Shared>(); }
+
+// ── noop with multiple concurrent pools (max thread pressure) ──
+
+fn noop_concurrent_pools_impl<W: WorkStealing + Send + Sync>() {
+    use super::super::run::{FoldContext, run_fold_with};
+    use super::super::pool::FunnelPool;
+    use super::super::AccumulateMode;
+    let tree = big_tree(200, 8);
+    let fold = sum_fold();
+    let graph = n_graph();
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
+    let nt = n_threads();
+
+    // Run 4 pools concurrently, each doing 50k noop folds.
+    // Maximizes thread scheduling pressure.
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            let tree = &tree;
+            let fold = &fold;
+            let graph = &graph;
+            s.spawn(move || {
+                let pool = FunnelPool::new(nt);
+                let mut fctx = FoldContext::<N, i32, i32, W>::new(&Default::default(), nt);
+                for i in 0..10_000 {
+                    fctx.reset();
+                    let result = run_fold_with::<_, _, _, _, _, W>(
+                        fold, graph, tree, &pool, AccumulateMode::OnArrival, &mut fctx,
+                    );
+                    assert_eq!(result, expected, "iteration {i}");
+                }
+            });
+        }
+    });
+}
+
+#[test]
+fn noop_concurrent_pools_pw() { noop_concurrent_pools_impl::<queue::PerWorker>(); }
+
+#[test]
+fn noop_concurrent_pools_sh() { noop_concurrent_pools_impl::<queue::Shared>(); }
+
+// ── noop alternating modes (switches OnArrival/OnFinalize each iteration) ──
+
+fn noop_alternating_modes_impl<W: WorkStealing>() {
+    use super::super::run::{FoldContext, run_fold_with};
+    use super::super::pool::FunnelPool;
+    use super::super::AccumulateMode;
+    let tree = big_tree(200, 8);
+    let fold = sum_fold();
+    let graph = n_graph();
+    let expected = dom::FUSED.run(&fold, &graph, &tree);
+    let nt = n_threads();
+    let pool = FunnelPool::new(nt);
+    let mut fctx = FoldContext::<N, i32, i32, W>::new(&Default::default(), nt);
+    for i in 0..20_000 {
+        fctx.reset();
+        let mode = if i % 2 == 0 { AccumulateMode::OnArrival } else { AccumulateMode::OnFinalize };
+        let result = run_fold_with::<_, _, _, _, _, W>(
+            &fold, &graph, &tree, &pool, mode, &mut fctx,
+        );
+        assert_eq!(result, expected, "iteration {i}");
+    }
+}
+
+#[test]
+fn noop_alternating_modes_pw() { noop_alternating_modes_impl::<queue::PerWorker>(); }
+
+#[test]
+fn noop_alternating_modes_sh() { noop_alternating_modes_impl::<queue::Shared>(); }

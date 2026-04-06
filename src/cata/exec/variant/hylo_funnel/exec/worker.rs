@@ -19,11 +19,17 @@ impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, 
 {
     pub(crate) fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
 
-    pub(crate) fn push_task(&self, task: FunnelTask<N, H, R>) {
+    /// Push a task to the queue. On overflow, execute inline.
+    /// Returns true if a worker notification may be needed (successful push).
+    pub(crate) fn push_task(&self, task: FunnelTask<N, H, R>) -> bool {
         if let Some(overflow) = self.handle.push(task) {
             execute_task(self, overflow);
-            return;
+            return false;
         }
+        true
+    }
+
+    pub(crate) fn notify_if_idle(&self) {
         self.view().notify_idle();
     }
 }

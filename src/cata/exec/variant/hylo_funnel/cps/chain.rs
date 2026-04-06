@@ -103,7 +103,10 @@ impl<H, R> FoldChain<H, R> {
     }
 
     pub fn append_slot(&self) -> SlotRef {
-        let index = self.appended.fetch_add(1, Ordering::Release);
+        // Relaxed: slot data visibility comes from per-slot filled
+        // Release/Acquire, not from the appended counter. The sweep
+        // checks filled.load(Acquire) per slot, not appended.
+        let index = self.appended.fetch_add(1, Ordering::Relaxed);
         if (index as usize) >= INITIAL_CAP {
             self.ensure_overflow(index as usize);
         }
