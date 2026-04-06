@@ -3,13 +3,13 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::deque::WorkerDeque;
-use super::eventcount::EventCount;
-use super::pool::PoolInner;
+use super::super::deque::WorkerDeque;
+use super::super::eventcount::EventCount;
+use super::super::pool::PoolInner;
 
 // ── FoldView (per-fold, stack-local, executor-owned) ─
 
-pub(super) struct FoldView {
+pub(crate) struct FoldView {
     pub pool_inner: Arc<PoolInner>,
     pub fold_done: AtomicBool,
     pub idle_count: AtomicU32,
@@ -31,7 +31,7 @@ impl FoldView {
 
 // ── Steal helper ─────────────────────────────────────
 
-pub(super) fn steal_from_others<T>(
+pub(crate) fn steal_from_others<T>(
     deques: &[WorkerDeque<T>],
     my_idx: usize,
     view: &FoldView,

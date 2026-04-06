@@ -9,17 +9,18 @@
 //! Packed AtomicU64 ticket for last-event detection. Streaming sweep.
 //! Arena-allocated ChainNodes + ContArena for continuations.
 
-mod deque;
-mod eventcount;
-mod arena;
-mod cont_arena;
-pub(crate) mod fold_chain;
+pub(crate) mod cps;
+mod exec;
+pub(crate) mod infra;
 pub mod pool;
-mod cont;
-mod view;
-mod walk;
-mod worker;
-pub mod run;
+
+// Cross-subdir re-exports: moved files use `super::super::arena`, etc.
+pub(crate) use infra::{arena, cont_arena, deque, eventcount};
+pub(crate) use cps::{cont, chain, walk};
+pub(crate) use exec::{view, worker};
+
+// External API: preserve `hylo_funnel::run` path for bench imports
+pub use exec::run;
 
 use std::marker::PhantomData;
 use crate::ops::LiftOps;

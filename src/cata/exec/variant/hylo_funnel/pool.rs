@@ -16,7 +16,7 @@ pub const DEQUE_CAPACITY: usize = 4096;
 /// A type-erased job: concrete fn pointer + data pointer.
 /// Lives on the executor's stack. Pool threads read it through AtomicPtr.
 #[repr(C)]
-pub(super) struct Job {
+pub(crate) struct Job {
     pub call: unsafe fn(*const (), usize),
     pub data: *const (),
 }
@@ -31,7 +31,7 @@ pub struct FunnelPool {
     _threads: Vec<std::thread::JoinHandle<()>>,
 }
 
-pub(super) struct PoolInner {
+pub(crate) struct PoolInner {
     pub shutdown: AtomicBool,
     pub job_ptr: AtomicPtr<()>,
     pub in_job: AtomicU32,
@@ -56,12 +56,12 @@ impl FunnelPool {
     }
 
     pub fn n_threads(&self) -> usize { self.inner.n_threads }
-    pub(super) fn inner(&self) -> &Arc<PoolInner> { &self.inner }
+    pub(crate) fn inner(&self) -> &Arc<PoolInner> { &self.inner }
 
     /// Dispatch: store job pointer, wake threads, run body, clear pointer.
     /// The body is responsible for ensuring all threads exit the job
     /// before it returns (via FoldView::wait_for_workers_to_exit).
-    pub(super) fn dispatch<R>(&self, job: &Job, body: impl FnOnce() -> R) -> R {
+    pub(crate) fn dispatch<R>(&self, job: &Job, body: impl FnOnce() -> R) -> R {
         self.inner.job_ptr.store(job as *const Job as *mut (), Ordering::Release);
         self.inner.wake.notify_all();
         body()

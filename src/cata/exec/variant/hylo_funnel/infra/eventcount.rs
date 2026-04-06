@@ -8,13 +8,13 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Copy, Clone)]
-pub(super) struct Token(u32);
+pub(crate) struct Token(u32);
 
 impl Token {
     pub fn epoch(self) -> u32 { self.0 }
 }
 
-pub(super) struct EventCount {
+pub(crate) struct EventCount {
     epoch: AtomicU32,
 }
 

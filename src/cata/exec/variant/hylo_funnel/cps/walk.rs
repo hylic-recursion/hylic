@@ -7,38 +7,38 @@
 use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
 use super::cont::{FunnelTask, Cont, ChainNode};
-use super::view::FoldView;
-use super::worker::WorkerCtx;
-use super::fold_chain::SlotRef;
-use super::arena::Arena;
-use super::cont_arena::ContArena;
-use super::AccumulateMode;
+use super::super::view::FoldView;
+use super::super::worker::WorkerCtx;
+use super::chain::SlotRef;
+use super::super::arena::Arena;
+use super::super::cont_arena::ContArena;
+use super::super::AccumulateMode;
 
 // ── Shared immutable context (created once, passed by &ref) ──
 
-pub(super) struct WalkCtx<F, G, H, R> {
-    pub(super) fold: *const F,
-    pub(super) graph: *const G,
-    pub(super) view: *const FoldView,
-    pub(super) chain_arena: *const Arena<ChainNode<H, R>>,
-    pub(super) cont_arena: *const ContArena<Cont<H, R>>,
-    pub(super) accumulate: AccumulateMode,
+pub(crate) struct WalkCtx<F, G, H, R> {
+    pub(crate) fold: *const F,
+    pub(crate) graph: *const G,
+    pub(crate) view: *const FoldView,
+    pub(crate) chain_arena: *const Arena<ChainNode<H, R>>,
+    pub(crate) cont_arena: *const ContArena<Cont<H, R>>,
+    pub(crate) accumulate: AccumulateMode,
 }
 
 unsafe impl<F, G, H, R> Send for WalkCtx<F, G, H, R> {}
 unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
 
 impl<F, G, H, R> WalkCtx<F, G, H, R> {
-    pub(super) unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
-    pub(super) unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
-    pub(super) unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
-    pub(super) unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
-    pub(super) unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
+    pub(crate) unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
+    pub(crate) unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
+    pub(crate) unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
+    pub(crate) unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
+    pub(crate) unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
 }
 
 // ── fire_cont (trampolined) ──────────────────────────
 
-pub(super) fn fire_cont<N, H, R, F, G>(
+pub(crate) fn fire_cont<N, H, R, F, G>(
     ctx: &WalkCtx<F, G, H, R>,
     mut cont: Cont<H, R>,
     mut result: R,
@@ -86,7 +86,7 @@ pub(super) fn fire_cont<N, H, R, F, G>(
 
 // ── CPS walk ─────────────────────────────────────────
 
-pub(super) fn walk_cps<N, H, R, F, G>(
+pub(crate) fn walk_cps<N, H, R, F, G>(
     wctx: &WorkerCtx<N, H, R, F, G>,
     node: N,
     cont: Cont<H, R>,
@@ -106,7 +106,7 @@ pub(super) fn walk_cps<N, H, R, F, G>(
 
     let mut child_count = 0u32;
     let mut first_child: Option<N> = None;
-    let mut chain_idx: Option<super::arena::ArenaIdx> = None;
+    let mut chain_idx: Option<super::super::arena::ArenaIdx> = None;
     let mut heap_opt = Some(heap);
     let mut cont_opt = Some(cont);
 
@@ -167,7 +167,7 @@ pub(super) fn walk_cps<N, H, R, F, G>(
     }
 }
 
-pub(super) fn execute_task<N, H, R, F, G>(
+pub(crate) fn execute_task<N, H, R, F, G>(
     wctx: &WorkerCtx<N, H, R, F, G>,
     task: FunnelTask<N, H, R>,
 ) where

@@ -3,15 +3,15 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use crate::ops::{FoldOps, TreeOps};
-use super::cont::{FunnelTask, Cont, RootCell, ChainNode};
+use super::super::cont::{FunnelTask, Cont, RootCell, ChainNode};
 use super::view::{FoldView, steal_from_others};
-use super::walk::{WalkCtx, walk_cps, execute_task};
+use super::super::walk::{WalkCtx, walk_cps, execute_task};
 use super::worker::{WorkerCtx, FoldState, worker_entry};
-use super::pool::{FunnelPool, Job, DEQUE_CAPACITY};
-use super::deque::WorkerDeque;
-use super::arena::Arena;
-use super::cont_arena::ContArena;
-use super::AccumulateMode;
+use super::super::pool::{FunnelPool, Job, DEQUE_CAPACITY};
+use super::super::deque::WorkerDeque;
+use super::super::arena::Arena;
+use super::super::cont_arena::ContArena;
+use super::super::AccumulateMode;
 
 // ── Constants ────────────────────────────────────────
 
