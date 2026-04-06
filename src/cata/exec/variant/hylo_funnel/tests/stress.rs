@@ -70,3 +70,38 @@ fn pool_lifecycle_pw() { pool_lifecycle_impl::<queue::PerWorker>(); }
 
 #[test]
 fn pool_lifecycle_sh() { pool_lifecycle_impl::<queue::Shared>(); }
+
+// ── wide tree with reused FoldContext (matches benchmark pattern) ──
+
+fn wide_foldctx_reuse_impl<W: WorkStealing>() {
+    use super::super::run::{FoldContext, run_fold_with};
+    use super::super::pool::FunnelPool;
+    use super::super::AccumulateMode;
+    let adj = gen_adj(200, 20);
+    let ch = adj.clone();
+    let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
+        for &child in &ch[*n] { cb(&child); }
+    });
+    let fold = dom::fold(
+        |_: &usize| 0u64,
+        |h: &mut u64, c: &u64| { *h += c; },
+        |h: &u64| *h,
+    );
+    let expected = dom::FUSED.run(&fold, &treeish, &0usize);
+    let nt = n_threads();
+    let pool = FunnelPool::new(nt);
+    let mut fctx = FoldContext::<usize, u64, u64, W>::new(&Default::default(), nt);
+    for i in 0..3000 {
+        fctx.reset();
+        let result = run_fold_with::<_, _, _, _, _, W>(
+            &fold, &treeish, &0usize, &pool, AccumulateMode::OnArrival, &mut fctx,
+        );
+        assert_eq!(result, expected, "iteration {i}");
+    }
+}
+
+#[test]
+fn wide_foldctx_reuse_pw() { wide_foldctx_reuse_impl::<queue::PerWorker>(); }
+
+#[test]
+fn wide_foldctx_reuse_sh() { wide_foldctx_reuse_impl::<queue::Shared>(); }
