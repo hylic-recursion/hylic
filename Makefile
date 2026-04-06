@@ -1,8 +1,8 @@
 .PHONY: hylic-check hylic-test hylic-test-parallel hylic-test-all \
        hylic-test-hylo hylic-test-hylo-correctness hylic-test-hylo-stress \
        hylic-test-hylo-interleaving hylic-test-hylo-lifts hylic-test-hylo-foldchain \
-       hylic-bench hylic-bench-large hylic-bench-modes hylic-bench-overhead hylic-bench-module \
-       hylic-bench-hylo hylic-bench-hylo-full hylic-bench-report hylic-bench-full \
+       hylic-test-funnel hylic-test-funnel-correctness hylic-test-funnel-stress \
+       hylic-bench hylic-bench-compare hylic-bench-full \
        hylic-docs-build hylic-docs-serve
 
 # ── Quick checks ────────────────────────────────────────────
@@ -18,7 +18,7 @@ hylic-test-parallel:
 
 hylic-test-all: hylic-test hylic-test-parallel
 
-# ── Hylo tests (one-stop + individual) ──────────────────────
+# ── Hylo tests ──────────────────────────────────────────────
 hylic-test-hylo:
 	@cargo test --lib -- --test-threads=1 --nocapture hylomorphic
 
@@ -37,37 +37,50 @@ hylic-test-hylo-lifts:
 hylic-test-hylo-foldchain:
 	@cargo test --lib -- --test-threads=1 --nocapture hylomorphic::fold_chain
 
+# ── Funnel tests ────────────────────────────────────────────
+hylic-test-funnel:
+	@cargo test --lib -- --test-threads=1 --nocapture hylo_funnel
+
+hylic-test-funnel-correctness:
+	@cargo test --lib -- --test-threads=1 --nocapture hylo_funnel::tests::correctness
+
+hylic-test-funnel-stress:
+	@cargo test --lib -- --test-threads=1 --nocapture hylo_funnel::tests::stress
+
 # ── Benchmarks ──────────────────────────────────────────────
-hylic-bench:
-	@bash Makefile-scripting/bench-run.sh all
+# Each bench target runs criterion, generates report, rebuilds docs.
+#
+# bench-compare: funnel vs hylo vs rayon (daily driver)
+# bench:         parallel + comparative
+# bench-full:    everything
 
-hylic-bench-seq:
-	@bash Makefile-scripting/bench-run.sh seq
-
-hylic-bench-par:
-	@bash Makefile-scripting/bench-run.sh par
-
-hylic-bench-module:
-	@bash Makefile-scripting/bench-run.sh module
-
-hylic-bench-hylo:
+# Atomic bench units (not user-facing)
+_bench-seq:
+	@bash Makefile-scripting/bench-run.sh bench_sequential
+_bench-par:
+	@bash Makefile-scripting/bench-run.sh bench_parallel
+_bench-module:
+	@bash Makefile-scripting/bench-run.sh bench_module_sim
+_bench-executor:
+	@bash Makefile-scripting/bench-run.sh bench_executor_compare
+_bench-hylo:
 	@bash Makefile-scripting/bench-run.sh bench_hylo_compare
 
-hylic-bench-hylo-full: hylic-bench-hylo hylic-bench-report hylic-docs-build
-	@echo "Done: hylo benchmark + report + docs rebuilt"
-
-hylic-bench-large:
-	@HYLIC_BENCH_SCALE=large bash Makefile-scripting/bench-run.sh all
-
-hylic-bench-report:
+# Report + docs (always runs after bench)
+_bench-finish:
 	@python3 Makefile-scripting/bench-report.py
+	@$(MAKE) hylic-docs-build
 
-hylic-bench-full: hylic-bench hylic-bench-report hylic-docs-build
-	@echo "Done: benchmarks + report + docs rebuilt"
+# User-facing targets
+hylic-bench-compare: _bench-hylo _bench-finish
+
+hylic-bench: _bench-par _bench-hylo _bench-finish
+
+hylic-bench-full: _bench-seq _bench-par _bench-module _bench-executor _bench-hylo _bench-finish
 
 # ── Docs ────────────────────────────────────────────────────
 hylic-docs-build:
-	@cd ../hylic-docs/book && mdbook build
+	@bash ../hylic-docs/Makefile-scripting/build-book.sh
 
 hylic-docs-serve:
 	@fuser -k 8321/tcp 2>/dev/null || true
