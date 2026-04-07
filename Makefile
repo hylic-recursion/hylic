@@ -81,6 +81,10 @@ hylic-bench: _bench-par _bench-hylo _bench-finish
 
 hylic-bench-full: _bench-seq _bench-par _bench-module _bench-executor _bench-hylo _bench-finish
 
+# Cross-variant comparison (8 git tags, same bench, different source)
+hylic-bench-variants:
+	@bash _bench-experiment/run-all.sh
+
 # ── Docs ────────────────────────────────────────────────────
 hylic-docs-build:
 	@bash ../hylic-docs/Makefile-scripting/build-book.sh
