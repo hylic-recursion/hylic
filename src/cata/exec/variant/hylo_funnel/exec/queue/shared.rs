@@ -55,9 +55,8 @@ impl WorkStealing for Shared {
 impl<N: Send + 'static, H: 'static, R: Send + 'static> TaskOps<N, H, R>
     for SharedHandle<'_, N, H, R>
 {
-    fn push(&self, task: FunnelTask<N, H, R>) -> Option<FunnelTask<N, H, R>> {
+    fn push(&self, task: FunnelTask<N, H, R>) {
         self.queue.push(task);
-        None // StealQueue grows via segments, never full.
     }
 
     fn try_acquire(&self) -> Option<FunnelTask<N, H, R>> {

@@ -5,10 +5,6 @@
 //!
 //! Fixed capacity (power of 2). Tasks stored inline — no Box, no indirection.
 //!
-//! Cache-padded: bottom and top are on separate 128-byte cache lines.
-//! Push/pop only touch the owner's line; steal only touches the stealer's
-//! line. No false sharing under concurrent push+steal.
-//!
 //! Buffer uses ManuallyDrop<T> to prevent double-free on speculative reads:
 //! steal() and pop() read before the ownership CAS. On CAS failure, the
 //! ManuallyDrop wrapper ensures the speculative copy is NOT dropped — the
@@ -26,23 +22,24 @@ struct Slot<T>(UnsafeCell<MaybeUninit<ManuallyDrop<T>>>);
 impl<T> Slot<T> {
     fn new() -> Self { Slot(UnsafeCell::new(MaybeUninit::uninit())) }
 
+    /// Write a value into the slot.
     unsafe fn write(&self, value: T) {
         unsafe { (*self.0.get()).write(ManuallyDrop::new(value)); }
     }
 
+    /// Speculative read: copies the ManuallyDrop<T> out. Does NOT drop T.
+    /// Caller must call into_inner() on the result to take ownership,
+    /// or simply let the ManuallyDrop drop (no-op) if they lost the race.
     unsafe fn read_speculative(&self) -> ManuallyDrop<T> {
         unsafe { (*self.0.get()).assume_init_read() }
     }
 }
 
-#[repr(align(128))]
-struct CachePad<T>(T);
-
 pub struct WorkerDeque<T> {
     buffer: Box<[Slot<T>]>,
     mask: isize,
-    bottom: CachePad<AtomicIsize>,
-    top: CachePad<AtomicIsize>,
+    bottom: AtomicIsize,
+    top: AtomicIsize,
 }
 
 unsafe impl<T: Send> Send for WorkerDeque<T> {}
@@ -55,43 +52,47 @@ impl<T> WorkerDeque<T> {
         WorkerDeque {
             buffer: buffer.into_boxed_slice(),
             mask: (cap - 1) as isize,
-            bottom: CachePad(AtomicIsize::new(0)),
-            top: CachePad(AtomicIsize::new(0)),
+            bottom: AtomicIsize::new(0),
+            top: AtomicIsize::new(0),
         }
     }
 
-    /// Owner pushes to the bottom. Returns Err(item) if full.
-    pub fn push(&self, item: T) -> Result<(), T> {
-        let b = self.bottom.0.load(Ordering::Relaxed);
-        let t = self.top.0.load(Ordering::Acquire);
+    /// Owner pushes to the bottom. No CAS — single writer.
+    /// Returns false if full.
+    pub fn push(&self, item: T) -> bool {
+        let b = self.bottom.load(Ordering::Relaxed);
+        let t = self.top.load(Ordering::Acquire);
         if b - t > self.mask {
-            return Err(item);
+            return false;
         }
         unsafe { self.buffer[(b & self.mask) as usize].write(item); }
         fence(Ordering::Release);
-        self.bottom.0.store(b + 1, Ordering::Relaxed);
-        Ok(())
+        self.bottom.store(b + 1, Ordering::Relaxed);
+        true
     }
 
     /// Owner pops from the bottom (LIFO). No CAS in the common case.
     pub fn pop(&self) -> Option<T> {
-        let b = self.bottom.0.load(Ordering::Relaxed) - 1;
-        self.bottom.0.store(b, Ordering::Relaxed);
+        let b = self.bottom.load(Ordering::Relaxed) - 1;
+        self.bottom.store(b, Ordering::Relaxed);
         fence(Ordering::SeqCst);
-        let t = self.top.0.load(Ordering::Relaxed);
+        let t = self.top.load(Ordering::Relaxed);
 
         if t <= b {
             let item = unsafe { self.buffer[(b & self.mask) as usize].read_speculative() };
             if t == b {
-                if self.top.0.compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed).is_err() {
-                    self.bottom.0.store(t + 1, Ordering::Relaxed);
+                // Last item — race with stealers.
+                if self.top.compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed).is_err() {
+                    // Stealer won. item is ManuallyDrop — no-op drop, no double free.
+                    self.bottom.store(t + 1, Ordering::Relaxed);
                     return None;
                 }
-                self.bottom.0.store(t + 1, Ordering::Relaxed);
+                self.bottom.store(t + 1, Ordering::Relaxed);
             }
+            // We own the value. Take it out of ManuallyDrop.
             Some(ManuallyDrop::into_inner(item))
         } else {
-            self.bottom.0.store(t, Ordering::Relaxed);
+            self.bottom.store(t, Ordering::Relaxed);
             None
         }
     }
@@ -99,18 +100,20 @@ impl<T> WorkerDeque<T> {
     /// Stealer takes from the top (FIFO). CAS for contention.
     pub fn steal(&self) -> Option<T> {
         loop {
-            let t = self.top.0.load(Ordering::Acquire);
+            let t = self.top.load(Ordering::Acquire);
             fence(Ordering::SeqCst);
-            let b = self.bottom.0.load(Ordering::Acquire);
+            let b = self.bottom.load(Ordering::Acquire);
 
             if t >= b {
                 return None;
             }
 
             let item = unsafe { self.buffer[(t & self.mask) as usize].read_speculative() };
-            if self.top.0.compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            if self.top.compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+                // We own the value. Take it out of ManuallyDrop.
                 return Some(ManuallyDrop::into_inner(item));
             }
+            // CAS failed. item is ManuallyDrop — no-op drop, no double free.
         }
     }
 
@@ -118,6 +121,7 @@ impl<T> WorkerDeque<T> {
 
 impl<T> Drop for WorkerDeque<T> {
     fn drop(&mut self) {
+        // Drain remaining items, properly dropping each.
         while self.pop().is_some() {}
     }
 }
@@ -131,9 +135,9 @@ mod tests {
     #[test]
     fn push_pop_lifo() {
         let d = WorkerDeque::new(8);
-        assert!(d.push(1).is_ok());
-        assert!(d.push(2).is_ok());
-        assert!(d.push(3).is_ok());
+        assert!(d.push(1));
+        assert!(d.push(2));
+        assert!(d.push(3));
         assert_eq!(d.pop(), Some(3));
         assert_eq!(d.pop(), Some(2));
         assert_eq!(d.pop(), Some(1));
@@ -143,7 +147,7 @@ mod tests {
     #[test]
     fn steal_fifo() {
         let d = WorkerDeque::new(8);
-        d.push(1).unwrap(); d.push(2).unwrap(); d.push(3).unwrap();
+        d.push(1); d.push(2); d.push(3);
         assert_eq!(d.steal(), Some(1));
         assert_eq!(d.steal(), Some(2));
         assert_eq!(d.steal(), Some(3));
@@ -153,18 +157,18 @@ mod tests {
     #[test]
     fn push_full() {
         let d = WorkerDeque::new(4);
-        assert!(d.push(1).is_ok());
-        assert!(d.push(2).is_ok());
-        assert!(d.push(3).is_ok());
-        assert!(d.push(4).is_ok());
-        assert_eq!(d.push(5), Err(5));
+        assert!(d.push(1));
+        assert!(d.push(2));
+        assert!(d.push(3));
+        assert!(d.push(4));
+        assert!(!d.push(5));
     }
 
     #[test]
     fn owner_pop_vs_stealer() {
         for _ in 0..500 {
             let d = Arc::new(WorkerDeque::new(8));
-            d.push(42).unwrap();
+            d.push(42);
             let d2 = d.clone();
             let barrier = Arc::new(Barrier::new(2));
             let b2 = barrier.clone();
@@ -182,6 +186,7 @@ mod tests {
         }
     }
 
+    /// Verify no double-free with types that have Drop.
     #[test]
     fn no_double_free_on_race() {
         use std::sync::atomic::AtomicU64;
@@ -189,25 +194,29 @@ mod tests {
             let d = Arc::new(WorkerDeque::new(8));
             let counter = Arc::new(AtomicU64::new(0));
             let c2 = counter.clone();
-            d.push(c2).unwrap();
+            d.push(c2); // Arc clone: refcount = 2 (counter + c2 in deque)
 
             let d2 = d.clone();
             let barrier = Arc::new(Barrier::new(2));
             let b2 = barrier.clone();
             let stealer = std::thread::spawn(move || {
                 b2.wait();
-                d2.steal()
+                d2.steal() // might get the Arc
             });
             barrier.wait();
-            let popped = d.pop();
+            let popped = d.pop(); // might get the Arc
             let stolen = stealer.join().unwrap();
 
+            // Exactly one got it. The other got None.
+            // If double-free occurred, refcount would underflow → crash.
             match (&popped, &stolen) {
                 (Some(_), None) | (None, Some(_)) => {}
                 other => panic!("both or neither: {:?}", other),
             }
+            // Drop the winner's value. Refcount: 2 → 1 (counter still alive).
             drop(popped);
             drop(stolen);
+            // counter is the sole owner. No crash = no double free.
         }
     }
 
@@ -235,7 +244,7 @@ mod tests {
         let mut pushed = 0;
         while stolen.load(Ordering::Relaxed) < n {
             if pushed < n * 2 {
-                if d.push(pushed).is_ok() { pushed += 1; }
+                if d.push(pushed) { pushed += 1; }
             }
             if d.pop().is_some() {
                 stolen.fetch_add(1, Ordering::Relaxed);
