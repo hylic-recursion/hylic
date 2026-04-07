@@ -7,22 +7,28 @@ use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Domain;
 use super::super::Executor;
 
-/// Unfused sequential executor, parameterized by domain.
-pub struct SequentialIn<D>(pub(crate) PhantomData<D>);
+pub struct Spec;
 
-impl<D> Clone for SequentialIn<D> { fn clone(&self) -> Self { *self } }
-impl<D> Copy for SequentialIn<D> {}
-impl<D> std::fmt::Debug for SequentialIn<D> {
+/// Unfused sequential executor, parameterized by domain.
+pub struct Exec<D>(pub(crate) PhantomData<D>);
+
+impl<D> Exec<D> {
+    pub fn from_spec(_spec: Spec) -> Self { Exec(PhantomData) }
+}
+
+impl<D> Clone for Exec<D> { fn clone(&self) -> Self { *self } }
+impl<D> Copy for Exec<D> {}
+impl<D> std::fmt::Debug for Exec<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "Sequential") }
 }
 
-impl<N: Clone + 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for SequentialIn<D> {
+impl<N: Clone + 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for Exec<D> {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         recurse(fold, graph, root)
     }
 }
 
-impl<D> SequentialIn<D> {
+impl<D> Exec<D> {
     pub fn run<N: Clone + 'static, H: 'static, R: 'static>(
         &self,
         fold: &<D as Domain<N>>::Fold<H, R>,

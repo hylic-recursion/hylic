@@ -7,18 +7,24 @@ use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Domain;
 use super::super::Executor;
 
-/// Fused sequential executor, parameterized by domain.
-pub struct FusedIn<D>(pub(crate) PhantomData<D>);
+pub struct Spec;
 
-impl<D> Clone for FusedIn<D> { fn clone(&self) -> Self { *self } }
-impl<D> Copy for FusedIn<D> {}
-impl<D> std::fmt::Debug for FusedIn<D> {
+/// Fused sequential executor, parameterized by domain.
+pub struct Exec<D>(pub(crate) PhantomData<D>);
+
+impl<D> Exec<D> {
+    pub fn from_spec(_spec: Spec) -> Self { Exec(PhantomData) }
+}
+
+impl<D> Clone for Exec<D> { fn clone(&self) -> Self { *self } }
+impl<D> Copy for Exec<D> {}
+impl<D> std::fmt::Debug for Exec<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "Fused") }
 }
 
 // ── Trait impl (for generic code: pipeline, &impl Executor) ──
 
-impl<N: 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for FusedIn<D> {
+impl<N: 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for Exec<D> {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         recurse(fold, graph, root)
     }
@@ -26,7 +32,7 @@ impl<N: 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for FusedIn<D> {
 
 // ── Inherent methods (no trait import needed at call sites) ──
 
-impl<D> FusedIn<D> {
+impl<D> Exec<D> {
     pub fn run<N: 'static, H: 'static, R: 'static>(
         &self,
         fold: &<D as Domain<N>>::Fold<H, R>,

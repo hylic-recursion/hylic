@@ -9,27 +9,30 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::ops::LiftOps;
 use crate::domain::Domain;
-use crate::prelude::parallel::pool::{WorkPool, PoolExecView};
+use crate::prelude::parallel::pool::{WorkPool, WorkPoolSpec, PoolExecView};
 use super::super::Executor;
 
-pub struct HylomorphicSpec { pub _reserved: () }
-impl HylomorphicSpec {
-    pub fn default_for(_n_workers: usize) -> Self { HylomorphicSpec { _reserved: () } }
+pub struct Spec {
+    pub n_workers: usize,
 }
 
-pub struct HylomorphicIn<D> {
+impl Spec {
+    pub fn default(n_workers: usize) -> Self { Spec { n_workers } }
+}
+
+pub struct Exec<D> {
     pool: Arc<WorkPool>,
-    _spec: HylomorphicSpec,
     _domain: PhantomData<D>,
 }
 
-impl<D> HylomorphicIn<D> {
-    pub fn new(pool: &Arc<WorkPool>, spec: HylomorphicSpec) -> Self {
-        HylomorphicIn { pool: pool.clone(), _spec: spec, _domain: PhantomData }
+impl<D> Exec<D> {
+    pub fn new(spec: Spec) -> Self {
+        let pool = WorkPool::new(WorkPoolSpec::threads(spec.n_workers));
+        Exec { pool, _domain: PhantomData }
     }
 }
 
-impl<N, R, D: Domain<N>> Executor<N, R, D> for HylomorphicIn<D>
+impl<N, R, D: Domain<N>> Executor<N, R, D> for Exec<D>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
@@ -38,7 +41,7 @@ where N: Clone + Send + 'static, R: Clone + Send + 'static,
     }
 }
 
-impl<D> HylomorphicIn<D> {
+impl<D> Exec<D> {
     pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static {
@@ -61,4 +64,3 @@ impl<D> HylomorphicIn<D> {
         lift.unwrap(self.run(&lifted_fold, &lifted_treeish, &lifted_root))
     }
 }
-

@@ -15,7 +15,8 @@ pub mod pool;
 pub(crate) use infra::{arena, cont_arena, deque, eventcount};
 pub(crate) use cps::{cont, chain, walk};
 pub(crate) use exec::{view, worker};
-pub use exec::{run, queue, accumulate, wake, policy};
+pub use exec::{queue, accumulate, wake, policy};
+pub(crate) use exec::run;
 
 use std::marker::PhantomData;
 use crate::ops::LiftOps;
@@ -26,54 +27,55 @@ use policy::FunnelPolicy;
 use queue::WorkStealing;
 use wake::WakeStrategy;
 
-pub struct HyloFunnelSpec<P: FunnelPolicy = policy::Default> {
+pub struct Spec<P: FunnelPolicy = policy::Default> {
+    pub n_workers: usize,
     pub queue: <P::Queue as WorkStealing>::Spec,
     pub wake: <P::Wake as WakeStrategy>::Spec,
 }
 
-impl HyloFunnelSpec<policy::Default> {
-    pub fn default_for(_n_workers: usize) -> Self {
-        HyloFunnelSpec { queue: Default::default(), wake: Default::default() }
+impl Spec<policy::Default> {
+    pub fn default(n_workers: usize) -> Self {
+        Spec { n_workers, queue: Default::default(), wake: Default::default() }
     }
 }
 
-impl HyloFunnelSpec<policy::GraphHeavy> {
-    pub fn for_graph_heavy() -> Self {
-        HyloFunnelSpec { queue: Default::default(), wake: Default::default() }
+impl Spec<policy::GraphHeavy> {
+    pub fn for_graph_heavy(n_workers: usize) -> Self {
+        Spec { n_workers, queue: Default::default(), wake: Default::default() }
     }
 }
 
-impl HyloFunnelSpec<policy::WideLight> {
-    pub fn for_wide_light() -> Self {
-        HyloFunnelSpec { queue: Default::default(), wake: Default::default() }
+impl Spec<policy::WideLight> {
+    pub fn for_wide_light(n_workers: usize) -> Self {
+        Spec { n_workers, queue: Default::default(), wake: Default::default() }
     }
 }
 
-impl HyloFunnelSpec<policy::LowOverhead> {
-    pub fn for_low_overhead() -> Self {
-        HyloFunnelSpec { queue: Default::default(), wake: Default::default() }
+impl Spec<policy::LowOverhead> {
+    pub fn for_low_overhead(n_workers: usize) -> Self {
+        Spec { n_workers, queue: Default::default(), wake: Default::default() }
     }
 }
 
-impl<P: FunnelPolicy> HyloFunnelSpec<P> {
-    pub fn new(queue: <P::Queue as WorkStealing>::Spec, wake: <P::Wake as WakeStrategy>::Spec) -> Self {
-        HyloFunnelSpec { queue, wake }
+impl<P: FunnelPolicy> Spec<P> {
+    pub fn new(n_workers: usize, queue: <P::Queue as WorkStealing>::Spec, wake: <P::Wake as WakeStrategy>::Spec) -> Self {
+        Spec { n_workers, queue, wake }
     }
 }
 
-pub struct HyloFunnelIn<D, P: FunnelPolicy = policy::Default> {
+pub struct Exec<D, P: FunnelPolicy = policy::Default> {
     pool: FunnelPool,
-    spec: HyloFunnelSpec<P>,
+    spec: Spec<P>,
     _domain: PhantomData<D>,
 }
 
-impl<D, P: FunnelPolicy> HyloFunnelIn<D, P> {
-    pub fn new(n_workers: usize, spec: HyloFunnelSpec<P>) -> Self {
-        HyloFunnelIn { pool: FunnelPool::new(n_workers), spec, _domain: PhantomData }
+impl<D, P: FunnelPolicy> Exec<D, P> {
+    pub fn new(spec: Spec<P>) -> Self {
+        Exec { pool: FunnelPool::new(spec.n_workers), spec, _domain: PhantomData }
     }
 }
 
-impl<N, R, D: Domain<N>, P: FunnelPolicy> Executor<N, R, D> for HyloFunnelIn<D, P>
+impl<N, R, D: Domain<N>, P: FunnelPolicy> Executor<N, R, D> for Exec<D, P>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
@@ -81,7 +83,7 @@ where N: Clone + Send + 'static, R: Clone + Send + 'static,
     }
 }
 
-impl<D, P: FunnelPolicy> HyloFunnelIn<D, P> {
+impl<D, P: FunnelPolicy> Exec<D, P> {
     pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static {

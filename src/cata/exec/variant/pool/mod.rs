@@ -4,18 +4,20 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Domain;
-use crate::prelude::parallel::pool::{WorkPool, PoolExecView};
+use crate::prelude::parallel::pool::{WorkPool, WorkPoolSpec, PoolExecView};
 use crate::prelude::parallel::fork_join::{SyncRef, fork_join_map};
 use super::super::Executor;
 
-pub struct PoolSpec {
+pub struct Spec {
+    pub n_workers: usize,
     pub fork_depth_limit: usize,
     pub min_children_to_fork: usize,
 }
 
-impl PoolSpec {
-    pub fn default_for(n_workers: usize) -> Self {
-        PoolSpec {
+impl Spec {
+    pub fn default(n_workers: usize) -> Self {
+        Spec {
+            n_workers,
             fork_depth_limit: (n_workers as f64).log2().ceil() as usize + 2,
             min_children_to_fork: 2,
         }
@@ -24,19 +26,20 @@ impl PoolSpec {
     pub fn with_min_children(mut self, min: usize) -> Self { self.min_children_to_fork = min; self }
 }
 
-pub struct PoolIn<D> {
+pub struct Exec<D> {
     pool: Arc<WorkPool>,
-    spec: PoolSpec,
+    spec: Spec,
     _domain: PhantomData<D>,
 }
 
-impl<D> PoolIn<D> {
-    pub fn new(pool: &Arc<WorkPool>, spec: PoolSpec) -> Self {
-        PoolIn { pool: pool.clone(), spec, _domain: PhantomData }
+impl<D> Exec<D> {
+    pub fn new(spec: Spec) -> Self {
+        let pool = WorkPool::new(WorkPoolSpec::threads(spec.n_workers));
+        Exec { pool, spec, _domain: PhantomData }
     }
 }
 
-impl<N, R, D: Domain<N>> Executor<N, R, D> for PoolIn<D>
+impl<N, R, D: Domain<N>> Executor<N, R, D> for Exec<D>
 where N: Clone + Send + 'static, R: Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
@@ -45,7 +48,7 @@ where N: Clone + Send + 'static, R: Send + 'static,
     }
 }
 
-impl<D> PoolIn<D> {
+impl<D> Exec<D> {
     pub fn run<N: Clone + Send + 'static, H: 'static, R: Send + 'static>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N> {
@@ -78,7 +81,7 @@ impl<D> PoolIn<D> {
 fn pool_recurse<N, H, R>(
     fold: &SyncRef<'_, impl FoldOps<N, H, R>>,
     graph: &SyncRef<'_, impl TreeOps<N>>,
-    node: &N, view: &PoolExecView, spec: &PoolSpec, depth: usize,
+    node: &N, view: &PoolExecView, spec: &Spec, depth: usize,
 ) -> R where N: Clone + Send, R: Send {
     let mut heap = fold.init(node);
     let children = graph.apply(node);

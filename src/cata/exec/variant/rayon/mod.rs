@@ -7,16 +7,22 @@ use crate::ops::{FoldOps, TreeOps, LiftOps};
 use crate::domain::Shared;
 use super::super::Executor;
 
-/// Parallel executor via rayon's work-stealing thread pool.
-pub struct RayonIn<D>(pub(crate) PhantomData<D>);
+pub struct Spec;
 
-impl<D> Clone for RayonIn<D> { fn clone(&self) -> Self { *self } }
-impl<D> Copy for RayonIn<D> {}
-impl<D> std::fmt::Debug for RayonIn<D> {
+/// Parallel executor via rayon's work-stealing thread pool.
+pub struct Exec<D>(pub(crate) PhantomData<D>);
+
+impl<D> Exec<D> {
+    pub fn from_spec(_spec: Spec) -> Self { Exec(PhantomData) }
+}
+
+impl<D> Clone for Exec<D> { fn clone(&self) -> Self { *self } }
+impl<D> Copy for Exec<D> {}
+impl<D> std::fmt::Debug for Exec<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "Rayon") }
 }
 
-impl<N, R> Executor<N, R, Shared> for RayonIn<Shared>
+impl<N, R> Executor<N, R, Shared> for Exec<Shared>
 where N: Clone + Send + Sync + 'static, R: Send + Sync + 'static,
 {
     fn run<H: 'static>(
@@ -29,7 +35,7 @@ where N: Clone + Send + Sync + 'static, R: Send + Sync + 'static,
     }
 }
 
-impl RayonIn<Shared> {
+impl Exec<Shared> {
     pub fn run<N: Clone + Send + Sync + 'static, H: 'static, R: Send + Sync + 'static>(
         &self,
         fold: &<Shared as crate::domain::Domain<N>>::Fold<H, R>,

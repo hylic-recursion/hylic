@@ -1,23 +1,24 @@
 //! Executor: the strategy for recursive tree computation.
 //!
-//! Each executor has inherent `run`, `run_lifted`, `run_lifted_zipped`
-//! methods — no trait import needed at call sites:
+//! Each executor variant is a module with `Exec` and `Spec` types:
 //! ```ignore
-//! use hylic::domain::shared as dom;
-//! dom::FUSED.run(&fold, &graph, &root);
+//! use hylic::cata::exec::fused;
+//! fused::Exec::from_spec(fused::Spec).run(&fold, &graph, &root);
 //! ```
 //!
 //! The `Executor` trait exists for generic code (pipeline, advanced users).
+//! Normal call sites use inherent methods — no trait import needed.
 
 pub mod variant;
 
-pub use variant::fused::FusedIn;
-pub use variant::sequential::SequentialIn;
-pub use variant::rayon::RayonIn;
-pub use variant::pool::{PoolIn, PoolSpec};
-pub use variant::hylomorphic::{HylomorphicIn, HylomorphicSpec};
-pub use variant::hylo_funnel::{HyloFunnelIn, HyloFunnelSpec};
-pub use variant::custom::Custom;
+// Module re-exports: each executor variant as a module.
+pub use variant::fused;
+pub use variant::sequential;
+pub use variant::rayon;
+pub use variant::pool;
+pub use variant::hylomorphic;
+pub use variant::hylo_funnel as funnel;
+pub use variant::custom;
 
 use std::marker::PhantomData;
 use crate::graph::Treeish;
@@ -28,32 +29,30 @@ use crate::ops::LiftOps;
 // ── Core trait (for generic code only) ────────────
 
 // ANCHOR: executor_trait
-/// The executor contract. Used by pipeline.rs and generic functions.
-/// Normal call sites use inherent methods instead — no import needed.
 pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R;
 }
 // ANCHOR_END: executor_trait
 
-// ── Type aliases ──────────────────────────────────
+// ── Type aliases (convenience for common domain combinations) ──
 
-pub type Fused           = FusedIn<Shared>;
-pub type FusedLocal      = FusedIn<Local>;
-pub type FusedOwned      = FusedIn<Owned>;
-pub type Sequential      = SequentialIn<Shared>;
-pub type SequentialLocal = SequentialIn<Local>;
-pub type SequentialOwned = SequentialIn<Owned>;
-pub type Rayon           = RayonIn<Shared>;
+pub type Fused           = fused::Exec<Shared>;
+pub type FusedLocal      = fused::Exec<Local>;
+pub type FusedOwned      = fused::Exec<Owned>;
+pub type Sequential      = sequential::Exec<Shared>;
+pub type SequentialLocal = sequential::Exec<Local>;
+pub type SequentialOwned = sequential::Exec<Owned>;
+pub type Rayon           = rayon::Exec<Shared>;
 
 // ── Constants ─────────────────────────────────────
 
-pub const FUSED:            Fused           = FusedIn(PhantomData);
-pub const FUSED_LOCAL:      FusedLocal      = FusedIn(PhantomData);
-pub const FUSED_OWNED:      FusedOwned      = FusedIn(PhantomData);
-pub const SEQUENTIAL:       Sequential      = SequentialIn(PhantomData);
-pub const SEQUENTIAL_LOCAL: SequentialLocal = SequentialIn(PhantomData);
-pub const SEQUENTIAL_OWNED: SequentialOwned = SequentialIn(PhantomData);
-pub const RAYON:            Rayon           = RayonIn(PhantomData);
+pub const FUSED:            Fused           = fused::Exec(PhantomData);
+pub const FUSED_LOCAL:      FusedLocal      = fused::Exec(PhantomData);
+pub const FUSED_OWNED:      FusedOwned      = fused::Exec(PhantomData);
+pub const SEQUENTIAL:       Sequential      = sequential::Exec(PhantomData);
+pub const SEQUENTIAL_LOCAL: SequentialLocal = sequential::Exec(PhantomData);
+pub const SEQUENTIAL_OWNED: SequentialOwned = sequential::Exec(PhantomData);
+pub const RAYON:            Rayon           = rayon::Exec(PhantomData);
 
 // ── DynExec: Shared-domain runtime dispatch ───────
 
@@ -61,7 +60,7 @@ pub enum DynExec<N, R> {
     Fused(Fused),
     Sequential(Sequential),
     Rayon(Rayon),
-    Custom(Custom<N, R>),
+    Custom(custom::Custom<N, R>),
 }
 
 impl<N: 'static, R: 'static> Executor<N, R, Shared> for DynExec<N, R>
@@ -72,7 +71,7 @@ where N: Clone + Send + Sync, R: Send + Sync,
             Self::Fused(e)      => e.run(fold, graph, root),
             Self::Sequential(e) => e.run(fold, graph, root),
             Self::Rayon(e)      => e.run(fold, graph, root),
-            Self::Custom(e)     => <Custom<N, R> as Executor<N, R, Shared>>::run(e, fold, graph, root),
+            Self::Custom(e)     => <custom::Custom<N, R> as Executor<N, R, Shared>>::run(e, fold, graph, root),
         }
     }
 }
