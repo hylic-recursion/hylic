@@ -1,3 +1,7 @@
 _bench-experiment/
 Makefile-scripting/bench_report/__pycache__/
 target/
+tests/shared_after_pw_repro.rs
+tests/shared_diag.rs
+tests/shared_noop_repro.rs
+tests/timing_diag.rs
