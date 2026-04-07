@@ -1,38 +1,38 @@
 //! CPS walk: defunctionalized tasks, packed-ticket streaming sweep.
 //!
 //! walk_cps is void — delivers results through defunctionalized continuations.
-//! fire_cont calls deliver_and_sweep inline.
+//! fire_cont uses P::Accumulate for compile-time dispatch.
 //! fold_done set inside fire_cont(Cont::Root) — CPS completion signal.
 //!
-//! Generic over W: WorkStealing — the queue strategy is invisible here.
-//! walk_cps calls wctx.push_task() which goes through the handle.
+//! Generic over P: FunnelPolicy — queue, accumulation, and wake strategies
+//! are all resolved at monomorphization time.
 
 use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
 use super::cont::{FunnelTask, Cont, ChainNode};
 use super::super::view::FoldView;
 use super::super::worker::WorkerCtx;
-use super::super::queue::WorkStealing;
+use super::super::policy::FunnelPolicy;
+use super::super::accumulate::AccumulateStrategy;
 use super::chain::SlotRef;
 use super::super::arena::Arena;
 use super::super::cont_arena::ContArena;
-use super::super::AccumulateMode;
 
 // ── Shared immutable context (created once, passed by &ref) ──
 
-pub(crate) struct WalkCtx<F, G, H, R> {
+pub(crate) struct WalkCtx<F, G, H, R, P: FunnelPolicy> {
     pub(crate) fold: *const F,
     pub(crate) graph: *const G,
     pub(crate) view: *const FoldView,
     pub(crate) chain_arena: *const Arena<ChainNode<H, R>>,
     pub(crate) cont_arena: *const ContArena<Cont<H, R>>,
-    pub(crate) accumulate: AccumulateMode,
+    pub(crate) _policy: std::marker::PhantomData<P>,
 }
 
-unsafe impl<F, G, H, R> Send for WalkCtx<F, G, H, R> {}
-unsafe impl<F, G, H, R> Sync for WalkCtx<F, G, H, R> {}
+unsafe impl<F, G, H, R, P: FunnelPolicy> Send for WalkCtx<F, G, H, R, P> {}
+unsafe impl<F, G, H, R, P: FunnelPolicy> Sync for WalkCtx<F, G, H, R, P> {}
 
-impl<F, G, H, R> WalkCtx<F, G, H, R> {
+impl<F, G, H, R, P: FunnelPolicy> WalkCtx<F, G, H, R, P> {
     pub(crate) unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
     pub(crate) unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
     pub(crate) unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
@@ -42,8 +42,8 @@ impl<F, G, H, R> WalkCtx<F, G, H, R> {
 
 // ── fire_cont (trampolined) ──────────────────────────
 
-pub(crate) fn fire_cont<N, H, R, F, G>(
-    ctx: &WalkCtx<F, G, H, R>,
+pub(crate) fn fire_cont<N, H, R, F, G, P: FunnelPolicy>(
+    ctx: &WalkCtx<F, G, H, R, P>,
     mut cont: Cont<H, R>,
     mut result: R,
 ) where
@@ -72,10 +72,7 @@ pub(crate) fn fire_cont<N, H, R, F, G>(
                 let arena = unsafe { ctx.chain_arena() };
                 let node = unsafe { arena.get(node_idx) };
                 let fold = unsafe { ctx.fold_ref() };
-                let delivered = match ctx.accumulate {
-                    AccumulateMode::OnArrival => node.chain.deliver_and_sweep(slot, result, fold),
-                    AccumulateMode::OnFinalize => node.chain.deliver_and_finalize(slot, result, fold),
-                };
+                let delivered = P::Accumulate::deliver(&node.chain, slot, result, fold);
                 match delivered {
                     Some(finalized) => {
                         cont = node.take_parent_cont();
@@ -90,8 +87,8 @@ pub(crate) fn fire_cont<N, H, R, F, G>(
 
 // ── CPS walk ─────────────────────────────────────────
 
-pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
-    wctx: &WorkerCtx<N, H, R, F, G, W>,
+pub(crate) fn walk_cps<N, H, R, F, G, P: FunnelPolicy>(
+    wctx: &WorkerCtx<N, H, R, F, G, P>,
     mut node: N,
     mut cont: Cont<H, R>,
 ) where
@@ -115,6 +112,7 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
         let mut heap_opt = Some(heap);
         let mut cont_opt = Some(cont);
 
+        wctx.reset_wake();
         graph.visit(&node, &mut |child: &N| {
             child_count += 1;
             if child_count == 1 {
@@ -142,7 +140,7 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
                 let heap = heap_opt.take().unwrap();
                 let cont = cont_opt.take().unwrap();
                 let result = fold.finalize(&heap);
-                fire_cont::<N, H, R, F, G>(ctx, cont, result);
+                fire_cont::<N, H, R, F, G, P>(ctx, cont, result);
                 return;
             }
             1 => {
@@ -157,13 +155,10 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
                 let idx = chain_idx.unwrap();
                 let cn = unsafe { chain_arena.get(idx) };
                 let fold = unsafe { ctx.fold_ref() };
-                let set_total_result = match ctx.accumulate {
-                    AccumulateMode::OnArrival => cn.chain.set_total_and_sweep(fold),
-                    AccumulateMode::OnFinalize => cn.chain.set_total_and_finalize(fold),
-                };
+                let set_total_result = P::Accumulate::set_total(&cn.chain, fold);
                 if let Some(finalized) = set_total_result {
                     let parent = cn.take_parent_cont();
-                    fire_cont::<N, H, R, F, G>(ctx, parent, finalized);
+                    fire_cont::<N, H, R, F, G, P>(ctx, parent, finalized);
                     return;
                 }
                 let child = first_child.unwrap();
@@ -174,8 +169,8 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
     }
 }
 
-pub(crate) fn execute_task<N, H, R, F, G, W: WorkStealing>(
-    wctx: &WorkerCtx<N, H, R, F, G, W>,
+pub(crate) fn execute_task<N, H, R, F, G, P: FunnelPolicy>(
+    wctx: &WorkerCtx<N, H, R, F, G, P>,
     task: FunnelTask<N, H, R>,
 ) where
     F: FoldOps<N, H, R> + 'static,

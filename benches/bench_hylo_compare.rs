@@ -16,8 +16,8 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::sync::Arc;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
-use hylic::cata::exec::variant::hylo_funnel::queue;
+use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec};
+use hylic::cata::exec::variant::hylo_funnel::policy;
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 
 use support::scenario::{Scale, PreparedScenario, ScenarioDef};
@@ -67,28 +67,28 @@ fn bench_hylo_compare(c: &mut Criterion) {
 
         // ── Funnel: PerWorker × OnArrival ───────────
         {
-            let exec = HyloFunnelIn::<hylic::domain::Shared, queue::PerWorker>::new(
-                nw, HyloFunnelSpec::per_worker(AccumulateMode::OnArrival),
+            let exec = HyloFunnelIn::<hylic::domain::Shared, policy::PerWorkerArrival>::new(
+                nw, HyloFunnelSpec::new(Default::default(), Default::default()),
             );
             bench_cell(&mut group, "funnel.pw.arrive", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
             );
         }
 
-        // ── Funnel: PerWorker × OnFinalize ──────────
+        // ── Funnel: PerWorker × OnFinalize (Default policy) ──
         {
-            let exec = HyloFunnelIn::<hylic::domain::Shared, queue::PerWorker>::new(
-                nw, HyloFunnelSpec::per_worker(AccumulateMode::OnFinalize),
+            let exec = HyloFunnelIn::<hylic::domain::Shared, policy::Default>::new(
+                nw, HyloFunnelSpec::default_for(nw),
             );
             bench_cell(&mut group, "funnel.pw.final", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
             );
         }
 
-        // ── Funnel: Shared × OnArrival ──────────────
+        // ── Funnel: Shared × OnArrival (WideLight policy) ──
         {
-            let exec = HyloFunnelIn::<hylic::domain::Shared, queue::Shared>::new(
-                nw, HyloFunnelSpec::shared(AccumulateMode::OnArrival),
+            let exec = HyloFunnelIn::<hylic::domain::Shared, policy::WideLight>::new(
+                nw, HyloFunnelSpec::for_wide_light(),
             );
             bench_cell(&mut group, "funnel.sh.arrive", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
@@ -97,8 +97,8 @@ fn bench_hylo_compare(c: &mut Criterion) {
 
         // ── Funnel: Shared × OnFinalize ─────────────
         {
-            let exec = HyloFunnelIn::<hylic::domain::Shared, queue::Shared>::new(
-                nw, HyloFunnelSpec::shared(AccumulateMode::OnFinalize),
+            let exec = HyloFunnelIn::<hylic::domain::Shared, policy::SharedDefault>::new(
+                nw, HyloFunnelSpec::new(Default::default(), Default::default()),
             );
             bench_cell(&mut group, "funnel.sh.final", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),

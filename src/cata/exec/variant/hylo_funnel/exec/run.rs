@@ -1,5 +1,6 @@
 //! Entry points: FoldContext pre-allocation, run_fold, run_fold_with.
 
+use std::cell::Cell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use crate::ops::{FoldOps, TreeOps};
@@ -7,11 +8,12 @@ use super::super::cont::{Cont, RootCell, ChainNode};
 use super::view::FoldView;
 use super::super::walk::{WalkCtx, walk_cps, execute_task};
 use super::worker::{WorkerCtx, FoldState, worker_entry};
-use super::queue::{WorkStealing, TaskOps, per_worker::PerWorker};
+use super::policy::{self, FunnelPolicy};
+use super::queue::{WorkStealing, TaskOps};
+use super::wake::WakeStrategy;
 use super::super::pool::{FunnelPool, Job};
 use super::super::arena::Arena;
 use super::super::cont_arena::ContArena;
-use super::super::AccumulateMode;
 
 const CHAIN_ARENA_CAPACITY: usize = 4096;
 const CONT_ARENA_CAPACITY: usize = 8192;
@@ -19,23 +21,23 @@ const CONT_ARENA_CAPACITY: usize = 8192;
 // ── FoldContext (pre-allocatable typed state) ────────
 
 #[allow(private_interfaces)]
-pub struct FoldContext<N: Send + 'static, H: 'static, R: Send + 'static, W: WorkStealing = PerWorker> {
-    pub store: W::Store<N, H, R>,
+pub struct FoldContext<N: Send + 'static, H: 'static, R: Send + 'static, P: FunnelPolicy = policy::Default> {
+    pub store: <P::Queue as WorkStealing>::Store<N, H, R>,
     pub chain_arena: Arena<ChainNode<H, R>>,
     pub cont_arena: ContArena<Cont<H, R>>,
 }
 
-impl<N: Send + 'static, H: 'static, R: Send + 'static, W: WorkStealing> FoldContext<N, H, R, W> {
-    pub fn new(queue_spec: &W::Spec, n_threads: usize) -> Self {
+impl<N: Send + 'static, H: 'static, R: Send + 'static, P: FunnelPolicy> FoldContext<N, H, R, P> {
+    pub fn new(queue_spec: &<P::Queue as WorkStealing>::Spec, n_threads: usize) -> Self {
         FoldContext {
-            store: W::create_store(queue_spec, n_threads),
+            store: P::Queue::create_store(queue_spec, n_threads),
             chain_arena: Arena::new(CHAIN_ARENA_CAPACITY),
             cont_arena: ContArena::new(CONT_ARENA_CAPACITY),
         }
     }
 
     pub fn reset(&mut self) {
-        W::reset_store(&mut self.store);
+        P::Queue::reset_store(&mut self.store);
         self.chain_arena.reset();
         self.cont_arena.reset();
     }
@@ -43,13 +45,13 @@ impl<N: Send + 'static, H: 'static, R: Send + 'static, W: WorkStealing> FoldCont
 
 // ── run_fold ─────────────────────────────────────────
 
-pub fn run_fold<N, H, R, F, G, W: WorkStealing>(
+pub fn run_fold<N, H, R, F, G, P: FunnelPolicy>(
     fold: &F,
     graph: &G,
     root: &N,
     pool: &FunnelPool,
-    accumulate: AccumulateMode,
-    queue_spec: &W::Spec,
+    queue_spec: &<P::Queue as WorkStealing>::Spec,
+    wake_spec: &<P::Wake as WakeStrategy>::Spec,
 ) -> R
 where
     F: FoldOps<N, H, R> + 'static,
@@ -58,18 +60,18 @@ where
     H: 'static,
     R: Clone + Send + 'static,
 {
-    let mut fctx = FoldContext::<N, H, R, W>::new(queue_spec, pool.n_threads());
-    run_fold_with::<N, H, R, F, G, W>(fold, graph, root, pool, accumulate, &mut fctx)
+    let mut fctx = FoldContext::<N, H, R, P>::new(queue_spec, pool.n_threads());
+    run_fold_with::<N, H, R, F, G, P>(fold, graph, root, pool, wake_spec, &mut fctx)
 }
 
 /// Run a fold using pre-allocated typed state. Call fctx.reset() before each fold.
-pub fn run_fold_with<N, H, R, F, G, W: WorkStealing>(
+pub fn run_fold_with<N, H, R, F, G, P: FunnelPolicy>(
     fold: &F,
     graph: &G,
     root: &N,
     pool: &FunnelPool,
-    accumulate: AccumulateMode,
-    fctx: &mut FoldContext<N, H, R, W>,
+    wake_spec: &<P::Wake as WakeStrategy>::Spec,
+    fctx: &mut FoldContext<N, H, R, P>,
 ) -> R
 where
     F: FoldOps<N, H, R> + 'static,
@@ -86,28 +88,29 @@ where
         n_workers: pool.n_threads(),
     };
 
-    let ctx = WalkCtx {
+    let ctx = WalkCtx::<F, G, H, R, P> {
         fold: fold as *const _,
         graph: graph as *const _,
         view: &view as *const FoldView,
         chain_arena: &fctx.chain_arena as *const _,
         cont_arena: &fctx.cont_arena as *const _,
-        accumulate,
+        _policy: std::marker::PhantomData,
     };
 
-    let state = FoldState::<N, H, R, F, G, W> {
+    let state = FoldState::<N, H, R, F, G, P> {
         ctx: &ctx,
-        store: &fctx.store as *const W::Store<N, H, R>,
+        store: &fctx.store as *const _,
     };
     let job = Job {
-        call: worker_entry::<N, H, R, F, G, W>,
-        data: &state as *const FoldState<N, H, R, F, G, W> as *const (),
+        call: worker_entry::<N, H, R, F, G, P>,
+        data: &state as *const FoldState<N, H, R, F, G, P> as *const (),
     };
 
     pool.dispatch(&job, || {
         let caller_idx = view.n_workers;
-        let handle = W::handle(&fctx.store, caller_idx);
-        let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx: &ctx, handle };
+        let handle = P::Queue::handle(&fctx.store, caller_idx);
+        let wake_state = Cell::new(P::Wake::init_state(wake_spec));
+        let wctx = WorkerCtx::<N, H, R, F, G, P> { ctx: &ctx, handle, wake_state };
 
         walk_cps(&wctx, root.clone(), Cont::Root(root_cell.clone()));
 
@@ -125,10 +128,8 @@ where
             }
         }
 
-        // Clear job_ptr before latch — prevents new workers from entering.
         view.pool_inner.job_ptr.store(std::ptr::null_mut(), Ordering::Release);
 
-        // Latch: wait for all pool threads to exit the job call.
         let mut latch_spins = 0u32;
         while view.pool_inner.in_job.load(Ordering::Acquire) > 0 {
             latch_spins += 1;

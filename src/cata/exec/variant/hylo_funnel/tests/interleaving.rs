@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use super::*;
-use super::super::queue;
+use super::super::policy;
 
 const MAX_TRACE: usize = 2048;
 const OP_VISIT: u8 = 0;
@@ -81,7 +81,7 @@ fn tagged_tree(n: usize, bf: usize) -> TaggedN {
     }
 }
 
-fn cross_subtree_interleaving_impl<W: WorkStealing>() {
+fn cross_subtree_interleaving_impl<P: FunnelPolicy>() {
     let tree = tagged_tree(85, 4);
     let n_workers = n_threads();
     let mut proven = false;
@@ -114,7 +114,7 @@ fn cross_subtree_interleaving_impl<W: WorkStealing>() {
         seq.store(0, Ordering::Relaxed);
         trace.len.store(0, Ordering::Relaxed);
 
-        let exec = make_exec::<W>(n_workers);
+        let exec = make_exec::<P>(n_workers);
         let result = exec.run(&fold, &graph, &tree);
         assert_eq!(result, expected, "result mismatch on attempt {attempt}");
 
@@ -162,7 +162,7 @@ fn cross_subtree_interleaving_impl<W: WorkStealing>() {
 }
 
 #[test]
-fn cross_subtree_interleaving_pw() { cross_subtree_interleaving_impl::<queue::PerWorker>(); }
+fn cross_subtree_interleaving_pw() { cross_subtree_interleaving_impl::<policy::Default>(); }
 
 #[test]
-fn cross_subtree_interleaving_sh() { cross_subtree_interleaving_impl::<queue::Shared>(); }
+fn cross_subtree_interleaving_sh() { cross_subtree_interleaving_impl::<policy::SharedDefault>(); }
