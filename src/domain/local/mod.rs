@@ -8,13 +8,13 @@
 use std::marker::PhantomData;
 use std::rc::Rc;
 use crate::ops::{FoldOps, FoldConstruct, TreeOps};
-use crate::cata::exec::{FusedIn, SequentialIn};
+use crate::cata::exec::{fused, sequential};
 use super::Local;
 
 // ── Executor consts for this domain ───────────────
 
-pub const FUSED:      FusedIn<Local>      = FusedIn(PhantomData);
-pub const SEQUENTIAL: SequentialIn<Local>  = SequentialIn(PhantomData);
+pub const FUSED:      fused::Exec<Local>      = fused::Exec(PhantomData);
+pub const SEQUENTIAL: sequential::Exec<Local>  = sequential::Exec(PhantomData);
 
 // ── Fold ──────────────────────────────────────────
 

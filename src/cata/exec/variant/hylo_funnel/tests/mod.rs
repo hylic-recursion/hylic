@@ -11,7 +11,7 @@ mod stress;
 mod interleaving;
 
 use crate::domain::shared as dom;
-use super::{HyloFunnelIn, HyloFunnelSpec};
+use super::{Exec, Spec};
 use super::policy::{self, FunnelPolicy};
 
 pub(super) fn n_threads() -> usize {
@@ -83,9 +83,8 @@ pub(super) fn n_graph() -> dom::Treeish<N> {
 
 // ── Policy-generic helpers ───────────────────────────
 
-pub(super) fn make_exec<P: FunnelPolicy>(n_workers: usize) -> HyloFunnelIn<crate::domain::Shared, P> {
-    let spec = HyloFunnelSpec::<P>::new(Default::default(), Default::default());
-    HyloFunnelIn::<crate::domain::Shared, P>::new(n_workers, spec)
+pub(super) fn make_exec<P: FunnelPolicy>(n_workers: usize) -> Exec<crate::domain::Shared, P> {
+    Exec::new(Spec::<P>::new(n_workers, Default::default(), Default::default()))
 }
 
 pub(super) fn assert_matches_fused_with<P: FunnelPolicy>(tree: &N, n_workers: usize) {

@@ -191,12 +191,12 @@ pub fn all_module_scenarios(large: bool) -> Vec<ModuleSimSpec> {
 
 /// Build all module sim modes: vanilla baselines + hylic Shared modes.
 /// Takes a callback because fold/graph are constructed internally.
-pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>, f: F)
+pub fn with_all_modes<'a, F>(sim: &'a PreparedModuleSim, pool: &'a Arc<WorkPool>, pool_spec: &'a hylic::cata::exec::pool::Spec, f: F)
 where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
 {
     use super::config as id;
     use super::modes::BenchMode;
-    use hylic::cata::exec::{PoolIn, PoolSpec};
+    use hylic::cata::exec::pool;
     use hylic::prelude::{ParLazy, ParEager};
 
     let fold = hylic_fold(sim);
@@ -210,9 +210,9 @@ where F: FnOnce(&[super::modes::BenchMode<'_, u64>])
     let par_eager_rayon = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
     let par_eager_pool  = ParEager::lift::<hylic::domain::Shared, String, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
 
-    let pool_exec  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_exec2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_exec3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_exec  = pool::Exec::<hylic::domain::Shared>::from_pool(pool, pool_spec);
+    let pool_exec2 = pool::Exec::<hylic::domain::Shared>::from_pool(pool, pool_spec);
+    let pool_exec3 = pool::Exec::<hylic::domain::Shared>::from_pool(pool, pool_spec);
 
     let modes: Vec<BenchMode<u64>> = vec![
         // ── baselines ─────────────────────────────────

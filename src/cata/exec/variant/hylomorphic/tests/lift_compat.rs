@@ -10,9 +10,8 @@ fn with_lift_lazy() {
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
     let nt = n_threads();
-    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
-        let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(nt));
-        assert_eq!(exec.run_lifted(&ParLazy::lift(pool), &fold, &graph, &tree), expected);
+    Exec::<crate::domain::Shared>::with(Spec::default(nt), |exec| {
+        assert_eq!(exec.run_lifted(&ParLazy::lift(exec.pool()), &fold, &graph, &tree), expected);
     });
 }
 
@@ -24,8 +23,7 @@ fn with_lift_eager() {
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
     let nt = n_threads();
-    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
-        let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(nt));
-        assert_eq!(exec.run_lifted(&ParEager::lift(pool, EagerSpec::default_for(nt)), &fold, &graph, &tree), expected);
+    Exec::<crate::domain::Shared>::with(Spec::default(nt), |exec| {
+        assert_eq!(exec.run_lifted(&ParEager::lift(exec.pool(), EagerSpec::default_for(nt)), &fold, &graph, &tree), expected);
     });
 }

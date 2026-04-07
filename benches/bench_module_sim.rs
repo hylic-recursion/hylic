@@ -12,8 +12,10 @@ fn bench_module_sim(c: &mut Criterion) {
 
     for spec in module_sim::all_module_scenarios(false) {
         let sim = module_sim::prepare(&spec);
-        WorkPool::with(WorkPoolSpec::threads(support::config::bench_workers()), |pool| {
-            module_sim::with_all_modes(&sim, pool, |modes| {
+        let nw = support::config::bench_workers();
+        let pool_spec = hylic::cata::exec::pool::Spec::default(nw);
+        WorkPool::with(WorkPoolSpec::threads(nw), |pool| {
+            module_sim::with_all_modes(&sim, pool, &pool_spec, |modes| {
                 for mode in modes {
                     bench_cell(&mut group, mode.name, &sim.name,
                         |b, _| b.iter(|| black_box((mode.run)())),

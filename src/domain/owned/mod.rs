@@ -5,13 +5,13 @@
 
 use std::marker::PhantomData;
 use crate::ops::{FoldOps, TreeOps};
-use crate::cata::exec::{FusedIn, SequentialIn};
+use crate::cata::exec::{fused, sequential};
 use super::Owned;
 
 // ── Executor consts for this domain ───────────────
 
-pub const FUSED:      FusedIn<Owned>      = FusedIn(PhantomData);
-pub const SEQUENTIAL: SequentialIn<Owned>  = SequentialIn(PhantomData);
+pub const FUSED:      fused::Exec<Owned>      = fused::Exec(PhantomData);
+pub const SEQUENTIAL: sequential::Exec<Owned>  = sequential::Exec(PhantomData);
 
 // ── Fold ──────────────────────────────────────────
 

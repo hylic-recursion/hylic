@@ -14,8 +14,7 @@ mod lift_compat;
 
 use std::sync::Arc;
 use crate::domain::shared as dom;
-use crate::prelude::{WorkPool, WorkPoolSpec};
-use super::{HylomorphicIn, HylomorphicSpec};
+use super::{Exec, Spec};
 
 pub(super) fn n_threads() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
@@ -95,8 +94,7 @@ pub(super) fn assert_matches_fused(tree: &N, n_workers: usize) {
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, tree);
-    WorkPool::with(WorkPoolSpec::threads(n_workers), |pool| {
-        let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(n_workers));
+    Exec::<crate::domain::Shared>::with(Spec::default(n_workers), |exec| {
         assert_eq!(exec.run(&fold, &graph, tree), expected);
     });
 }

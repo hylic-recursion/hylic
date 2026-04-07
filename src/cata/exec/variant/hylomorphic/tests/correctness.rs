@@ -37,9 +37,7 @@ fn adjacency_list_noop() {
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
     let nt = n_threads();
-    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
-        let exec = HylomorphicIn::<crate::domain::Shared>::new(
-            pool, HylomorphicSpec::default_for(nt));
+    Exec::<crate::domain::Shared>::with(Spec::default(nt), |exec| {
         assert_eq!(exec.run(&fold, &treeish, &0usize), expected);
     });
 }

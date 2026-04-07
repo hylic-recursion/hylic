@@ -1,5 +1,5 @@
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{PoolIn, PoolSpec};
+use hylic::cata::exec::pool;
 use hylic::prelude::{WorkPool, WorkPoolSpec};
 use std::sync::Arc;
 use std::hint::black_box;
@@ -62,8 +62,9 @@ fn run_case(label: &str, nodes: usize, bf: usize, gc: u64, fc: u64, iters: u32) 
     eprintln!("\n=== {} ({} nodes, bf={}) ===", label, count, bf);
     timed("fused",  iters, expected, || dom::FUSED.run(&fold, &graph, &ROOT));
     timed("rayon",  iters, expected, || dom::RAYON.run(&fold, &graph, &ROOT));
+    let pool_spec = pool::Spec::default(3);
     WorkPool::with(WorkPoolSpec::threads(3), |pool| {
-        let pool_exec = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(3));
+        let pool_exec = pool::Exec::<hylic::domain::Shared>::from_pool(pool, &pool_spec);
         timed("pool", iters, expected, || pool_exec.run(&fold, &graph, &ROOT));
     });
 }

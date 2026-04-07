@@ -26,34 +26,40 @@ impl Spec {
     pub fn with_min_children(mut self, min: usize) -> Self { self.min_children_to_fork = min; self }
 }
 
-pub struct Exec<D> {
-    pool: Arc<WorkPool>,
-    spec: Spec,
+pub struct Exec<'scope, D> {
+    pool: &'scope Arc<WorkPool>,
+    spec: &'scope Spec,
     _domain: PhantomData<D>,
 }
 
-impl<D> Exec<D> {
-    pub fn new(spec: Spec) -> Self {
-        let pool = WorkPool::new(WorkPoolSpec::threads(spec.n_workers));
+impl<D> Exec<'_, D> {
+    pub fn with<R>(spec: Spec, f: impl for<'s> FnOnce(&Exec<'s, D>) -> R) -> R {
+        WorkPool::with(WorkPoolSpec::threads(spec.n_workers), |pool| {
+            f(&Exec { pool, spec: &spec, _domain: PhantomData })
+        })
+    }
+
+    /// Borrow an existing pool (for sharing across executors/lifts).
+    pub fn from_pool<'s>(pool: &'s Arc<WorkPool>, spec: &'s Spec) -> Exec<'s, D> {
         Exec { pool, spec, _domain: PhantomData }
     }
 }
 
-impl<N, R, D: Domain<N>> Executor<N, R, D> for Exec<D>
+impl<N, R, D: Domain<N>> Executor<N, R, D> for Exec<'_, D>
 where N: Clone + Send + 'static, R: Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
-        let view = PoolExecView::new(&self.pool);
-        pool_recurse(&SyncRef(fold), &SyncRef(graph), root, &view, &self.spec, 0)
+        let view = PoolExecView::new(self.pool);
+        pool_recurse(&SyncRef(fold), &SyncRef(graph), root, &view, self.spec, 0)
     }
 }
 
-impl<D> Exec<D> {
+impl<D> Exec<'_, D> {
     pub fn run<N: Clone + Send + 'static, H: 'static, R: Send + 'static>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N> {
-        let view = PoolExecView::new(&self.pool);
-        pool_recurse(&SyncRef(fold), &SyncRef(graph), root, &view, &self.spec, 0)
+        let view = PoolExecView::new(self.pool);
+        pool_recurse(&SyncRef(fold), &SyncRef(graph), root, &view, self.spec, 0)
     }
 
     pub fn run_lifted<N: Clone + Send + 'static, R: Send + 'static, N0: Clone + Send + 'static, H0: 'static, R0: 'static, H: 'static>(

@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::hint::black_box;
 use hylic::domain::shared as dom;
-use hylic::cata::exec::{PoolIn, PoolSpec, HyloFunnelIn, HyloFunnelSpec};
+use hylic::cata::exec::{pool, funnel};
 use hylic::prelude::{ParLazy, ParEager, WorkPool, PoolExecView};
 
 use super::config as id;
@@ -119,6 +119,7 @@ pub fn sequential_modes<'a>(s: &'a PreparedScenario) -> Vec<BenchMode<'a, u64>> 
 pub fn parallel_modes<'a>(
     s: &'a PreparedScenario,
     pool: &'a Arc<WorkPool>,
+    pool_spec: &'a pool::Spec,
 ) -> Vec<BenchMode<'a, u64>> {
     let fold = &s.fold;
     let treeish = &s.treeish;
@@ -155,13 +156,13 @@ pub fn parallel_modes<'a>(
     let par_eager_pool_local  = ParEager::lift::<hylic::domain::Local, NodeId, u64, u64>(pool, hylic::prelude::EagerSpec::default_for(super::config::bench_workers()));
 
     // Pool executors
-    let pool_shared  = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_shared2 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_shared3 = PoolIn::<hylic::domain::Shared>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_local   = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_local2  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_local3  = PoolIn::<hylic::domain::Local>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
-    let pool_owned   = PoolIn::<hylic::domain::Owned>::new(pool, PoolSpec::default_for(super::config::bench_workers()));
+    let pool_shared  = pool::Exec::<hylic::domain::Shared>::from_pool(pool, pool_spec);
+    let pool_shared2 = pool::Exec::<hylic::domain::Shared>::from_pool(pool, pool_spec);
+    let pool_shared3 = pool::Exec::<hylic::domain::Shared>::from_pool(pool, pool_spec);
+    let pool_local   = pool::Exec::<hylic::domain::Local>::from_pool(pool, pool_spec);
+    let pool_local2  = pool::Exec::<hylic::domain::Local>::from_pool(pool, pool_spec);
+    let pool_local3  = pool::Exec::<hylic::domain::Local>::from_pool(pool, pool_spec);
+    let pool_owned   = pool::Exec::<hylic::domain::Owned>::from_pool(pool, pool_spec);
 
     let work = Arc::new(s.work.clone());
 
@@ -208,7 +209,7 @@ pub fn parallel_modes<'a>(
         BenchMode { name: id::FUNNEL_SHARED,
             run: {
                 let nw = super::config::bench_workers();
-                let funnel = HyloFunnelIn::<hylic::domain::Shared>::new(nw, HyloFunnelSpec::default_for(nw));
+                let funnel = funnel::Exec::<hylic::domain::Shared, _>::new(funnel::Spec::default(nw));
                 Box::new(move || funnel.run(fold, treeish, root))
             }},
 

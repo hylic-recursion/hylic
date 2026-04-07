@@ -161,9 +161,7 @@ fn cross_subtree_interleaving() {
         seq.store(0, Ordering::Relaxed);
         trace.len.store(0, Ordering::Relaxed);
 
-        WorkPool::with(WorkPoolSpec::threads(n_workers), |pool| {
-            let exec = HylomorphicIn::<crate::domain::Shared>::new(
-                pool, HylomorphicSpec::default_for(n_workers));
+        Exec::<crate::domain::Shared>::with(Spec::default(n_workers), |exec| {
             let result = exec.run(&fold, &graph, &tree);
             assert_eq!(result, expected, "result mismatch on attempt {attempt}");
         });

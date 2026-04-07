@@ -20,32 +20,39 @@ impl Spec {
     pub fn default(n_workers: usize) -> Self { Spec { n_workers } }
 }
 
-pub struct Exec<D> {
-    pool: Arc<WorkPool>,
+pub struct Exec<'scope, D> {
+    pool: &'scope Arc<WorkPool>,
     _domain: PhantomData<D>,
 }
 
-impl<D> Exec<D> {
-    pub fn new(spec: Spec) -> Self {
-        let pool = WorkPool::new(WorkPoolSpec::threads(spec.n_workers));
+impl<D> Exec<'_, D> {
+    pub fn with<R>(spec: Spec, f: impl for<'s> FnOnce(&Exec<'s, D>) -> R) -> R {
+        WorkPool::with(WorkPoolSpec::threads(spec.n_workers), |pool| {
+            f(&Exec { pool, _domain: PhantomData })
+        })
+    }
+
+    pub fn from_pool<'s>(pool: &'s Arc<WorkPool>) -> Exec<'s, D> {
         Exec { pool, _domain: PhantomData }
     }
+
+    pub fn pool(&self) -> &Arc<WorkPool> { self.pool }
 }
 
-impl<N, R, D: Domain<N>> Executor<N, R, D> for Exec<D>
+impl<N, R, D: Domain<N>> Executor<N, R, D> for Exec<'_, D>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
-        let view = PoolExecView::new(&self.pool);
+        let view = PoolExecView::new(self.pool);
         walk::run_fold(fold, graph, root, &view)
     }
 }
 
-impl<D> Exec<D> {
+impl<D> Exec<'_, D> {
     pub fn run<N, H, R>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
     ) -> R where D: Domain<N>, N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static {
-        let view = PoolExecView::new(&self.pool);
+        let view = PoolExecView::new(self.pool);
         walk::run_fold(fold, graph, root, &view)
     }
 

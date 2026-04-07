@@ -13,8 +13,7 @@ fn stress_200_pools() {
     let expected = dom::FUSED.run(&fold, &graph, &tree);
     let nt = n_threads();
     for i in 0..200 {
-        WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
-            let exec = HylomorphicIn::<crate::domain::Shared>::new(pool, HylomorphicSpec::default_for(nt));
+        Exec::<crate::domain::Shared>::with(Spec::default(nt), |exec| {
             assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
         });
     }
@@ -37,9 +36,7 @@ fn stress_50k_runs_one_pool() {
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
 
     let nt = n_threads();
-    WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
-        let exec = HylomorphicIn::<crate::domain::Shared>::new(
-            pool, HylomorphicSpec::default_for(nt));
+    Exec::<crate::domain::Shared>::with(Spec::default(nt), |exec| {
         for i in 0..50_000 {
             let result = exec.run(&fold, &treeish, &0usize);
             assert_eq!(result, expected, "iteration {i}");
@@ -54,7 +51,7 @@ fn stress_50k_runs_one_pool() {
 fn pool_lifecycle_500() {
     let nt = n_threads();
     for _ in 0..500 {
-        WorkPool::with(WorkPoolSpec::threads(nt), |_pool| {});
+        Exec::<crate::domain::Shared>::with(Spec::default(nt), |_exec| {});
     }
 }
 
@@ -65,8 +62,8 @@ fn pool_lifecycle_with_work_500() {
     use std::sync::atomic::{AtomicBool, Ordering};
     let nt = n_threads();
     for _ in 0..500 {
-        WorkPool::with(WorkPoolSpec::threads(nt), |pool| {
-            let view = crate::prelude::PoolExecView::new(pool);
+        Exec::<crate::domain::Shared>::with(Spec::default(nt), |exec| {
+            let view = crate::prelude::PoolExecView::new(exec.pool());
             let handle = view.handle();
             let done = Arc::new(AtomicBool::new(false));
             let d2 = done.clone();

@@ -1,9 +1,9 @@
 //! Executor: the strategy for recursive tree computation.
 //!
-//! Each executor variant is a module with `Exec` and `Spec` types:
+//! Each executor variant is a module with `Exec`, `Spec`, and `with`:
 //! ```ignore
 //! use hylic::cata::exec::fused;
-//! fused::Exec::from_spec(fused::Spec).run(&fold, &graph, &root);
+//! fused::Exec::with(fused::Spec, |exec| exec.run(&fold, &graph, &root));
 //! ```
 //!
 //! The `Executor` trait exists for generic code (pipeline, advanced users).
@@ -11,7 +11,6 @@
 
 pub mod variant;
 
-// Module re-exports: each executor variant as a module.
 pub use variant::fused;
 pub use variant::sequential;
 pub use variant::rayon;
@@ -34,7 +33,7 @@ pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
 }
 // ANCHOR_END: executor_trait
 
-// ── Type aliases (convenience for common domain combinations) ──
+// ── Type aliases (convenience) ───────────────────
 
 pub type Fused           = fused::Exec<Shared>;
 pub type FusedLocal      = fused::Exec<Local>;
@@ -44,7 +43,7 @@ pub type SequentialLocal = sequential::Exec<Local>;
 pub type SequentialOwned = sequential::Exec<Owned>;
 pub type Rayon           = rayon::Exec<Shared>;
 
-// ── Constants ─────────────────────────────────────
+// ── Constants (zero-sized executors) ─────────────
 
 pub const FUSED:            Fused           = fused::Exec(PhantomData);
 pub const FUSED_LOCAL:      FusedLocal      = fused::Exec(PhantomData);
@@ -54,7 +53,7 @@ pub const SEQUENTIAL_LOCAL: SequentialLocal = sequential::Exec(PhantomData);
 pub const SEQUENTIAL_OWNED: SequentialOwned = sequential::Exec(PhantomData);
 pub const RAYON:            Rayon           = rayon::Exec(PhantomData);
 
-// ── DynExec: Shared-domain runtime dispatch ───────
+// ── DynExec: Shared-domain runtime dispatch ──────
 
 pub enum DynExec<N, R> {
     Fused(Fused),

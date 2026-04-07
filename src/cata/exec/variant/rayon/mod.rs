@@ -9,11 +9,12 @@ use super::super::Executor;
 
 pub struct Spec;
 
-/// Parallel executor via rayon's work-stealing thread pool.
 pub struct Exec<D>(pub(crate) PhantomData<D>);
 
 impl<D> Exec<D> {
-    pub fn from_spec(_spec: Spec) -> Self { Exec(PhantomData) }
+    pub fn with<R>(_spec: Spec, f: impl FnOnce(&Self) -> R) -> R {
+        f(&Exec(PhantomData))
+    }
 }
 
 impl<D> Clone for Exec<D> { fn clone(&self) -> Self { *self } }

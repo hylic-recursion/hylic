@@ -14,8 +14,9 @@ fn bench_parallel(c: &mut Criterion) {
     for def in scenario::all_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");
         let nw = support::config::bench_workers();
+        let pool_spec = hylic::cata::exec::pool::Spec::default(nw);
         WorkPool::with(WorkPoolSpec::threads(nw), |pool| {
-            let modes = modes::parallel_modes(&s, pool);
+            let modes = modes::parallel_modes(&s, pool, &pool_spec);
             for mode in &modes {
                 bench_cell(&mut group, mode.name, &s.name,
                     |b, _| b.iter(|| black_box((mode.run)())),

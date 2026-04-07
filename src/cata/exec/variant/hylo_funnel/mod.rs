@@ -15,8 +15,7 @@ pub mod pool;
 pub(crate) use infra::{arena, cont_arena, deque, eventcount};
 pub(crate) use cps::{cont, chain, walk};
 pub(crate) use exec::{view, worker};
-pub use exec::{queue, accumulate, wake, policy};
-pub(crate) use exec::run;
+pub use exec::{run, queue, accumulate, wake, policy};
 
 use std::marker::PhantomData;
 use crate::ops::LiftOps;

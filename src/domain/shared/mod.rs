@@ -8,14 +8,14 @@
 //! ```
 
 use std::marker::PhantomData;
-use crate::cata::exec::{FusedIn, SequentialIn, RayonIn};
+use crate::cata::exec::{fused, sequential, rayon};
 use super::Shared;
 
 // ── Executor consts ───────────────────────────────
 
-pub const FUSED:      FusedIn<Shared>      = FusedIn(PhantomData);
-pub const SEQUENTIAL: SequentialIn<Shared>  = SequentialIn(PhantomData);
-pub const RAYON:      RayonIn<Shared>       = RayonIn(PhantomData);
+pub const FUSED:      fused::Exec<Shared>      = fused::Exec(PhantomData);
+pub const SEQUENTIAL: sequential::Exec<Shared>  = sequential::Exec(PhantomData);
+pub const RAYON:      rayon::Exec<Shared>       = rayon::Exec(PhantomData);
 
 // ── Runtime dispatch ──────────────────────────────
 
