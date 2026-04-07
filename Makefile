@@ -55,20 +55,23 @@ hylic-test-funnel-stress:
 # bench-full:    everything
 
 # Atomic bench units (not user-facing)
+# Each calls bench-one.sh → streams output, archives raw + criterion + report
 _bench-seq:
-	@bash Makefile-scripting/bench-run.sh bench_sequential
+	@bash Makefile-scripting/bench-one.sh bench_sequential target/bench-latest/sequential
 _bench-par:
-	@bash Makefile-scripting/bench-run.sh bench_parallel
+	@bash Makefile-scripting/bench-one.sh bench_parallel target/bench-latest/parallel
 _bench-module:
-	@bash Makefile-scripting/bench-run.sh bench_module_sim
+	@bash Makefile-scripting/bench-one.sh bench_module_sim target/bench-latest/module-sim
 _bench-executor:
-	@bash Makefile-scripting/bench-run.sh bench_executor_compare
+	@bash Makefile-scripting/bench-one.sh bench_executor_compare target/bench-latest/executor-compare
 _bench-hylo:
-	@bash Makefile-scripting/bench-run.sh bench_hylo_compare
+	@bash Makefile-scripting/bench-one.sh bench_hylo_compare target/bench-latest/hylo-compare
 
-# Report + docs (always runs after bench)
+# Copy reports to docs + rebuild
 _bench-finish:
-	@python3 Makefile-scripting/bench-report.py
+	@for d in target/bench-latest/*/report; do \
+		cp -r "$$d"/* ../hylic-docs/book/src/bench-results/ 2>/dev/null || true; \
+	done
 	@$(MAKE) hylic-docs-build
 
 # User-facing targets
