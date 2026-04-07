@@ -15,7 +15,6 @@ mod support;
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use std::sync::Arc;
-use std::time::Duration;
 use hylic::domain::shared as dom;
 use hylic::cata::exec::{HylomorphicIn, HylomorphicSpec, HyloFunnelIn, HyloFunnelSpec, AccumulateMode};
 use hylic::cata::exec::variant::hylo_funnel::queue;
@@ -44,11 +43,8 @@ fn hylo_scenarios(_scale: Scale) -> Vec<ScenarioDef> {
 
 fn bench_hylo_compare(c: &mut Criterion) {
     let mut group = c.benchmark_group("hylo-compare");
-    group.warm_up_time(Duration::from_secs(2));
-    group.measurement_time(Duration::from_secs(20));
-    group.sample_size(50);
     let nw = config::bench_workers();
-    eprintln!("[hylo-compare] using {nw} worker threads, 50 samples × 20s");
+    eprintln!("[hylo-compare] using {nw} worker threads");
 
     for def in hylo_scenarios(Scale::from_env()) {
         let s = PreparedScenario::from_def(&def, "sm");

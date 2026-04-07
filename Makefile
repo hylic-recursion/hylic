@@ -85,6 +85,11 @@ hylic-bench-full: _bench-seq _bench-par _bench-module _bench-executor _bench-hyl
 hylic-bench-variants:
 	@bash _bench-experiment/run-all.sh
 
+# Restore src/ to branch tip after interrupted bench-variants run
+hylic-bench-variants-reset:
+	@git checkout exp/tier1-isolation -- src/
+	@echo "src/ restored to branch tip (exp/tier1-isolation)"
+
 # ── Docs ────────────────────────────────────────────────────
 hylic-docs-build:
 	@bash ../hylic-docs/Makefile-scripting/build-book.sh
