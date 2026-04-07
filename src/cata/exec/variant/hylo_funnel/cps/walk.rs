@@ -115,7 +115,6 @@ pub(crate) fn walk_cps<N, H, R, F, G, W: WorkStealing>(
         let mut heap_opt = Some(heap);
         let mut cont_opt = Some(cont);
 
-        wctx.reset_notify();
         graph.visit(&node, &mut |child: &N| {
             child_count += 1;
             if child_count == 1 {
