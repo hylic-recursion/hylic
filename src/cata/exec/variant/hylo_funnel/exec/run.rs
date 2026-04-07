@@ -107,7 +107,7 @@ where
     pool.dispatch(&job, || {
         let caller_idx = view.n_workers;
         let handle = W::handle(&fctx.store, caller_idx);
-        let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx: &ctx, handle };
+        let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx: &ctx, handle, notified: std::cell::Cell::new(false) };
 
         walk_cps(&wctx, root.clone(), Cont::Root(root_cell.clone()));
 

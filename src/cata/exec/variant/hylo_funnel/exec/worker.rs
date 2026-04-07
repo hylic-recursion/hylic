@@ -1,5 +1,6 @@
 //! Worker infrastructure: per-worker context, worker loop, job bridge.
 
+use std::cell::Cell;
 use std::sync::atomic::Ordering;
 use crate::ops::{FoldOps, TreeOps};
 use super::super::cont::FunnelTask;
@@ -12,16 +13,30 @@ use super::queue::{WorkStealing, TaskOps};
 pub(crate) struct WorkerCtx<'a, N: Send + 'static, H: 'static, R: Send + 'static, F, G, W: WorkStealing> {
     pub(crate) ctx: &'a WalkCtx<F, G, H, R>,
     pub(crate) handle: W::Handle<'a, N, H, R>,
+    pub(crate) notified: Cell<bool>,
 }
 
-impl<N: Send + 'static, H: 'static, R: Send + 'static, F, G, W: WorkStealing>
+// SAFETY: WorkerCtx is only accessed by one thread at a time.
+unsafe impl<N: Send, H, R: Send, F, G, W: WorkStealing> Sync for WorkerCtx<'_, N, H, R, F, G, W> {}
+
+impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, R> + 'static, G: TreeOps<N> + 'static, W: WorkStealing>
     WorkerCtx<'_, N, H, R, F, G, W>
 {
     pub(crate) fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
 
     pub(crate) fn push_task(&self, task: FunnelTask<N, H, R>) {
-        self.handle.push(task);
-        self.view().notify_idle();
+        if let Some(overflow) = self.handle.push(task) {
+            execute_task(self, overflow);
+            return;
+        }
+        if !self.notified.get() {
+            self.view().notify_idle();
+            self.notified.set(true);
+        }
+    }
+
+    pub(crate) fn reset_notify(&self) {
+        self.notified.set(false);
     }
 }
 
@@ -65,7 +80,7 @@ fn worker_loop<N, H, R, F, G, W: WorkStealing>(
     R: Send + 'static,
 {
     let handle = W::handle(store, my_idx);
-    let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx, handle };
+    let wctx = WorkerCtx::<N, H, R, F, G, W> { ctx, handle, notified: Cell::new(false) };
     loop {
         if let Some(task) = wctx.handle.try_acquire() {
             execute_task(&wctx, task);
