@@ -1,25 +1,25 @@
-//! FoldView: per-fold shared state (fold_done, idle_count, eventcount).
-//! Queue-agnostic — no bitmask, no deque references.
+//! FoldView: per-fold shared state.
+//! Borrows PoolState (scoped, not Arc). Owns per-fold atomics.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
 
 use super::super::eventcount::EventCount;
-use super::super::pool::PoolInner;
+use super::super::pool::PoolState;
 
-pub(crate) struct FoldView {
-    pub pool_inner: Arc<PoolInner>,
+pub(crate) struct FoldView<'a> {
+    pub pool_state: &'a PoolState,
     pub fold_done: AtomicBool,
     pub idle_count: AtomicU32,
+    pub workers_active: AtomicU32,
     pub n_workers: usize,
 }
 
-impl FoldView {
-    pub fn event(&self) -> &EventCount { &self.pool_inner.wake }
+impl FoldView<'_> {
+    pub fn event(&self) -> &EventCount { &self.pool_state.wake }
 
     pub fn notify_idle(&self) {
         if self.idle_count.load(Ordering::Relaxed) > 0 {
-            self.pool_inner.wake.notify_one();
+            self.pool_state.wake.notify_one();
         }
     }
 }

@@ -31,10 +31,7 @@ impl<T> ContArena<T> {
         }
     }
 
-    /// Reset for reuse. All slots must have been take()n already.
-    pub fn reset(&mut self) {
-        *self.next.get_mut() = 0;
-    }
+
 
     pub fn alloc(&self, value: T) -> ContIdx {
         let idx = self.next.fetch_add(1, Ordering::Relaxed);

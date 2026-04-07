@@ -44,10 +44,11 @@ fn bench_executor_compare(c: &mut Criterion) {
                 |b, _| b.iter(|| black_box(handrolled_pool(&s.children, &work, pool, s.root))),
             );
         });
-        let funnel = funnel::Exec::<hylic::domain::Shared, _>::new(funnel::Spec::default(nw));
-        bench_cell(&mut group, "hylic.funnel.shared", &s.name,
-            |b, _| b.iter(|| black_box(funnel.run(&s.fold, &s.treeish, &s.root))),
-        );
+        funnel::Exec::<hylic::domain::Shared>::with(funnel::Spec::default(nw), |exec| {
+            bench_cell(&mut group, "hylic.funnel.shared", &s.name,
+                |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
+            );
+        });
     }
     group.finish();
 }

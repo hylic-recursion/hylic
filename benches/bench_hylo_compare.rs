@@ -64,44 +64,36 @@ fn bench_hylo_compare(c: &mut Criterion) {
         });
 
         // ── Funnel: PerWorker × OnArrival ───────────
-        {
-            let exec = funnel::Exec::<hylic::domain::Shared, policy::PerWorkerArrival>::new(
-                funnel::Spec::new(nw, Default::default(), Default::default()),
-            );
-            bench_cell(&mut group, "funnel.pw.arrive", &s.name,
+        funnel::Exec::<hylic::domain::Shared, policy::PerWorkerArrival>::with(
+            funnel::Spec::new(nw, Default::default(), Default::default()),
+            |exec| bench_cell(&mut group, "funnel.pw.arrive", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
-            );
-        }
+            ),
+        );
 
         // ── Funnel: PerWorker × OnFinalize (Default policy) ──
-        {
-            let exec = funnel::Exec::<hylic::domain::Shared, policy::Default>::new(
-                funnel::Spec::default(nw),
-            );
-            bench_cell(&mut group, "funnel.pw.final", &s.name,
+        funnel::Exec::<hylic::domain::Shared, policy::Default>::with(
+            funnel::Spec::default(nw),
+            |exec| bench_cell(&mut group, "funnel.pw.final", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
-            );
-        }
+            ),
+        );
 
         // ── Funnel: Shared × OnArrival (WideLight policy) ──
-        {
-            let exec = funnel::Exec::<hylic::domain::Shared, policy::WideLight>::new(
-                funnel::Spec::for_wide_light(nw),
-            );
-            bench_cell(&mut group, "funnel.sh.arrive", &s.name,
+        funnel::Exec::<hylic::domain::Shared, policy::WideLight>::with(
+            funnel::Spec::for_wide_light(nw),
+            |exec| bench_cell(&mut group, "funnel.sh.arrive", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
-            );
-        }
+            ),
+        );
 
         // ── Funnel: Shared × OnFinalize ─────────────
-        {
-            let exec = funnel::Exec::<hylic::domain::Shared, policy::SharedDefault>::new(
-                funnel::Spec::new(nw, Default::default(), Default::default()),
-            );
-            bench_cell(&mut group, "funnel.sh.final", &s.name,
+        funnel::Exec::<hylic::domain::Shared, policy::SharedDefault>::with(
+            funnel::Spec::new(nw, Default::default(), Default::default()),
+            |exec| bench_cell(&mut group, "funnel.sh.final", &s.name,
                 |b, _| b.iter(|| black_box(exec.run(&s.fold, &s.treeish, &s.root))),
-            );
-        }
+            ),
+        );
     }
     group.finish();
 }

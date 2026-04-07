@@ -13,7 +13,7 @@ use super::wake::WakeStrategy;
 // ── WorkerCtx (per-worker: shared ctx + queue handle + wake state) ──
 
 pub(crate) struct WorkerCtx<'a, N: Send + 'static, H: 'static, R: Send + 'static, F, G, P: FunnelPolicy> {
-    pub(crate) ctx: &'a WalkCtx<F, G, H, R, P>,
+    pub(crate) ctx: &'a WalkCtx<'a, F, G, H, R, P>,
     pub(crate) handle: <P::Queue as WorkStealing>::Handle<'a, N, H, R>,
     pub(crate) wake_state: Cell<<P::Wake as WakeStrategy>::State>,
 }
@@ -22,10 +22,10 @@ pub(crate) struct WorkerCtx<'a, N: Send + 'static, H: 'static, R: Send + 'static
 // Cell is !Sync but WorkerCtx is per-thread — never shared.
 unsafe impl<N: Send, H, R: Send, F, G, P: FunnelPolicy> Sync for WorkerCtx<'_, N, H, R, F, G, P> {}
 
-impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, R> + 'static, G: TreeOps<N> + 'static, P: FunnelPolicy>
-    WorkerCtx<'_, N, H, R, F, G, P>
+impl<'a, N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, R> + 'static, G: TreeOps<N> + 'static, P: FunnelPolicy>
+    WorkerCtx<'a, N, H, R, F, G, P>
 {
-    pub(crate) fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
+    pub(crate) fn view(&self) -> &FoldView<'a> { self.ctx.view_ref() }
 
     pub(crate) fn push_task(&self, task: FunnelTask<N, H, R>) {
         if let Some(overflow) = self.handle.push(task) {
@@ -46,17 +46,23 @@ impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, 
     }
 }
 
-// ── FoldState (bridges Job → typed worker code) ──────
+// ── FoldState (the typed payload erased to *const () at the Job boundary) ──
+// This is the ONLY struct that crosses the unsafe Job boundary.
+// All fields are safe references. The unsafety is in:
+//   1. run_fold_inner: casts &FoldState to *const () for the Job
+//   2. worker_entry: casts *const () back to &FoldState
 
 pub(crate) struct FoldState<'a, N: Send + 'static, H: 'static, R: Send + 'static, F, G, P: FunnelPolicy> {
-    pub(crate) ctx: &'a WalkCtx<F, G, H, R, P>,
-    pub(crate) store: *const <P::Queue as WorkStealing>::Store<N, H, R>,
+    pub(crate) ctx: &'a WalkCtx<'a, F, G, H, R, P>,
+    pub(crate) store: &'a <P::Queue as WorkStealing>::Store<N, H, R>,
 }
 
-unsafe impl<N: Send, H, R: Send, F, G, P: FunnelPolicy> Send for FoldState<'_, N, H, R, F, G, P> {}
-unsafe impl<N: Send, H, R: Send, F, G, P: FunnelPolicy> Sync for FoldState<'_, N, H, R, F, G, P> {}
+unsafe impl<N: Send, H, R: Send, F: Sync, G: Sync, P: FunnelPolicy> Send for FoldState<'_, N, H, R, F, G, P> {}
+unsafe impl<N: Send, H, R: Send, F: Sync, G: Sync, P: FunnelPolicy> Sync for FoldState<'_, N, H, R, F, G, P> {}
 
-/// Monomorphized worker entry point. The pool calls this through the Job.
+/// Monomorphized worker entry point.
+/// SAFETY: `data` must point to a valid FoldState that outlives this call.
+/// Guaranteed by the scoped pool + workers_active barrier.
 pub(crate) unsafe fn worker_entry<N, H, R, F, G, P: FunnelPolicy>(data: *const (), thread_idx: usize)
 where
     F: FoldOps<N, H, R> + 'static,
@@ -65,17 +71,20 @@ where
     H: 'static,
     R: Send + 'static,
 {
+    // THE unsafe boundary: recover typed state from erased pointer.
     let state = unsafe { &*(data as *const FoldState<N, H, R, F, G, P>) };
-    let view = unsafe { state.ctx.view_ref() };
-    let store = unsafe { &*state.store };
-    worker_loop::<N, H, R, F, G, P>(state.ctx, view, store, thread_idx);
+    // From here: all safe.
+    let view = state.ctx.view_ref();
+    view.workers_active.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    worker_loop::<N, H, R, F, G, P>(state.ctx, view, state.store, thread_idx);
+    view.workers_active.fetch_sub(1, std::sync::atomic::Ordering::Release);
 }
 
 // ── Worker loop ──────────────────────────────────────
 
 fn worker_loop<N, H, R, F, G, P: FunnelPolicy>(
-    ctx: &WalkCtx<F, G, H, R, P>,
-    view: &FoldView,
+    ctx: &WalkCtx<'_, F, G, H, R, P>,
+    view: &FoldView<'_>,
     store: &<P::Queue as WorkStealing>::Store<N, H, R>,
     my_idx: usize,
 ) where

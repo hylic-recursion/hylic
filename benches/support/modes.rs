@@ -205,12 +205,15 @@ pub fn parallel_modes<'a>(
         BenchMode { name: id::EAGER_POOL_LOCAL,
             run: Box::new(move || pool_local3.run_lifted(&par_eager_pool_local, &local_fold_ell, &local_tree_ell, root)) },
 
-        // ── hylic funnel (own persistent pool) ────────
+        // ── hylic funnel (scoped pool, created per call) ──
         BenchMode { name: id::FUNNEL_SHARED,
             run: {
                 let nw = super::config::bench_workers();
-                let funnel = funnel::Exec::<hylic::domain::Shared, _>::new(funnel::Spec::default(nw));
-                Box::new(move || funnel.run(fold, treeish, root))
+                Box::new(move || {
+                    funnel::Exec::<hylic::domain::Shared>::with(funnel::Spec::default(nw), |exec| {
+                        exec.run(fold, treeish, root)
+                    })
+                })
             }},
 
         // ── handrolled parallel ───────────────────────

@@ -19,31 +19,35 @@ use super::super::arena::Arena;
 use super::super::cont_arena::ContArena;
 
 // ── Shared immutable context (created once, passed by &ref) ──
+// All references. No raw pointers. Lifetime 'a = run_fold's stack frame.
 
-pub(crate) struct WalkCtx<F, G, H, R, P: FunnelPolicy> {
-    pub(crate) fold: *const F,
-    pub(crate) graph: *const G,
-    pub(crate) view: *const FoldView,
-    pub(crate) chain_arena: *const Arena<ChainNode<H, R>>,
-    pub(crate) cont_arena: *const ContArena<Cont<H, R>>,
+pub(crate) struct WalkCtx<'a, F, G, H, R, P: FunnelPolicy> {
+    pub(crate) fold: &'a F,
+    pub(crate) graph: &'a G,
+    pub(crate) view: &'a FoldView<'a>,
+    pub(crate) chain_arena: &'a Arena<ChainNode<H, R>>,
+    pub(crate) cont_arena: &'a ContArena<Cont<H, R>>,
     pub(crate) _policy: std::marker::PhantomData<P>,
 }
 
-unsafe impl<F, G, H, R, P: FunnelPolicy> Send for WalkCtx<F, G, H, R, P> {}
-unsafe impl<F, G, H, R, P: FunnelPolicy> Sync for WalkCtx<F, G, H, R, P> {}
+// SAFETY: All referenced data lives for the scoped pool duration.
+// Workers access WalkCtx through FoldState, which is erased to *const ()
+// at the Job boundary. The scoped pool guarantees the data outlives all workers.
+unsafe impl<F: Sync, G: Sync, H, R: Send, P: FunnelPolicy> Send for WalkCtx<'_, F, G, H, R, P> {}
+unsafe impl<F: Sync, G: Sync, H, R: Send, P: FunnelPolicy> Sync for WalkCtx<'_, F, G, H, R, P> {}
 
-impl<F, G, H, R, P: FunnelPolicy> WalkCtx<F, G, H, R, P> {
-    pub(crate) unsafe fn fold_ref(&self) -> &F { unsafe { &*self.fold } }
-    pub(crate) unsafe fn graph_ref(&self) -> &G { unsafe { &*self.graph } }
-    pub(crate) unsafe fn view_ref(&self) -> &FoldView { unsafe { &*self.view } }
-    pub(crate) unsafe fn chain_arena(&self) -> &Arena<ChainNode<H, R>> { unsafe { &*self.chain_arena } }
-    pub(crate) unsafe fn cont_arena(&self) -> &ContArena<Cont<H, R>> { unsafe { &*self.cont_arena } }
+impl<'a, F, G, H, R, P: FunnelPolicy> WalkCtx<'a, F, G, H, R, P> {
+    pub(crate) fn fold_ref(&self) -> &'a F { self.fold }
+    pub(crate) fn graph_ref(&self) -> &'a G { self.graph }
+    pub(crate) fn view_ref(&self) -> &'a FoldView<'a> { self.view }
+    pub(crate) fn chain_arena(&self) -> &'a Arena<ChainNode<H, R>> { self.chain_arena }
+    pub(crate) fn cont_arena(&self) -> &'a ContArena<Cont<H, R>> { self.cont_arena }
 }
 
 // ── fire_cont (trampolined) ──────────────────────────
 
 pub(crate) fn fire_cont<N, H, R, F, G, P: FunnelPolicy>(
-    ctx: &WalkCtx<F, G, H, R, P>,
+    ctx: &WalkCtx<'_, F, G, H, R, P>,
     mut cont: Cont<H, R>,
     mut result: R,
 ) where
@@ -57,21 +61,21 @@ pub(crate) fn fire_cont<N, H, R, F, G, P: FunnelPolicy>(
         match cont {
             Cont::Root(cell) => {
                 cell.set(result);
-                let view = unsafe { ctx.view_ref() };
+                let view = ctx.view_ref();
                 view.fold_done.store(true, Ordering::Release);
                 view.event().notify_all();
                 return;
             }
             Cont::Direct { mut heap, parent_idx } => {
-                let fold = unsafe { ctx.fold_ref() };
+                let fold = ctx.fold_ref();
                 fold.accumulate(&mut heap, &result);
                 result = fold.finalize(&heap);
                 cont = unsafe { ctx.cont_arena().take(parent_idx) };
             }
             Cont::Slot { node: node_idx, slot } => {
-                let arena = unsafe { ctx.chain_arena() };
+                let arena = ctx.chain_arena();
                 let node = unsafe { arena.get(node_idx) };
-                let fold = unsafe { ctx.fold_ref() };
+                let fold = ctx.fold_ref();
                 let delivered = P::Accumulate::deliver(&node.chain, slot, result, fold);
                 match delivered {
                     Some(finalized) => {
@@ -100,10 +104,10 @@ pub(crate) fn walk_cps<N, H, R, F, G, P: FunnelPolicy>(
 {
     let ctx = wctx.ctx;
     loop {
-        let fold = unsafe { ctx.fold_ref() };
-        let graph = unsafe { ctx.graph_ref() };
-        let chain_arena = unsafe { ctx.chain_arena() };
-        let cont_arena = unsafe { ctx.cont_arena() };
+        let fold = ctx.fold_ref();
+        let graph = ctx.graph_ref();
+        let chain_arena = ctx.chain_arena();
+        let cont_arena = ctx.cont_arena();
         let heap = fold.init(&node);
 
         let mut child_count = 0u32;
@@ -154,7 +158,7 @@ pub(crate) fn walk_cps<N, H, R, F, G, P: FunnelPolicy>(
             _ => {
                 let idx = chain_idx.unwrap();
                 let cn = unsafe { chain_arena.get(idx) };
-                let fold = unsafe { ctx.fold_ref() };
+                let fold = ctx.fold_ref();
                 let set_total_result = P::Accumulate::set_total(&cn.chain, fold);
                 if let Some(finalized) = set_total_result {
                     let parent = cn.take_parent_cont();

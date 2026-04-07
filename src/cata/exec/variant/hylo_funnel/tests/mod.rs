@@ -83,14 +83,15 @@ pub(super) fn n_graph() -> dom::Treeish<N> {
 
 // ── Policy-generic helpers ───────────────────────────
 
-pub(super) fn make_exec<P: FunnelPolicy>(n_workers: usize) -> Exec<crate::domain::Shared, P> {
-    Exec::new(Spec::<P>::new(n_workers, Default::default(), Default::default()))
+pub(super) fn with_exec<P: FunnelPolicy, R>(n_workers: usize, f: impl for<'s> FnOnce(&Exec<'s, crate::domain::Shared, P>) -> R) -> R {
+    Exec::with(Spec::<P>::new(n_workers, Default::default(), Default::default()), f)
 }
 
 pub(super) fn assert_matches_fused_with<P: FunnelPolicy>(tree: &N, n_workers: usize) {
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, tree);
-    let exec = make_exec::<P>(n_workers);
-    assert_eq!(exec.run(&fold, &graph, tree), expected);
+    with_exec::<P, _>(n_workers, |exec| {
+        assert_eq!(exec.run(&fold, &graph, tree), expected);
+    });
 }

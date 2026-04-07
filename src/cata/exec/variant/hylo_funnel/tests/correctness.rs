@@ -45,8 +45,9 @@ fn adjacency_list_noop_impl<P: FunnelPolicy>() {
         |h: &u64| *h,
     );
     let expected = dom::FUSED.run(&fold, &treeish, &0usize);
-    let exec = make_exec::<P>(n_threads());
-    assert_eq!(exec.run(&fold, &treeish, &0usize), expected);
+    with_exec::<P, _>(n_threads(), |exec| {
+        assert_eq!(exec.run(&fold, &treeish, &0usize), expected);
+    });
 }
 
 #[test]
@@ -70,10 +71,11 @@ fn wide_tree_stress_impl<P: FunnelPolicy>() {
     let fold = sum_fold();
     let graph = n_graph();
     let expected = dom::FUSED.run(&fold, &graph, &tree);
-    let exec = make_exec::<P>(n_threads());
-    for i in 0..500 {
-        assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
-    }
+    with_exec::<P, _>(n_threads(), |exec| {
+        for i in 0..500 {
+            assert_eq!(exec.run(&fold, &graph, &tree), expected, "iteration {i}");
+        }
+    });
 }
 
 #[test]

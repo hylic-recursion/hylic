@@ -114,8 +114,7 @@ fn cross_subtree_interleaving_impl<P: FunnelPolicy>() {
         seq.store(0, Ordering::Relaxed);
         trace.len.store(0, Ordering::Relaxed);
 
-        let exec = make_exec::<P>(n_workers);
-        let result = exec.run(&fold, &graph, &tree);
+        let result = with_exec::<P, _>(n_workers, |exec| exec.run(&fold, &graph, &tree));
         assert_eq!(result, expected, "result mismatch on attempt {attempt}");
 
         let entries = trace.as_slice();
