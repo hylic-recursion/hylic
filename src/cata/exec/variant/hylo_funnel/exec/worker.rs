@@ -14,13 +14,16 @@ pub(crate) struct WorkerCtx<'a, N: Send + 'static, H: 'static, R: Send + 'static
     pub(crate) handle: W::Handle<'a, N, H, R>,
 }
 
-impl<N: Send + 'static, H: 'static, R: Send + 'static, F, G, W: WorkStealing>
+impl<N: Clone + Send + 'static, H: 'static, R: Send + 'static, F: FoldOps<N, H, R> + 'static, G: TreeOps<N> + 'static, W: WorkStealing>
     WorkerCtx<'_, N, H, R, F, G, W>
 {
     pub(crate) fn view(&self) -> &FoldView { unsafe { self.ctx.view_ref() } }
 
     pub(crate) fn push_task(&self, task: FunnelTask<N, H, R>) {
-        self.handle.push(task);
+        if let Some(overflow) = self.handle.push(task) {
+            execute_task(self, overflow);
+            return;
+        }
         self.view().notify_idle();
     }
 }
