@@ -103,7 +103,7 @@ impl<H, R> FoldChain<H, R> {
     }
 
     pub fn append_slot(&self) -> SlotRef {
-        let index = self.appended.fetch_add(1, Ordering::Release);
+        let index = self.appended.fetch_add(1, Ordering::Relaxed);
         if (index as usize) >= INITIAL_CAP {
             self.ensure_overflow(index as usize);
         }

@@ -14,15 +14,16 @@ use super::super::cont::FunnelTask;
 
 /// Per-worker task operations. Each WorkStealing::Handle implements this.
 ///
-/// `push` submits a task to the queue. Notification of idle workers is
-/// the caller's responsibility (WorkerCtx holds the view reference).
+/// `push` submits a task. Returns None on success, Some(task) if the
+/// queue is full (caller should execute inline). Notification of idle
+/// workers is the caller's responsibility (WorkerCtx holds the view).
 ///
 /// `try_acquire` returns the next task to execute. Each strategy
 /// encapsulates its own acquisition policy:
 /// - PerWorker: pop local deque first, then bitmask-guided steal
 /// - Shared: steal from the global queue
 pub trait TaskOps<N, H, R> {
-    fn push(&self, task: FunnelTask<N, H, R>);
+    fn push(&self, task: FunnelTask<N, H, R>) -> Option<FunnelTask<N, H, R>>;
     fn try_acquire(&self) -> Option<FunnelTask<N, H, R>>;
 }
 
