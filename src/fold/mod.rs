@@ -1,4 +1,5 @@
 pub mod algebra;
+pub(crate) mod combinators;
 
 pub use algebra::Fold;
 pub use crate::ops::FoldOps;

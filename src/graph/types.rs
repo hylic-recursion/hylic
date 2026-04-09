@@ -28,45 +28,38 @@ where NodeT: 'static, EdgeT: 'static,
         self.at(input).collect_vec()
     }
 
-    pub fn map<F, NewEdgeT>(&self, transform: F) -> Edgy<NodeT, NewEdgeT>
+    pub fn map<F, NewEdgeT: 'static>(&self, transform: F) -> Edgy<NodeT, NewEdgeT>
     where F: Fn(&EdgeT) -> NewEdgeT + Send + Sync + 'static,
     {
         let inner = self.impl_visit.clone();
-        edgy_visit(move |n: &NodeT, cb: &mut dyn FnMut(&NewEdgeT)| {
-            inner(n, &mut |e: &EdgeT| {
-                let mapped = transform(e);
-                cb(&mapped);
-            });
-        })
+        edgy_visit(super::combinators::map_edges(
+            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
+        ))
     }
 
-    pub fn contramap<F, NewNodeT>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
+    pub fn contramap<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> NodeT + Send + Sync + 'static,
     {
         let inner = self.impl_visit.clone();
-        edgy_visit(move |n: &NewNodeT, cb: &mut dyn FnMut(&EdgeT)| {
-            inner(&transform(n), cb);
-        })
+        edgy_visit(super::combinators::contramap_node(
+            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
+        ))
     }
 
-    pub fn contramap_or<F, NewNodeT>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
+    pub fn contramap_or<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> Either<NodeT, Vec<EdgeT>> + Send + Sync + 'static,
     {
         let inner = self.impl_visit.clone();
-        edgy_visit(move |n: &NewNodeT, cb: &mut dyn FnMut(&EdgeT)| {
-            match transform(n) {
-                Either::Left(node) => inner(&node, cb),
-                Either::Right(edges) => { for e in &edges { cb(e); } }
-            }
-        })
+        edgy_visit(super::combinators::contramap_or_node(
+            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
+        ))
     }
 
-    /// Keep only edges matching a predicate. Same types, fewer edges.
     pub fn filter(&self, pred: impl Fn(&EdgeT) -> bool + Send + Sync + 'static) -> Self {
         let inner = self.impl_visit.clone();
-        edgy_visit(move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| {
-            inner(n, &mut |e: &EdgeT| { if pred(e) { cb(e); } });
-        })
+        edgy_visit(super::combinators::filter_edges(
+            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), pred,
+        ))
     }
 }
 

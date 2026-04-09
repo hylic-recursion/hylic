@@ -2,6 +2,7 @@ pub mod types;
 pub mod visit;
 pub mod graph;
 pub mod seed;
+pub(crate) mod combinators;
 
 pub use types::{Treeish, Edgy, treeish, treeish_visit, treeish_from, edgy, edgy_visit};
 pub use graph::Graph;

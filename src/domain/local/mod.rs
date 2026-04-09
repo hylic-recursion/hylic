@@ -159,6 +159,24 @@ impl<N: 'static> Treeish<N> {
     pub fn new(func: impl Fn(&N, &mut dyn FnMut(&N)) + 'static) -> Self {
         Treeish { impl_visit: Rc::new(func) }
     }
+
+    pub fn filter(&self, pred: impl Fn(&N) -> bool + 'static) -> Self {
+        let inner = self.impl_visit.clone();
+        treeish_visit(crate::graph::combinators::filter_edges(
+            move |n: &N, cb: &mut dyn FnMut(&N)| inner(n, cb), pred,
+        ))
+    }
+
+    pub fn treemap<NewN: 'static>(
+        &self,
+        co_tf: impl Fn(&N) -> NewN + 'static,
+        contra_tf: impl Fn(&NewN) -> N + 'static,
+    ) -> Treeish<NewN> {
+        let inner = self.impl_visit.clone();
+        Treeish::new(crate::graph::combinators::treemap(
+            move |n: &N, cb: &mut dyn FnMut(&N)| inner(n, cb), co_tf, contra_tf,
+        ))
+    }
 }
 
 impl<N: 'static> TreeOps<N> for Treeish<N> {
