@@ -10,7 +10,7 @@ use super::AccumulateStrategy;
 
 pub struct OnFinalize;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct OnFinalizeSpec;
 unsafe impl Send for OnFinalizeSpec {}
 unsafe impl Sync for OnFinalizeSpec {}

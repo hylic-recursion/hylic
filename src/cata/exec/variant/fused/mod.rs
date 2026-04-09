@@ -16,7 +16,7 @@ impl std::fmt::Debug for Spec {
 impl ExecutorSpec for Spec {
     type Resource<'r> = ();
     type Session<'s> = Self;
-    fn attach(&self, _: ()) -> Self { *self }
+    fn attach(self, _: Self::Resource<'_>) -> Self::Session<'_> { self }
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Self) -> R) -> R { f(self) }
 }
 

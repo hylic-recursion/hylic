@@ -19,7 +19,7 @@ pub use every_k::EveryK;
 /// `State` is per-worker mutable state (embedded in WorkerCtx as
 /// `Cell<State>`). Created once via `init_state`, reset per visit batch.
 pub trait WakeStrategy: 'static {
-    type Spec: Clone + Default + Send + Sync;
+    type Spec: Copy + Default + Send + Sync;
     type State: Copy;
 
     fn init_state(spec: &Self::Spec) -> Self::State;

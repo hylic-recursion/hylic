@@ -6,7 +6,7 @@ use super::WakeStrategy;
 
 pub struct OncePerBatch;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct OncePerBatchSpec;
 unsafe impl Send for OncePerBatchSpec {}
 unsafe impl Sync for OncePerBatchSpec {}

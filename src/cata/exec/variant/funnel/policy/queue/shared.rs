@@ -10,7 +10,7 @@ use super::{WorkStealing, TaskOps};
 
 pub struct Shared;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct SharedSpec;
 
 unsafe impl Send for SharedSpec {}

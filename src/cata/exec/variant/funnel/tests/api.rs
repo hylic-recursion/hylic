@@ -42,11 +42,9 @@ fn explicit_attach() {
     let graph = n_graph();
     let tree = big_tree(60, 4);
     let expected = dom::FUSED.run(&fold, &graph, &tree);
-    let spec = Spec::default(n_threads());
 
     Pool::with(n_threads(), |pool| {
-        let spec_exec = dom::exec(spec);
-        let exec = spec_exec.attach(pool);
+        let exec = dom::exec(Spec::default(n_threads())).attach(pool);
         assert_eq!(exec.run(&fold, &graph, &tree), expected);
     });
 }
@@ -57,11 +55,9 @@ fn attach_multi_run() {
     let graph = n_graph();
     let tree = big_tree(200, 6);
     let expected = dom::FUSED.run(&fold, &graph, &tree);
-    let spec = Spec::default(n_threads());
 
     Pool::with(n_threads(), |pool| {
-        let spec_exec = dom::exec(spec);
-        let exec = spec_exec.attach(pool);
+        let exec = dom::exec(Spec::default(n_threads())).attach(pool);
         for _ in 0..100 {
             assert_eq!(exec.run(&fold, &graph, &tree), expected);
         }

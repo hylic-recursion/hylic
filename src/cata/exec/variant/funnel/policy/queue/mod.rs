@@ -24,7 +24,7 @@ pub trait TaskOps<N, H, R> {
 // ANCHOR: work_stealing_trait
 /// A work-stealing strategy. Associates typed Store and Handle via GATs.
 pub trait WorkStealing: 'static {
-    type Spec: Clone + Default + Send + Sync;
+    type Spec: Copy + Default + Send + Sync;
     type Store<N: Send + 'static, H: 'static, R: Send + 'static>: Send + Sync;
     type Handle<'a, N: Send + 'static, H: 'static, R: Send + 'static>: TaskOps<N, H, R>
     where Self: 'a;

@@ -5,7 +5,7 @@ use super::WakeStrategy;
 
 pub struct EveryPush;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct EveryPushSpec;
 unsafe impl Send for EveryPushSpec {}
 unsafe impl Sync for EveryPushSpec {}

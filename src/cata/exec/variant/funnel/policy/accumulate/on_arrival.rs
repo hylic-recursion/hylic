@@ -11,7 +11,7 @@ use super::AccumulateStrategy;
 
 pub struct OnArrival;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct OnArrivalSpec;
 unsafe impl Send for OnArrivalSpec {}
 unsafe impl Sync for OnArrivalSpec {}

@@ -12,7 +12,7 @@ use super::{WorkStealing, TaskOps};
 
 pub struct PerWorker;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct PerWorkerSpec {
     pub deque_capacity: usize,
 }

@@ -16,7 +16,7 @@ use crate::cata::exec::funnel::cps::chain::{FoldChain, SlotRef};
 // ANCHOR: accumulate_strategy_trait
 /// Accumulation strategy: how child results flow into the parent's heap.
 pub trait AccumulateStrategy: 'static {
-    type Spec: Clone + Default + Send + Sync;
+    type Spec: Copy + Default + Send + Sync;
 
     fn deliver<N, H, R>(
         chain: &FoldChain<H, R>, slot: SlotRef, result: R,

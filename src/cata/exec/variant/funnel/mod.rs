@@ -34,6 +34,20 @@ pub struct Spec<P: FunnelPolicy = policy::Default> {
 }
 // ANCHOR_END: funnel_spec
 
+impl<P: FunnelPolicy> Clone for Spec<P> {
+    fn clone(&self) -> Self {
+        Spec {
+            n_workers: self.n_workers,
+            chain_arena_capacity: self.chain_arena_capacity,
+            cont_arena_capacity: self.cont_arena_capacity,
+            queue: self.queue,
+            accumulate: self.accumulate,
+            wake: self.wake,
+        }
+    }
+}
+impl<P: FunnelPolicy> Copy for Spec<P> {}
+
 // ── Default constructor (THE one source of defaults) ──
 
 impl Spec<policy::Default> {
@@ -118,12 +132,12 @@ impl<P: FunnelPolicy> ExecutorSpec for Spec<P> {
     type Resource<'r> = &'r Pool<'r>;
     type Session<'s> = Session<'s, P>;
 
-    fn attach<'a>(&'a self, pool: &'a Pool<'a>) -> Session<'a, P> {
+    fn attach(self, pool: <Self as ExecutorSpec>::Resource<'_>) -> Session<'_, P> {
         Session { pool_state: pool.state, spec: self }
     }
 
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Session<'s, P>) -> R) -> R {
-        Pool::with(self.n_workers, |pool| f(&self.attach(pool)))
+        Pool::with(self.n_workers, |pool| f(&(*self).attach(pool)))
     }
 }
 
@@ -142,7 +156,7 @@ where N: Clone + Send + 'static, R: Clone + Send + 'static,
 // ANCHOR: funnel_session
 pub struct Session<'s, P: FunnelPolicy = policy::Default> {
     pool_state: &'s pool::PoolState,
-    spec: &'s Spec<P>,
+    spec: Spec<P>,
 }
 // ANCHOR_END: funnel_session
 
@@ -152,7 +166,7 @@ impl<N, R, D: Domain<N>, P: FunnelPolicy> Executor<N, R, D> for Session<'_, P>
 where N: Clone + Send + 'static, R: Clone + Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
-        dispatch::run_fold::<_, _, _, _, _, P>(fold, graph, root, self.pool_state, self.spec)
+        dispatch::run_fold::<_, _, _, _, _, P>(fold, graph, root, self.pool_state, &self.spec)
     }
 }
 

@@ -94,10 +94,10 @@ pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
 /// - `Session<'s>`: what runs the fold (borrows the resource)
 /// - `attach()`: bind a resource to produce a session
 /// - `with_session()`: create resource + attach + scope (the internal "do everything" path)
-pub trait ExecutorSpec {
+pub trait ExecutorSpec: Copy {
     type Resource<'r> where Self: 'r;
     type Session<'s>: 's where Self: 's;
-    fn attach<'a>(&'a self, resource: Self::Resource<'a>) -> Self::Session<'a>;
+    fn attach(self, resource: Self::Resource<'_>) -> Self::Session<'_>;
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Self::Session<'s>) -> R) -> R;
 }
 // ANCHOR_END: executor_spec
@@ -112,6 +112,11 @@ impl<D, S> Exec<D, S> {
     pub const fn new(inner: S) -> Self { Exec(inner, PhantomData) }
     pub fn inner(&self) -> &S { &self.0 }
 }
+
+impl<D, S: Clone> Clone for Exec<D, S> {
+    fn clone(&self) -> Self { Exec::new(self.0.clone()) }
+}
+impl<D, S: Copy> Copy for Exec<D, S> {}
 // ANCHOR_END: exec_struct
 
 /// Safe reinterpret: &T → &Exec<D, T> via repr(transparent).
@@ -180,8 +185,9 @@ impl<D, S: ExecutorSpec> Exec<D, S> {
     }
 
     /// Attach a pre-created resource, producing a session-level Exec.
-    /// The resource type is executor-specific (defined by the `Resource` GAT).
-    pub fn attach<'a>(&'a self, resource: S::Resource<'a>) -> Exec<D, S::Session<'a>> {
+    /// Consumes the Spec (partial application). The resource type is
+    /// executor-specific (defined by the `Resource` GAT).
+    pub fn attach(self, resource: S::Resource<'_>) -> Exec<D, S::Session<'_>> {
         Exec::new(self.0.attach(resource))
     }
 }
