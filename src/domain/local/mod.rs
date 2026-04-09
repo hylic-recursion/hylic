@@ -1,7 +1,7 @@
 //! Local domain — Rc-based storage.
 //!
 //! Clone (non-atomic refcount), not Send+Sync. Lighter than Shared
-//! when parallelism isn't needed. Works with Fused and Sequential.
+//! when parallelism isn't needed. Works with Fused.
 //!
 //! Supports the full transformation API (map, zipmap, contramap, product).
 

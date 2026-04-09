@@ -9,6 +9,7 @@ mod stress;
 mod interleaving;
 
 use crate::domain::shared as dom;
+use crate::cata::exec::ExecutorSpec;
 use super::{Spec, Pool};
 use super::policy::{self, FunnelPolicy};
 use super::policy::queue::WorkStealing;
@@ -96,7 +97,7 @@ pub(super) fn run_on_pool<P: FunnelPolicy, R>(
             <P::Accumulate as AccumulateStrategy>::Spec::default(),
             <P::Wake as WakeStrategy>::Spec::default(),
         );
-    let exec = dom::exec(spec.bind(pool));
+    let exec = dom::exec(spec.attach(pool));
     f(&exec)
 }
 

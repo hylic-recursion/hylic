@@ -1,7 +1,7 @@
 //! Owned domain — Box-based storage.
 //!
 //! Not Clone, not Send+Sync. The lightest domain — zero refcount.
-//! Works with Fused and Sequential (they borrow, never clone).
+//! Works with Fused (it borrows, never clones).
 
 use crate::ops::{FoldOps, TreeOps};
 use crate::cata::exec::{Exec, fused};

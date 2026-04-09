@@ -120,20 +120,20 @@ impl<P: FunnelPolicy> Spec<P> {
         self
     }
 
-    /// Bind a pre-created pool to this spec, producing a Session.
-    /// The session borrows both the pool (threads) and the spec (config).
-    /// Per-fold memory (arenas, stores) is allocated fresh each run.
-    pub fn bind<'a>(&'a self, pool: &'a Pool<'_>) -> Session<'a, P> {
-        Session { pool_state: pool.state, spec: self }
-    }
 }
 
-// ── Spec: lifecycle (creates scoped pool) ───────────
+// ── Spec: lifecycle ─────────────────────────────────
 
 impl<P: FunnelPolicy> ExecutorSpec for Spec<P> {
+    type Resource<'r> = &'r Pool<'r>;
     type Session<'s> = Session<'s, P>;
+
+    fn attach<'a>(&'a self, pool: &'a Pool<'a>) -> Session<'a, P> {
+        Session { pool_state: pool.state, spec: self }
+    }
+
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Session<'s, P>) -> R) -> R {
-        Pool::with(self.n_workers, |pool| f(&self.bind(pool)))
+        Pool::with(self.n_workers, |pool| f(&self.attach(pool)))
     }
 }
 
@@ -155,13 +155,6 @@ pub struct Session<'s, P: FunnelPolicy = policy::Default> {
     spec: &'s Spec<P>,
 }
 // ANCHOR_END: funnel_session
-
-// ── Session: lifecycle (identity) ───────────────────
-
-impl<P: FunnelPolicy> ExecutorSpec for Session<'_, P> {
-    type Session<'s> = Self where Self: 's;
-    fn with_session<R>(&self, f: impl for<'s> FnOnce(&Self) -> R) -> R { f(self) }
-}
 
 // ── Session: computation (direct dispatch) ──────────
 

@@ -45,7 +45,7 @@ fn stress_1500_runs_adjacency_impl<P: FunnelPolicy>() {
             <P::Accumulate as AccumulateStrategy>::Spec::default(),
             <P::Wake as WakeStrategy>::Spec::default(),
         );
-        let exec = dom::exec(spec.bind(pool));
+        let exec = dom::exec(spec.attach(pool));
         for i in 0..1500 {
             assert_eq!(exec.run(&fold, &treeish, &0usize), expected, "iteration {i}");
         }
@@ -282,7 +282,7 @@ fn thread_participation_diagnostic() {
     // Single fold — how many threads participate?
     Pool::with(nt, |pool| {
         participation.store(0, std::sync::atomic::Ordering::Relaxed);
-        let exec = dom::exec(spec.bind(pool));
+        let exec = dom::exec(spec.attach(pool));
         let _result = exec.run(&fold, &treeish, &0usize);
         let mask = participation.load(std::sync::atomic::Ordering::Relaxed);
         let threads_used = mask.count_ones();
