@@ -27,12 +27,12 @@ pub trait Domain<N: 'static>: 'static {
 }
 // ANCHOR_END: domain_trait
 
-/// Arc-based storage. Clone, Send+Sync. Required for Rayon, Lifts,
-/// and pipeline composition (GraphWithFold).
+/// Arc-based storage. Clone, Send+Sync. Required for parallel
+/// executors (Funnel) and pipeline composition (GraphWithFold).
 pub struct Shared;
 
 /// Rc-based storage. Clone, not Send+Sync. Lighter refcount than
-/// Shared. Works with Fused and Sequential.
+/// Shared. Works with Fused.
 pub struct Local;
 
 /// Box-based storage. Not Clone. Lightest — no refcount. Works

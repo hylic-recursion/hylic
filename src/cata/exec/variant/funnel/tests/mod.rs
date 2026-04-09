@@ -4,6 +4,7 @@
 //!   policy::Default (PerWorker + OnFinalize + EveryPush)
 //!   policy::SharedDefault (Shared + OnFinalize + EveryPush)
 
+mod api;
 mod correctness;
 mod stress;
 mod interleaving;

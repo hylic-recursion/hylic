@@ -39,20 +39,24 @@ impl<Q: WorkStealing, A: AccumulateStrategy, W: WakeStrategy> FunnelPolicy for P
 
 // ANCHOR: named_presets
 // ── Named presets (type aliases) ─────────────────
+//
+// Each is a concrete instantiation of Policy<Q, A, W>.
+// `Default` aliases the robust all-rounder; other names describe
+// the workload shape they're tuned for.
 
-/// Robust all-rounder. PerWorker + OnFinalize + EveryPush.
+/// PerWorker + OnFinalize + EveryPush. The robust all-rounder.
 pub type Robust = Policy;
 
-/// The general-purpose default policy IS Robust.
+/// The default policy. Alias for Robust.
 pub type Default = Robust;
 
-/// Same axes as Robust — distinguished by Spec constructor (larger arenas).
+/// Same axes as Default. Distinguished by Spec configuration (larger arenas).
 pub type GraphHeavy = Robust;
 
-/// Wide trees (bf=20+). Shared + OnArrival + EveryPush.
+/// Shared + OnArrival + EveryPush. Wide trees (bf=20+).
 pub type WideLight = Policy<queue::Shared, accumulate::OnArrival>;
 
-/// Overhead-sensitive (noop-like). PerWorker + OnFinalize + OncePerBatch.
+/// PerWorker + OnFinalize + OncePerBatch. Overhead-sensitive (noop-like).
 pub type LowOverhead = Policy<queue::PerWorker, accumulate::OnFinalize, wake::OncePerBatch>;
 
 /// PerWorker + OnArrival + EveryPush. Streaming sweep with per-worker deques.

@@ -34,6 +34,8 @@ pub struct Spec<P: FunnelPolicy = policy::Default> {
 }
 // ANCHOR_END: funnel_spec
 
+// ── Default constructor (THE one source of defaults) ──
+
 impl Spec<policy::Default> {
     pub fn default(n_workers: usize) -> Self {
         Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
@@ -44,63 +46,51 @@ impl Spec<policy::Default> {
     }
 }
 
+// ── Named presets (transformations of default) ────
+
 impl Spec<policy::GraphHeavy> {
     pub fn for_graph_heavy(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 8192, cont_arena_capacity: 16384,
-            queue: queue::per_worker::PerWorkerSpec { deque_capacity: 4096 },
-            accumulate: accumulate::on_finalize::OnFinalizeSpec,
-            wake: wake::every_push::EveryPushSpec,
-        }
+        Spec::default(n_workers).with_arena_capacity(8192, 16384)
     }
 }
 
 impl Spec<policy::WideLight> {
     pub fn for_wide_light(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
-            queue: queue::shared::SharedSpec,
-            accumulate: accumulate::on_arrival::OnArrivalSpec,
-            wake: wake::every_push::EveryPushSpec,
-        }
+        Spec::default(n_workers)
+            .with_queue::<queue::Shared>(queue::shared::SharedSpec)
+            .with_accumulate::<accumulate::OnArrival>(accumulate::on_arrival::OnArrivalSpec)
     }
 }
 
 impl Spec<policy::LowOverhead> {
     pub fn for_low_overhead(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
-            queue: queue::per_worker::PerWorkerSpec { deque_capacity: 4096 },
-            accumulate: accumulate::on_finalize::OnFinalizeSpec,
-            wake: wake::once_per_batch::OncePerBatchSpec,
-        }
+        Spec::default(n_workers)
+            .with_wake::<wake::OncePerBatch>(wake::once_per_batch::OncePerBatchSpec)
     }
 }
 
 impl Spec<policy::HighThroughput> {
     pub fn for_high_throughput(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
-            queue: queue::per_worker::PerWorkerSpec { deque_capacity: 4096 },
-            accumulate: accumulate::on_finalize::OnFinalizeSpec,
-            wake: wake::every_k::EveryKSpec,
-        }
+        Spec::default(n_workers)
+            .with_wake::<wake::EveryK<4>>(wake::every_k::EveryKSpec)
     }
 }
 
 impl Spec<policy::StreamingWide> {
     pub fn for_streaming_wide(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
-            queue: queue::shared::SharedSpec,
-            accumulate: accumulate::on_arrival::OnArrivalSpec,
-            wake: wake::once_per_batch::OncePerBatchSpec,
-        }
+        Spec::default(n_workers)
+            .with_queue::<queue::Shared>(queue::shared::SharedSpec)
+            .with_accumulate::<accumulate::OnArrival>(accumulate::on_arrival::OnArrivalSpec)
+            .with_wake::<wake::OncePerBatch>(wake::once_per_batch::OncePerBatchSpec)
     }
 }
 
 impl Spec<policy::DeepNarrow> {
     pub fn for_deep_narrow(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 2048, cont_arena_capacity: 4096,
-            queue: queue::per_worker::PerWorkerSpec { deque_capacity: 2048 },
-            accumulate: accumulate::on_finalize::OnFinalizeSpec,
-            wake: wake::every_k::EveryKSpec,
-        }
+        Spec::default(n_workers)
+            .with_arena_capacity(2048, 4096)
+            .with_queue::<queue::PerWorker>(queue::per_worker::PerWorkerSpec { deque_capacity: 2048 })
+            .with_wake::<wake::EveryK<2>>(wake::every_k::EveryKSpec)
     }
 }
 
