@@ -1,9 +1,7 @@
 //! Thread pool for the funnel executor.
 //!
-//! Two modes:
-//! - `Pool::with(n, |pool| ...)` — scoped pool via `thread::scope`.
-//!   Threads join when the closure returns.
-//! - `Pool::global()` — lazy singleton, threads live until process exit.
+//! `Pool::with(n, |pool| ...)` — scoped pool via `thread::scope`.
+//! Threads join when the closure returns.
 //!
 //! Per-fold memory (arenas, stores) is NOT pre-allocated. Only threads
 //! are shared across folds. Each `run_fold` allocates its own typed state.
@@ -11,7 +9,7 @@
 //! Fold dispatch is serialized per pool (one fold at a time). Workers
 //! run in parallel within each fold. See public-surface/07-pool-concurrency.md.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 
 use super::infra::eventcount::EventCount;
@@ -78,21 +76,6 @@ impl Pool<'_> {
             state.shutdown.store(true, Ordering::Release);
             state.wake.notify_all();
             result
-        })
-    }
-
-    /// Lazy global singleton. Threads live until process exit.
-    /// Thread count = available parallelism (or 4 as fallback).
-    pub fn global() -> &'static Pool<'static> {
-        static POOL: OnceLock<Pool<'static>> = OnceLock::new();
-        POOL.get_or_init(|| {
-            let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-            let state: &'static PoolState = Box::leak(Box::new(PoolState::new(n)));
-            for i in 0..n {
-                let s = state;
-                std::thread::spawn(move || pool_thread(s, i));
-            }
-            Pool { state }
         })
     }
 

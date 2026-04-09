@@ -6,8 +6,6 @@ pub mod traced;
 pub mod memoize;
 pub mod common_folds;
 pub mod fallible;
-pub mod parallel;
-
 pub use vec_fold::{vec_fold, VecFold, VecHeap};
 pub use explainer::Explainer;
 pub use format::TreeFormatCfg;

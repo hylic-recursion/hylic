@@ -8,8 +8,9 @@
 //!   If won, no worker will ever touch the value at this position.
 
 use std::sync::atomic::{AtomicU64, Ordering, fence};
-use super::unsafe_core::segment::SegmentTable;
-use super::unsafe_core::slot;
+mod segment;
+mod slot;
+use segment::SegmentTable;
 
 pub struct StealQueue<T> {
     segments: SegmentTable<T>,
@@ -91,16 +92,19 @@ impl<T> StealQueue<T> {
     ///
     /// Returns true if reclaimed (publisher won the race).
     /// Returns false if a worker already stole it.
+    #[allow(dead_code)]
     pub fn try_reclaim(&self, pos: u64) -> bool {
         self.segments.get_slot(pos).try_reclaim()
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         let t = self.top.0.load(Ordering::Acquire);
         let b = self.bottom.0.load(Ordering::Acquire);
         b.saturating_sub(t) as usize
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

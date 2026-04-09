@@ -6,7 +6,7 @@
 //! Supports the full transformation API (map, zipmap, contramap, product).
 
 use std::rc::Rc;
-use crate::ops::{FoldOps, FoldConstruct, TreeOps};
+use crate::ops::{FoldOps, TreeOps};
 use crate::cata::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
@@ -56,10 +56,6 @@ impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
     fn init(&self, node: &N) -> H { Fold::init(self, node) }
     fn accumulate(&self, heap: &mut H, result: &R) { Fold::accumulate(self, heap, result) }
     fn finalize(&self, heap: &H) -> R { Fold::finalize(self, heap) }
-}
-
-impl<N: 'static, H: 'static, R: 'static> FoldConstruct<N, H, R> for Fold<N, H, R> {
-    type Mapped<N2: 'static, H2: 'static, R2: 'static> = Fold<N2, H2, R2>;
 }
 
 // ── Transformations ───────────────────────────────

@@ -38,7 +38,7 @@ impl<T> Slot<T> {
 #[repr(align(128))]
 struct CachePad<T>(T);
 
-pub struct WorkerDeque<T> {
+pub(crate) struct WorkerDeque<T> {
     buffer: Box<[Slot<T>]>,
     mask: isize,
     bottom: CachePad<AtomicIsize>,

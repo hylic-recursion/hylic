@@ -53,6 +53,7 @@ impl<T> Slot<T> {
 
     /// Try to reclaim: CAS AVAILABLE → RECLAIMED.
     /// If won, no worker will ever touch the value. Publisher can drop the frame.
+    #[allow(dead_code)]
     pub fn try_reclaim(&self) -> bool {
         self.state
             .compare_exchange(AVAILABLE, RECLAIMED, Ordering::AcqRel, Ordering::Relaxed)

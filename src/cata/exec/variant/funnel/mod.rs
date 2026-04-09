@@ -8,13 +8,14 @@
 //! All axes are monomorphized. Zero runtime overhead for strategy dispatch.
 
 pub(crate) mod cps;
-pub mod dispatch;
+pub(crate) mod dispatch;
 pub(crate) mod infra;
 pub mod policy;
 pub mod pool;
 
 pub use policy::{queue, accumulate, wake};
 pub use pool::Pool;
+pub use infra::steal_queue::StealQueue;
 
 use crate::domain::Domain;
 use super::super::{Executor, ExecutorSpec};
@@ -25,7 +26,9 @@ use wake::WakeStrategy;
 
 // ANCHOR: funnel_spec
 pub struct Spec<P: FunnelPolicy = policy::Default> {
-    pub n_workers: usize,
+    /// Pool size for `.run()` and `.session()`. Not consulted when
+    /// attaching to an explicit pool via `.attach()`.
+    pub default_pool_size: usize,
     pub chain_arena_capacity: usize,
     pub cont_arena_capacity: usize,
     pub queue: <P::Queue as WorkStealing>::Spec,
@@ -37,7 +40,7 @@ pub struct Spec<P: FunnelPolicy = policy::Default> {
 impl<P: FunnelPolicy> Clone for Spec<P> {
     fn clone(&self) -> Self {
         Spec {
-            n_workers: self.n_workers,
+            default_pool_size: self.default_pool_size,
             chain_arena_capacity: self.chain_arena_capacity,
             cont_arena_capacity: self.cont_arena_capacity,
             queue: self.queue,
@@ -48,11 +51,28 @@ impl<P: FunnelPolicy> Clone for Spec<P> {
 }
 impl<P: FunnelPolicy> Copy for Spec<P> {}
 
+impl<P: FunnelPolicy> std::fmt::Debug for Spec<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Spec")
+            .field("default_pool_size", &self.default_pool_size)
+            .field("arenas", &(self.chain_arena_capacity, self.cont_arena_capacity))
+            .finish()
+    }
+}
+
+impl<P: FunnelPolicy> std::fmt::Debug for Session<'_, P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("n_workers", &self.pool_state.n_threads)
+            .finish()
+    }
+}
+
 // ── Default constructor (THE one source of defaults) ──
 
 impl Spec<policy::Default> {
     pub fn default(n_workers: usize) -> Self {
-        Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
+        Spec { default_pool_size: n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
             queue: queue::per_worker::PerWorkerSpec { deque_capacity: 4096 },
             accumulate: accumulate::on_finalize::OnFinalizeSpec,
             wake: wake::every_push::EveryPushSpec,
@@ -65,6 +85,20 @@ impl Spec<policy::Default> {
 impl Spec<policy::GraphHeavy> {
     pub fn for_graph_heavy(n_workers: usize) -> Self {
         Spec::default(n_workers).with_arena_capacity(8192, 16384)
+    }
+}
+
+impl Spec<policy::PerWorkerArrival> {
+    pub fn for_perworker_arrival(n_workers: usize) -> Self {
+        Spec::default(n_workers)
+            .with_accumulate::<accumulate::OnArrival>(accumulate::on_arrival::OnArrivalSpec)
+    }
+}
+
+impl Spec<policy::SharedDefault> {
+    pub fn for_shared_default(n_workers: usize) -> Self {
+        Spec::default(n_workers)
+            .with_queue::<queue::Shared>(queue::shared::SharedSpec)
     }
 }
 
@@ -115,7 +149,7 @@ impl<P: FunnelPolicy> Spec<P> {
         accumulate: <P::Accumulate as AccumulateStrategy>::Spec,
         wake: <P::Wake as WakeStrategy>::Spec,
     ) -> Self {
-        Spec { n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192, queue, accumulate, wake }
+        Spec { default_pool_size: n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192, queue, accumulate, wake }
     }
 
     pub fn with_arena_capacity(mut self, chains: usize, conts: usize) -> Self {
@@ -137,7 +171,7 @@ impl<P: FunnelPolicy> ExecutorSpec for Spec<P> {
     }
 
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Session<'s, P>) -> R) -> R {
-        Pool::with(self.n_workers, |pool| f(&(*self).attach(pool)))
+        Pool::with(self.default_pool_size, |pool| f(&(*self).attach(pool)))
     }
 }
 

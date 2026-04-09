@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[derive(Clone, Copy)]
 pub struct ArenaIdx(u32);
 
-pub struct Arena<T> {
+pub(crate) struct Arena<T> {
     slots: Box<[UnsafeCell<MaybeUninit<T>>]>,
     next: AtomicU32,
     capacity: u32,
