@@ -5,16 +5,16 @@
 //!
 //! Supports the full transformation API (map, zipmap, contramap, product).
 
-use std::marker::PhantomData;
 use std::rc::Rc;
 use crate::ops::{FoldOps, FoldConstruct, TreeOps};
-use crate::cata::exec::{fused, sequential};
-use super::Local;
+use crate::cata::exec::{Exec, fused};
 
-// ── Executor consts for this domain ───────────────
+// ── Executor constants (domain-bound) ────────────
 
-pub const FUSED:      fused::Exec<Local>      = fused::Exec(PhantomData);
-pub const SEQUENTIAL: sequential::Exec<Local>  = sequential::Exec(PhantomData);
+pub const FUSED: Exec<super::Local, fused::Spec> = Exec::new(fused::Spec);
+
+/// Bind any executor to the Local domain.
+pub const fn exec<S>(s: S) -> Exec<super::Local, S> { Exec::new(s) }
 
 // ── Fold ──────────────────────────────────────────
 

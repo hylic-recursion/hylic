@@ -1,107 +1,81 @@
 //! Executor: the strategy for recursive tree computation.
 //!
-//! Each executor variant is a module with `Exec`, `Spec`, and `with`:
-//! ```ignore
-//! use hylic::cata::exec::fused;
-//! fused::Exec::with(fused::Spec, |exec| exec.run(&fold, &graph, &root));
-//! ```
+//! `Exec<D, S>` is the sole user-facing interface. D is the domain
+//! (determines fold/graph types). S is the executor strategy.
 //!
-//! The `Executor` trait exists for generic code (pipeline, advanced users).
-//! Normal call sites use inherent methods — no trait import needed.
+//! Every executor — Spec or Session — implements both `ExecutorSpec`
+//! (lifecycle) and `Executor` (computation). Specs route their
+//! `Executor::run` through `with_session`; Sessions are direct.
+//!
+//! Usage — one shape for all executors:
+//! ```ignore
+//! use hylic::domain::shared as dom;
+//!
+//! // Zero-resource (Fused): direct recursion
+//! dom::FUSED.run(&fold, &graph, &root);
+//!
+//! // Resource (Funnel): Spec creates scoped pool internally
+//! dom::exec(funnel::Spec::default(8)).run(&fold, &graph, &root);
+//!
+//! // Session reuse: .with() enters session scope, .run() inside is cheap
+//! dom::exec(funnel::Spec::default(8)).with(|s| {
+//!     s.run(&fold, &graph, &root);
+//! });
+//!
+//! // Expert: explicit pool, bind → session
+//! funnel::Pool::with(8, |pool| {
+//!     dom::exec(funnel::Spec::default(8).bind(pool)).run(&fold, &graph, &root);
+//! });
+//! ```
 
 pub mod variant;
 
 pub use variant::fused;
-pub use variant::sequential;
-pub use variant::rayon;
-pub use variant::pool;
-pub use variant::hylomorphic;
-pub use variant::hylo_funnel as funnel;
-pub use variant::custom;
+pub use variant::funnel;
 
 use std::marker::PhantomData;
-use crate::graph::Treeish;
-use crate::fold::Fold;
-use crate::domain::{Domain, Shared, Local, Owned};
+use crate::domain::Domain;
 use crate::ops::LiftOps;
 
-// ── Core trait (for generic code only) ────────────
+// ── Core trait: computation ─────────────────────────
 
 // ANCHOR: executor_trait
+/// What a session (or spec) can do: run a fold on a tree.
+/// Every type that appears as S in Exec<D, S> implements this.
 pub trait Executor<N: 'static, R: 'static, D: Domain<N>> {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R;
-}
-// ANCHOR_END: executor_trait
 
-// ── Type aliases (convenience) ───────────────────
-
-pub type Fused           = fused::Exec<Shared>;
-pub type FusedLocal      = fused::Exec<Local>;
-pub type FusedOwned      = fused::Exec<Owned>;
-pub type Sequential      = sequential::Exec<Shared>;
-pub type SequentialLocal = sequential::Exec<Local>;
-pub type SequentialOwned = sequential::Exec<Owned>;
-pub type Rayon           = rayon::Exec<Shared>;
-
-// ── Constants (zero-sized executors) ─────────────
-
-pub const FUSED:            Fused           = fused::Exec(PhantomData);
-pub const FUSED_LOCAL:      FusedLocal      = fused::Exec(PhantomData);
-pub const FUSED_OWNED:      FusedOwned      = fused::Exec(PhantomData);
-pub const SEQUENTIAL:       Sequential      = sequential::Exec(PhantomData);
-pub const SEQUENTIAL_LOCAL: SequentialLocal = sequential::Exec(PhantomData);
-pub const SEQUENTIAL_OWNED: SequentialOwned = sequential::Exec(PhantomData);
-pub const RAYON:            Rayon           = rayon::Exec(PhantomData);
-
-// ── DynExec: Shared-domain runtime dispatch ──────
-
-pub enum DynExec<N, R> {
-    Fused(Fused),
-    Sequential(Sequential),
-    Rayon(Rayon),
-    Custom(custom::Custom<N, R>),
-}
-
-impl<N: 'static, R: 'static> Executor<N, R, Shared> for DynExec<N, R>
-where N: Clone + Send + Sync, R: Send + Sync,
-{
-    fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
-        match self {
-            Self::Fused(e)      => e.run(fold, graph, root),
-            Self::Sequential(e) => e.run(fold, graph, root),
-            Self::Rayon(e)      => e.run(fold, graph, root),
-            Self::Custom(e)     => <custom::Custom<N, R> as Executor<N, R, Shared>>::run(e, fold, graph, root),
-        }
-    }
-}
-
-impl<N: 'static, R: 'static> DynExec<N, R>
-where N: Clone + Send + Sync, R: Send + Sync,
-{
-    pub fn run<H: 'static>(&self, fold: &Fold<N, H, R>, graph: &Treeish<N>, root: &N) -> R {
-        <Self as Executor<N, R, Shared>>::run(self, fold, graph, root)
-    }
-
-    pub fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
+    fn run_lifted<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
-        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>,
-        graph: &Treeish<N0>,
+        lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
+        fold: &<D as Domain<N0>>::Fold<H0, R0>,
+        graph: &<D as Domain<N0>>::Treeish,
         root: &N0,
-    ) -> R0 {
+    ) -> R0
+    where
+        D: Domain<N0>,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+    {
         let lifted_fold = lift.lift_fold(fold.clone());
         let lifted_treeish = lift.lift_treeish(graph.clone());
         let lifted_root = lift.lift_root(root);
         lift.unwrap(self.run(&lifted_fold, &lifted_treeish, &lifted_root))
     }
 
-    pub fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
+    fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, H: 'static>(
         &self,
-        lift: &impl LiftOps<Shared, N0, H0, R0, N, H, R>,
-        fold: &Fold<N0, H0, R0>,
-        graph: &Treeish<N0>,
+        lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
+        fold: &<D as Domain<N0>>::Fold<H0, R0>,
+        graph: &<D as Domain<N0>>::Treeish,
         root: &N0,
-    ) -> (R0, R) where R: Clone {
+    ) -> (R0, R)
+    where
+        D: Domain<N0>,
+        R: Clone,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+    {
         let lifted_fold = lift.lift_fold(fold.clone());
         let lifted_treeish = lift.lift_treeish(graph.clone());
         let lifted_root = lift.lift_root(root);
@@ -109,15 +83,102 @@ where N: Clone + Send + Sync, R: Send + Sync,
         (lift.unwrap(inner.clone()), inner)
     }
 }
+// ANCHOR_END: executor_trait
 
-impl<N: 'static, R: 'static> DynExec<N, R> {
-    pub fn fused() -> Self { DynExec::Fused(FUSED) }
+// ── Core trait: lifecycle ───────────────────────────
+
+// ANCHOR: executor_spec
+/// How to create/access the execution context.
+/// Every type that appears as S in Exec<D, S> implements this.
+///
+/// - Specs: `with_session` creates the context (e.g. thread pool).
+/// - Sessions: `with_session` is identity (context already exists).
+/// - Zero-resource (Fused, Rayon): Session = Self, identity.
+pub trait ExecutorSpec {
+    type Session<'s>: 's where Self: 's;
+    fn with_session<R>(&self, f: impl for<'s> FnOnce(&Self::Session<'s>) -> R) -> R;
+}
+// ANCHOR_END: executor_spec
+
+// ── Exec<D, S>: the sole user-facing wrapper ───────
+
+// ANCHOR: exec_struct
+#[repr(transparent)]
+pub struct Exec<D, S>(pub(crate) S, PhantomData<D>);
+
+impl<D, S> Exec<D, S> {
+    pub const fn new(inner: S) -> Self { Exec(inner, PhantomData) }
+    pub fn inner(&self) -> &S { &self.0 }
+}
+// ANCHOR_END: exec_struct
+
+/// Safe reinterpret: &T → &Exec<D, T> via repr(transparent).
+fn wrap_ref<D, T>(inner: &T) -> &Exec<D, T> {
+    // SAFETY: Exec is repr(transparent) over T. PhantomData<D> is ZST.
+    unsafe { &*(inner as *const T as *const Exec<D, T>) }
 }
 
-impl<N: Clone + 'static, R: 'static> DynExec<N, R> {
-    pub fn sequential() -> Self { DynExec::Sequential(SEQUENTIAL) }
+// ── Inherent: run (the ONE way to execute) ──────────
+
+// ANCHOR: inherent_run
+impl<D, S> Exec<D, S> {
+    pub fn run<N: 'static, H: 'static, R: 'static>(
+        &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &<D as Domain<N>>::Treeish, root: &N,
+    ) -> R
+    where D: Domain<N>, S: Executor<N, R, D>
+    {
+        Executor::<N, R, D>::run(&self.0, fold, graph, root)
+    }
+// ANCHOR_END: inherent_run
+
+    pub fn run_lifted<N0: 'static, H0: 'static, R0: 'static, N: 'static, H: 'static, R: 'static>(
+        &self,
+        lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
+        fold: &<D as Domain<N0>>::Fold<H0, R0>,
+        graph: &<D as Domain<N0>>::Treeish,
+        root: &N0,
+    ) -> R0
+    where
+        D: Domain<N> + Domain<N0>,
+        S: Executor<N, R, D>,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+    {
+        Executor::<N, R, D>::run_lifted(&self.0, lift, fold, graph, root)
+    }
+
+    pub fn run_lifted_zipped<N0: 'static, H0: 'static, R0: 'static, N: 'static, H: 'static, R: 'static>(
+        &self,
+        lift: &impl LiftOps<D, N0, H0, R0, N, H, R>,
+        fold: &<D as Domain<N0>>::Fold<H0, R0>,
+        graph: &<D as Domain<N0>>::Treeish,
+        root: &N0,
+    ) -> (R0, R)
+    where
+        D: Domain<N> + Domain<N0>,
+        S: Executor<N, R, D>,
+        R: Clone,
+        <D as Domain<N0>>::Fold<H0, R0>: Clone,
+        <D as Domain<N0>>::Treeish: Clone,
+    {
+        Executor::<N, R, D>::run_lifted_zipped(&self.0, lift, fold, graph, root)
+    }
 }
 
-impl<N: Clone + Send + Sync + 'static, R: Send + Sync + 'static> DynExec<N, R> {
-    pub fn rayon() -> Self { DynExec::Rayon(RAYON) }
+// ── Blanket: Exec implements Executor for generic code ──
+
+impl<N: 'static, R: 'static, D: Domain<N>, S: Executor<N, R, D>> Executor<N, R, D> for Exec<D, S> {
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
+        Executor::<N, R, D>::run(&self.0, fold, graph, root)
+    }
 }
+
+// ── Session scoping (for amortization) ──────────────
+
+// ANCHOR: exec_with
+impl<D, S: ExecutorSpec> Exec<D, S> {
+    pub fn with<R>(&self, f: impl for<'s> FnOnce(&Exec<D, S::Session<'s>>) -> R) -> R {
+        self.0.with_session(|session| f(wrap_ref(session)))
+    }
+}
+// ANCHOR_END: exec_with

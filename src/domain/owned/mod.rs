@@ -3,15 +3,15 @@
 //! Not Clone, not Send+Sync. The lightest domain — zero refcount.
 //! Works with Fused and Sequential (they borrow, never clone).
 
-use std::marker::PhantomData;
 use crate::ops::{FoldOps, TreeOps};
-use crate::cata::exec::{fused, sequential};
-use super::Owned;
+use crate::cata::exec::{Exec, fused};
 
-// ── Executor consts for this domain ───────────────
+// ── Executor constants (domain-bound) ────────────
 
-pub const FUSED:      fused::Exec<Owned>      = fused::Exec(PhantomData);
-pub const SEQUENTIAL: sequential::Exec<Owned>  = sequential::Exec(PhantomData);
+pub const FUSED: Exec<super::Owned, fused::Spec> = Exec::new(fused::Spec);
+
+/// Bind any executor to the Owned domain.
+pub const fn exec<S>(s: S) -> Exec<super::Owned, S> { Exec::new(s) }
 
 // ── Fold ──────────────────────────────────────────
 

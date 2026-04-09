@@ -7,32 +7,4 @@ description = "Composable tree computation framework: monoidal catamorphisms wit
 [dependencies]
 either = "1.15.0"
 derive_more = { version = "2.0.1", features = ["full"] }
-rayon = "1.10"
 atomic-wait = "1"
-
-[features]
-pool_trace = []
-
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-rand = "0.8"
-
-[[bench]]
-name = "bench_sequential"
-harness = false
-
-[[bench]]
-name = "bench_parallel"
-harness = false
-
-[[bench]]
-name = "bench_module_sim"
-harness = false
-
-[[bench]]
-name = "bench_executor_compare"
-harness = false
-
-[[bench]]
-name = "bench_hylo_compare"
-harness = false

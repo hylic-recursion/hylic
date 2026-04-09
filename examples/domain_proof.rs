@@ -28,8 +28,8 @@ trait Domain<N: 'static>: 'static {
 
 // ── Two concrete domains ──────────────────────────
 
-struct Shared;
-struct Owned;
+pub struct Shared;
+pub struct Owned;
 
 // Shared domain: Arc-based (simulated with a simple wrapper)
 struct SharedFold<N, H, R> {
@@ -91,7 +91,7 @@ trait Executor<N: 'static, R: 'static, D: Domain<N>> {
 
 // ── FusedIn<D>: blanket impl over all domains ─────
 
-struct FusedIn<D>(PhantomData<D>);
+pub struct FusedIn<D>(PhantomData<D>);
 impl<D> Copy for FusedIn<D> {}
 impl<D> Clone for FusedIn<D> { fn clone(&self) -> Self { *self } }
 impl<D> Default for FusedIn<D> { fn default() -> Self { FusedIn(PhantomData) } }

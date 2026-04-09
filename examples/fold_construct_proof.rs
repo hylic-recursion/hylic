@@ -187,7 +187,7 @@ fn main() {
         &shared,
         |s: &&str| s.len() as i32,
     );
-    let mut heap = contramapped.init(&"hello");
+    let heap = contramapped.init(&"hello");
     let result = contramapped.finalize(&heap);
     println!("Contramapped: {}", result);
     assert_eq!(result, 5); // "hello".len() = 5

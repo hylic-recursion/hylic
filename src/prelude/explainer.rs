@@ -5,14 +5,13 @@
 //! This is a histomorphism: each node sees its subtree's full history.
 //!
 //! Usage:
-//!   Fused.run_lifted(&Explainer::lift(), ...)                 — trace discarded, get R
-//!   Fused.run_lifted(&Explainer::lift_with(cb), ...)          — callback receives trace, get R
-//!   Fused.run_lifted_zipped(&Explainer::lift(), ...)          — get (R, ExplainerResult)
-//!   dom::DynExec::fused().run_lifted(&Explainer::lift(), ...) — same via runtime-dispatch wrapper
+//!   dom::FUSED.run_lifted(&Explainer::lift(), ...)             — trace discarded, get R
+//!   dom::FUSED.run_lifted(&Explainer::lift_with(cb), ...)     — callback receives trace, get R
+//!   dom::FUSED.run_lifted_zipped(&Explainer::lift(), ...)     — get (R, ExplainerResult)
 
 use crate::graph::{treeish, Treeish};
 use crate::fold::Fold;
-use crate::domain::Shared;
+use crate::domain;
 use crate::cata::Lift;
 
 // ── Trace data types ───────────────────────────────────────
@@ -64,7 +63,7 @@ pub struct Explainer;
 
 impl Explainer {
     /// Lift that records traces. Unwrap extracts the original R.
-    pub fn lift<N, H, R>() -> Lift<Shared, N, H, R, N, EH<N, H, R>, ER<N, H, R>>
+    pub fn lift<N, H, R>() -> Lift<domain::Shared, N, H, R, N, EH<N, H, R>, ER<N, H, R>>
     where
         N: Clone + 'static,
         H: Clone + 'static,
@@ -82,7 +81,7 @@ impl Explainer {
     /// unwrapping to R. Use this to inspect or store the trace.
     pub fn lift_with<N, H, R>(
         on_result: impl Fn(&ER<N, H, R>) + Send + Sync + 'static,
-    ) -> Lift<Shared, N, H, R, N, EH<N, H, R>, ER<N, H, R>>
+    ) -> Lift<domain::Shared, N, H, R, N, EH<N, H, R>, ER<N, H, R>>
     where
         N: Clone + 'static,
         H: Clone + 'static,

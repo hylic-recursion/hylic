@@ -7,19 +7,14 @@
 //! dom::FUSED.run(&dom::fold(...), &dom::treeish_visit(...), &root);
 //! ```
 
-use std::marker::PhantomData;
-use crate::cata::exec::{fused, sequential, rayon};
-use super::Shared;
+use crate::cata::exec::{Exec, fused};
 
-// ── Executor consts ───────────────────────────────
+// ── Executor constants (domain-bound) ────────────
 
-pub const FUSED:      fused::Exec<Shared>      = fused::Exec(PhantomData);
-pub const SEQUENTIAL: sequential::Exec<Shared>  = sequential::Exec(PhantomData);
-pub const RAYON:      rayon::Exec<Shared>       = rayon::Exec(PhantomData);
+pub const FUSED: Exec<super::Shared, fused::Spec> = Exec::new(fused::Spec);
 
-// ── Runtime dispatch ──────────────────────────────
-
-pub use crate::cata::exec::DynExec;
+/// Bind any executor to the Shared domain.
+pub const fn exec<S>(s: S) -> Exec<super::Shared, S> { Exec::new(s) }
 
 // ── Fold types + constructors ─────────────────────
 
