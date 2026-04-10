@@ -5,13 +5,12 @@
 //! This is a histomorphism: each node sees its subtree's full history.
 //!
 //! Usage:
-//!   lift::run_lifted(&dom::FUSED, &Explainer::lift(), ...)            — trace discarded, get R
-//!   lift::run_lifted(&dom::FUSED, &Explainer::lift_with(cb), ...)   — callback receives trace
-//!   lift::run_lifted_zipped(&dom::FUSED, &Explainer::lift(), ...)   — get (R, ExplainerResult)
+//!   lift::run_lifted(&dom::FUSED, &Explainer, &fold, &graph, &root)
+//!   lift::run_lifted_zipped(&dom::FUSED, &Explainer, &fold, &graph, &root)
 
 use crate::graph::{treeish, Treeish};
 use crate::domain::shared::fold::Fold;
-use crate::cata::Lift;
+use crate::ops::LiftOps;
 
 // ── Trace data types ───────────────────────────────────────
 
@@ -55,54 +54,18 @@ where N: Clone, H: Clone, R: Clone,
 type EH<N, H, R> = ExplainerHeap<N, H, R>;
 type ER<N, H, R> = ExplainerResult<N, H, R>;
 
-// ── Explainer ──────────────────────────────────────────────
+// ── Explainer: implements LiftOps directly ─────────────────
 
-/// Computation tracing as a Lift.
+/// Computation tracing. Implements LiftOps<N, R, N> for all Clone types.
 pub struct Explainer;
 
-impl Explainer {
-    /// Lift that records traces. Unwrap extracts the original R.
-    pub fn lift<N, H, R>() -> Lift<N, H, R, N, EH<N, H, R>, ER<N, H, R>>
-    where
-        N: Clone + 'static,
-        H: Clone + 'static,
-        R: Clone + 'static,
-    {
-        Lift::new(
-            |treeish| treeish,
-            Self::wrap_fold,
-            |n: &N| n.clone(),
-            |er: ER<N, H, R>| er.orig_result,
-        )
-    }
+impl<N: Clone + 'static, R: Clone + 'static> LiftOps<N, R, N> for Explainer {
+    type LiftedH<H: Clone + 'static> = EH<N, H, R>;
+    type LiftedR<H: Clone + 'static> = ER<N, H, R>;
 
-    /// Lift with callback: receives the full ExplainerResult before
-    /// unwrapping to R. Use this to inspect or store the trace.
-    pub fn lift_with<N, H, R>(
-        on_result: impl Fn(&ER<N, H, R>) + Send + Sync + 'static,
-    ) -> Lift<N, H, R, N, EH<N, H, R>, ER<N, H, R>>
-    where
-        N: Clone + 'static,
-        H: Clone + 'static,
-        R: Clone + 'static,
-    {
-        Lift::new(
-            |treeish| treeish,
-            Self::wrap_fold,
-            |n: &N| n.clone(),
-            move |er: ER<N, H, R>| {
-                on_result(&er);
-                er.orig_result
-            },
-        )
-    }
+    fn lift_treeish(&self, t: Treeish<N>) -> Treeish<N> { t }
 
-    fn wrap_fold<N, H, R>(original: Fold<N, H, R>) -> Fold<N, EH<N, H, R>, ER<N, H, R>>
-    where
-        N: Clone + 'static,
-        H: Clone + 'static,
-        R: Clone + 'static,
-    {
+    fn lift_fold<H: Clone + 'static>(&self, original: Fold<N, H, R>) -> Fold<N, EH<N, H, R>, ER<N, H, R>> {
         let f1 = original.clone();
         let f2 = original.clone();
         let f3 = original;
@@ -120,6 +83,12 @@ impl Explainer {
                 heap: heap.clone(),
             },
         )
+    }
+
+    fn lift_root(&self, root: &N) -> N { root.clone() }
+
+    fn unwrap<H: Clone + 'static>(&self, result: ER<N, H, R>) -> R {
+        result.orig_result
     }
 }
 

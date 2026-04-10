@@ -4,9 +4,11 @@
 //! They transform a computation to a different type domain while
 //! preserving the execution semantics.
 //!
-//! Both the lifted heap type and the lifted result type are GATs
-//! (`LiftedH<H>`, `LiftedR<H>`) — each lift determines how H maps
-//! to H2 and R2. This keeps H out of the trait's type parameters.
+//! The lifted heap and result types are GATs (`LiftedH<H>`, `LiftedR<H>`).
+//! H is bounded by `Clone + 'static` — lifts inherently copy heap state
+//! between phases (tracing, lazy evaluation, seed relay). Folds with
+//! non-Clone heaps can still run directly through executors but cannot
+//! be lifted.
 
 use crate::domain::shared;
 use crate::graph;
@@ -16,11 +18,11 @@ use crate::graph;
 /// `LiftedH<H>` maps the original heap type to the lifted heap type.
 /// `LiftedR<H>` maps to the lifted result type (may or may not depend on H).
 pub trait LiftOps<N: 'static, R: 'static, N2: 'static> {
-    type LiftedH<H: 'static>: 'static;
-    type LiftedR<H: 'static>: 'static;
+    type LiftedH<H: Clone + 'static>: 'static;
+    type LiftedR<H: Clone + 'static>: 'static;
 
     fn lift_treeish(&self, t: graph::Treeish<N>) -> graph::Treeish<N2>;
-    fn lift_fold<H: 'static>(&self, f: shared::fold::Fold<N, H, R>) -> shared::fold::Fold<N2, Self::LiftedH<H>, Self::LiftedR<H>>;
+    fn lift_fold<H: Clone + 'static>(&self, f: shared::fold::Fold<N, H, R>) -> shared::fold::Fold<N2, Self::LiftedH<H>, Self::LiftedR<H>>;
     fn lift_root(&self, root: &N) -> N2;
-    fn unwrap<H: 'static>(&self, result: Self::LiftedR<H>) -> R;
+    fn unwrap<H: Clone + 'static>(&self, result: Self::LiftedR<H>) -> R;
 }

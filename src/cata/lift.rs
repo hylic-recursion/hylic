@@ -11,7 +11,7 @@ use crate::ops::LiftOps;
 use super::exec::Executor;
 
 /// Execute a lifted computation. Shared-domain only.
-pub fn run_lifted<N: 'static, R: 'static, N2: 'static, H: 'static, L: LiftOps<N, R, N2>>(
+pub fn run_lifted<N: 'static, R: 'static, N2: 'static, H: Clone + 'static, L: LiftOps<N, R, N2>>(
     exec: &impl Executor<N2, L::LiftedR<H>, domain::Shared, graph::Treeish<N2>>,
     lift: &L,
     fold: &shared::fold::Fold<N, H, R>,
@@ -25,7 +25,7 @@ pub fn run_lifted<N: 'static, R: 'static, N2: 'static, H: 'static, L: LiftOps<N,
 }
 
 /// Execute a lifted computation and return both the original and lifted results.
-pub fn run_lifted_zipped<N: 'static, R: 'static, N2: 'static, H: 'static, L: LiftOps<N, R, N2>>(
+pub fn run_lifted_zipped<N: 'static, R: 'static, N2: 'static, H: Clone + 'static, L: LiftOps<N, R, N2>>(
     exec: &impl Executor<N2, L::LiftedR<H>, domain::Shared, graph::Treeish<N2>>,
     lift: &L,
     fold: &shared::fold::Fold<N, H, R>,
