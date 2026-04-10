@@ -67,6 +67,7 @@ pub struct Exec<D, S>(pub(crate) S, PhantomData<D>);
 impl<D, S> Exec<D, S> {
     pub const fn new(inner: S) -> Self { Exec(inner, PhantomData) }
     pub fn inner(&self) -> &S { &self.0 }
+    pub fn into_inner(self) -> S { self.0 }
 }
 
 impl<D, S: Clone> Clone for Exec<D, S> {
@@ -116,5 +117,16 @@ impl<N: 'static, R: 'static, D: Domain<N>, G: TreeOps<N> + 'static, S: Executor<
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &G, root: &N) -> R {
         Executor::<N, R, D, G>::run(&self.0, fold, graph, root)
+    }
+}
+
+// ── Blanket: &S implements Executor when S does ──
+// Enables wrapping borrowed sessions in adapters (e.g., SeedAdapter<&S>).
+
+impl<N: 'static, R: 'static, D: Domain<N>, G: TreeOps<N> + 'static, S: Executor<N, R, D, G>>
+    Executor<N, R, D, G> for &S
+{
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &G, root: &N) -> R {
+        (**self).run(fold, graph, root)
     }
 }
