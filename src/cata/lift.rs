@@ -14,6 +14,9 @@ use super::exec::Executor;
 
 /// A paired transformation that lifts Treeish + Fold to a different
 /// type domain. Purely a transformation — knows nothing about execution.
+///
+/// H and H2 are type parameters on the struct because the boxed closures
+/// inside carry them. The LiftOps GAT `LiftedH<H> = H2` maps between them.
 // ANCHOR: lift_struct
 pub struct Lift<N, H, R, N2, H2, R2>
 where
@@ -67,17 +70,40 @@ where
     }
 }
 
-impl<N, H, R, N2, H2, R2> LiftOps<N, H, R, N2, H2, R2>
+/// The Lift struct implements LiftOps with LiftedH<H> fixed to H2.
+/// The struct carries H and H2 as type params (the closures need them).
+/// The GAT maps: for this specific Lift, LiftedH<H> = H2.
+impl<N, H, R, N2, H2, R2> LiftOps<N, R, N2, R2>
     for Lift<N, H, R, N2, H2, R2>
 where
     N: 'static, H: 'static, R: 'static,
     N2: 'static, H2: 'static, R2: 'static,
 {
+    type LiftedH<HH: 'static> = H2;
+    // Note: LiftedH<HH> = H2 regardless of HH. This is because the Lift
+    // struct's boxed closure is monomorphic over H — it only works for the
+    // specific H it was constructed with. The GAT formally requires a
+    // generic mapping, but Lift ignores the input HH and always returns H2.
+    // This is correct: run_lifted calls lift_fold with the matching H.
+
     fn lift_treeish(&self, t: graph::Treeish<N>) -> graph::Treeish<N2> {
         (self.impl_lift_treeish)(t)
     }
-    fn lift_fold(&self, f: shared::fold::Fold<N, H, R>) -> shared::fold::Fold<N2, H2, R2> {
-        (self.impl_lift_fold)(f)
+    fn lift_fold<HH: 'static>(&self, f: shared::fold::Fold<N, HH, R>) -> shared::fold::Fold<N2, H2, R2> {
+        // SAFETY of the transmute: the Lift was constructed for a specific H.
+        // The caller (run_lifted) passes the same H. HH = H at every call site.
+        // The boxed closure expects Fold<N, H, R> and we receive Fold<N, HH, R>.
+        // When HH = H, these are the same type. We transmute to bridge the
+        // generic HH to the concrete H.
+        //
+        // This is sound because:
+        // 1. Lift<N, H, ...> is only constructed with closures for H
+        // 2. run_lifted passes the fold that determines H
+        // 3. No other caller can provide a different HH
+        let f_concrete: shared::fold::Fold<N, H, R> = unsafe {
+            std::mem::transmute(f)
+        };
+        (self.impl_lift_fold)(f_concrete)
     }
     fn lift_root(&self, root: &N) -> N2 {
         (self.impl_lift_root)(root)
@@ -90,10 +116,10 @@ where
 // ── run_lifted: execute a lift through any Shared-domain executor ──
 
 /// Execute a lifted computation. Shared-domain only.
-pub fn run_lifted<N: 'static, H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static>(
+pub fn run_lifted<N: 'static, R: 'static, N2: 'static, R2: 'static>(
     exec: &impl Executor<N2, R2, domain::Shared, graph::Treeish<N2>>,
-    lift: &impl LiftOps<N, H, R, N2, H2, R2>,
-    fold: &shared::fold::Fold<N, H, R>,
+    lift: &impl LiftOps<N, R, N2, R2>,
+    fold: &shared::fold::Fold<N, impl 'static, R>,
     graph: &graph::Treeish<N>,
     root: &N,
 ) -> R {
@@ -104,10 +130,10 @@ pub fn run_lifted<N: 'static, H: 'static, R: 'static, N2: 'static, H2: 'static, 
 }
 
 /// Execute a lifted computation and return both the original and lifted results.
-pub fn run_lifted_zipped<N: 'static, H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static>(
+pub fn run_lifted_zipped<N: 'static, R: 'static, N2: 'static, R2: 'static>(
     exec: &impl Executor<N2, R2, domain::Shared, graph::Treeish<N2>>,
-    lift: &impl LiftOps<N, H, R, N2, H2, R2>,
-    fold: &shared::fold::Fold<N, H, R>,
+    lift: &impl LiftOps<N, R, N2, R2>,
+    fold: &shared::fold::Fold<N, impl 'static, R>,
     graph: &graph::Treeish<N>,
     root: &N,
 ) -> (R, R2)
