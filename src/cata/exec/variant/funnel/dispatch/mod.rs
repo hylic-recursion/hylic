@@ -29,8 +29,8 @@ where
     N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static,
 {
     let store = P::Queue::create_store(&spec.queue, pool_state.n_threads);
-    let chain_arena = Arena::<ChainNode<H, R>>::new(spec.chain_arena_capacity);
-    let cont_arena = ContArena::<Cont<H, R>>::new(spec.cont_arena_capacity);
+    let chain_arena = Arena::<ChainNode<H, R>>::new();
+    let cont_arena = ContArena::<Cont<H, R>>::new();
     let root_cell = Arc::new(RootCell::new());
 
     let view = FoldView {

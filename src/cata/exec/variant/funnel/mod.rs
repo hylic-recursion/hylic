@@ -29,8 +29,6 @@ pub struct Spec<P: FunnelPolicy = policy::Default> {
     /// Pool size for `.run()` and `.session()`. Not consulted when
     /// attaching to an explicit pool via `.attach()`.
     pub default_pool_size: usize,
-    pub chain_arena_capacity: usize,
-    pub cont_arena_capacity: usize,
     pub queue: <P::Queue as WorkStealing>::Spec,
     pub accumulate: <P::Accumulate as AccumulateStrategy>::Spec,
     pub wake: <P::Wake as WakeStrategy>::Spec,
@@ -41,8 +39,6 @@ impl<P: FunnelPolicy> Clone for Spec<P> {
     fn clone(&self) -> Self {
         Spec {
             default_pool_size: self.default_pool_size,
-            chain_arena_capacity: self.chain_arena_capacity,
-            cont_arena_capacity: self.cont_arena_capacity,
             queue: self.queue,
             accumulate: self.accumulate,
             wake: self.wake,
@@ -55,7 +51,6 @@ impl<P: FunnelPolicy> std::fmt::Debug for Spec<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Spec")
             .field("default_pool_size", &self.default_pool_size)
-            .field("arenas", &(self.chain_arena_capacity, self.cont_arena_capacity))
             .finish()
     }
 }
@@ -72,7 +67,7 @@ impl<P: FunnelPolicy> std::fmt::Debug for Session<'_, P> {
 
 impl Spec<policy::Default> {
     pub fn default(n_workers: usize) -> Self {
-        Spec { default_pool_size: n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192,
+        Spec { default_pool_size: n_workers,
             queue: queue::per_worker::PerWorkerSpec { deque_capacity: 4096 },
             accumulate: accumulate::on_finalize::OnFinalizeSpec,
             wake: wake::every_push::EveryPushSpec,
@@ -84,7 +79,7 @@ impl Spec<policy::Default> {
 
 impl Spec<policy::GraphHeavy> {
     pub fn for_graph_heavy(n_workers: usize) -> Self {
-        Spec::default(n_workers).with_arena_capacity(8192, 16384)
+        Spec::default(n_workers)
     }
 }
 
@@ -136,7 +131,6 @@ impl Spec<policy::StreamingWide> {
 impl Spec<policy::DeepNarrow> {
     pub fn for_deep_narrow(n_workers: usize) -> Self {
         Spec::default(n_workers)
-            .with_arena_capacity(2048, 4096)
             .with_queue::<queue::PerWorker>(queue::per_worker::PerWorkerSpec { deque_capacity: 2048 })
             .with_wake::<wake::EveryK<2>>(wake::every_k::EveryKSpec)
     }
@@ -149,15 +143,8 @@ impl<P: FunnelPolicy> Spec<P> {
         accumulate: <P::Accumulate as AccumulateStrategy>::Spec,
         wake: <P::Wake as WakeStrategy>::Spec,
     ) -> Self {
-        Spec { default_pool_size: n_workers, chain_arena_capacity: 4096, cont_arena_capacity: 8192, queue, accumulate, wake }
+        Spec { default_pool_size: n_workers, queue, accumulate, wake }
     }
-
-    pub fn with_arena_capacity(mut self, chains: usize, conts: usize) -> Self {
-        self.chain_arena_capacity = chains;
-        self.cont_arena_capacity = conts;
-        self
-    }
-
 }
 
 // ── Spec: lifecycle ─────────────────────────────────

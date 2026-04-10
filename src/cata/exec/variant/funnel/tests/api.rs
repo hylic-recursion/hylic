@@ -183,18 +183,21 @@ fn preset_equals_transformation() {
     assert_eq!(from_preset, from_chain);
 }
 
-// ── Arena tuning ────────────────────────────────────
+// ── Growable arena ──────────────────────────────────
 
 #[test]
-fn arena_tuning() {
+fn growable_arena_small_and_large() {
     let fold = sum_fold();
     let graph = n_graph();
-    let tree = big_tree(200, 6);
-    let expected = dom::FUSED.run(&fold, &graph, &tree);
+    let spec = Spec::default(n_threads());
 
-    let spec = Spec::default(n_threads()).with_arena_capacity(8192, 16384);
-    assert_eq!(dom::exec(spec).run(&fold, &graph, &tree), expected);
+    // Small tree: few arena allocations
+    let small = big_tree(20, 3);
+    let expected = dom::FUSED.run(&fold, &graph, &small);
+    assert_eq!(dom::exec(spec).run(&fold, &graph, &small), expected);
 
-    let spec = Spec::default(n_threads()).with_arena_capacity(512, 1024);
-    assert_eq!(dom::exec(spec).run(&fold, &graph, &tree), expected);
+    // Large tree: many arena allocations across multiple segments
+    let large = big_tree(500, 8);
+    let expected = dom::FUSED.run(&fold, &graph, &large);
+    assert_eq!(dom::exec(spec).run(&fold, &graph, &large), expected);
 }

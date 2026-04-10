@@ -85,8 +85,6 @@ impl<Q: WorkStealing, A: AccumulateStrategy, W: WakeStrategy>
     pub fn with_queue<Q2: WorkStealing>(self, queue_spec: Q2::Spec) -> super::Spec<Policy<Q2, A, W>> {
         super::Spec {
             default_pool_size: self.default_pool_size,
-            chain_arena_capacity: self.chain_arena_capacity,
-            cont_arena_capacity: self.cont_arena_capacity,
             queue: queue_spec, accumulate: self.accumulate, wake: self.wake,
         }
     }
@@ -95,8 +93,6 @@ impl<Q: WorkStealing, A: AccumulateStrategy, W: WakeStrategy>
     pub fn with_accumulate<A2: AccumulateStrategy>(self, acc_spec: A2::Spec) -> super::Spec<Policy<Q, A2, W>> {
         super::Spec {
             default_pool_size: self.default_pool_size,
-            chain_arena_capacity: self.chain_arena_capacity,
-            cont_arena_capacity: self.cont_arena_capacity,
             queue: self.queue, accumulate: acc_spec, wake: self.wake,
         }
     }
@@ -105,8 +101,6 @@ impl<Q: WorkStealing, A: AccumulateStrategy, W: WakeStrategy>
     pub fn with_wake<W2: WakeStrategy>(self, wake_spec: W2::Spec) -> super::Spec<Policy<Q, A, W2>> {
         super::Spec {
             default_pool_size: self.default_pool_size,
-            chain_arena_capacity: self.chain_arena_capacity,
-            cont_arena_capacity: self.cont_arena_capacity,
             queue: self.queue, accumulate: self.accumulate, wake: wake_spec,
         }
     }
