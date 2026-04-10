@@ -59,7 +59,7 @@ impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
 }
 
 // ── Transformations ───────────────────────────────
-// Same logic as shared::Fold (fold/algebra.rs), Rc instead of Arc,
+// Same logic as shared::Fold (domain/shared/fold.rs), Rc instead of Arc,
 // no Send+Sync bounds.
 
 impl<N, H, R> Fold<N, H, R>
