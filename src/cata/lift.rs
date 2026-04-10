@@ -91,7 +91,7 @@ where
 
 /// Execute a lifted computation. Shared-domain only.
 pub fn run_lifted<N: 'static, H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static>(
-    exec: &impl Executor<N2, R2, domain::Shared>,
+    exec: &impl Executor<N2, R2, domain::Shared, graph::Treeish<N2>>,
     lift: &impl LiftOps<N, H, R, N2, H2, R2>,
     fold: &shared::fold::Fold<N, H, R>,
     graph: &graph::Treeish<N>,
@@ -105,7 +105,7 @@ pub fn run_lifted<N: 'static, H: 'static, R: 'static, N2: 'static, H2: 'static, 
 
 /// Execute a lifted computation and return both the original and lifted results.
 pub fn run_lifted_zipped<N: 'static, H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static>(
-    exec: &impl Executor<N2, R2, domain::Shared>,
+    exec: &impl Executor<N2, R2, domain::Shared, graph::Treeish<N2>>,
     lift: &impl LiftOps<N, H, R, N2, H2, R2>,
     fold: &shared::fold::Fold<N, H, R>,
     graph: &graph::Treeish<N>,

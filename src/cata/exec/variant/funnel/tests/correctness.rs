@@ -63,7 +63,7 @@ fn matches_fused_pwa() {
 fn adjacency_list_noop_impl<P: FunnelPolicy>() {
     let adj = gen_adj(200, 8);
     let ch = adj.clone();
-    let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
+    let treeish = crate::graph::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
         for &child in &ch[*n] { cb(&child); }
     });
     let fold = dom::fold(

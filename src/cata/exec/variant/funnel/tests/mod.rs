@@ -80,8 +80,8 @@ pub(super) fn sum_fold() -> dom::Fold<N, i32, i32> {
     dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; })
 }
 
-pub(super) fn n_graph() -> dom::Treeish<N> {
-    dom::treeish(|n: &N| n.children.clone())
+pub(super) fn n_graph() -> crate::graph::Treeish<N> {
+    crate::graph::treeish(|n: &N| n.children.clone())
 }
 
 // ── Policy-generic helpers ───────────────────────────

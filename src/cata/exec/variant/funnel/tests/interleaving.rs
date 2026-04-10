@@ -94,7 +94,7 @@ fn cross_subtree_interleaving_impl<P: FunnelPolicy>() {
         trace.len.store(0, Ordering::Relaxed);
 
         let s1 = seq.clone(); let t1 = trace.clone();
-        let graph = dom::treeish(move |n: &TaggedN| {
+        let graph = crate::graph::treeish(move |n: &TaggedN| {
             std::thread::yield_now();
             t1.push(&s1, OP_VISIT, n.val, n.subtree);
             n.children.clone()

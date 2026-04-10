@@ -28,7 +28,7 @@ fn stress_1500_runs_sh() { stress_1500_runs_impl::<policy::SharedDefault>(); }
 fn stress_1500_runs_adjacency_impl<P: FunnelPolicy>() {
     let adj = gen_adj(200, 8);
     let ch = adj.clone();
-    let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
+    let treeish = crate::graph::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
         for &child in &ch[*n] { cb(&child); }
     });
     let fold = dom::fold(
@@ -92,10 +92,10 @@ fn noop_fold() -> dom::Fold<usize, u64, u64> {
     )
 }
 
-fn noop_adj() -> (std::sync::Arc<Vec<Vec<usize>>>, dom::Treeish<usize>) {
+fn noop_adj() -> (std::sync::Arc<Vec<Vec<usize>>>, crate::graph::Treeish<usize>) {
     let adj = gen_adj(200, 8);
     let ch = adj.clone();
-    let treeish = dom::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
+    let treeish = crate::graph::treeish_visit(move |n: &usize, cb: &mut dyn FnMut(&usize)| {
         for &child in &ch[*n] { cb(&child); }
     });
     (adj, treeish)

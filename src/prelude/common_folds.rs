@@ -23,7 +23,7 @@ pub fn depth_fold<N: 'static>() -> Fold<N, usize, usize> {
 
 /// Format a tree as an indented string.
 pub fn pretty_print<N: Clone + 'static>(
-    exec: &impl exec::Executor<N, String, domain::Shared>,
+    exec: &impl exec::Executor<N, String, domain::Shared, Treeish<N>>,
     graph: &Treeish<N>,
     root: &N,
     format_node: impl Fn(&N) -> String + Send + Sync + 'static,
