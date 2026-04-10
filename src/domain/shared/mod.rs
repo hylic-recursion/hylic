@@ -7,6 +7,10 @@
 //! dom::FUSED.run(&dom::fold(...), &dom::treeish_visit(...), &root);
 //! ```
 
+pub mod fold;
+pub mod graph;
+pub mod compose;
+
 use crate::cata::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
@@ -18,18 +22,18 @@ pub const fn exec<S>(s: S) -> Exec<super::Shared, S> { Exec::new(s) }
 
 // ── Fold types + constructors ─────────────────────
 
-pub use crate::fold::{Fold, fold, simple_fold};
+pub use fold::{Fold, fold, simple_fold};
 
 // ── Graph types + constructors ────────────────────
 
-pub use crate::graph::{
+pub use graph::{
     Treeish, Edgy,
     treeish, treeish_visit, treeish_from,
     edgy, edgy_visit,
-    Graph, SeedGraph,
-    Visit, visit_slice,
 };
 
-// ── Pipeline (Shared-only) ────────────────────────
+pub use crate::graph::visit::{Visit, visit_slice};
 
-pub use crate::pipeline::GraphWithFold;
+// ── Composition (Shared-only) ────────────────────
+
+pub use compose::{Graph, SeedGraph, GraphWithFold};

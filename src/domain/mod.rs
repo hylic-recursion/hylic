@@ -65,8 +65,8 @@ pub trait ConstructFold<N: 'static>: Domain<N> {
 }
 
 impl<N: 'static> Domain<N> for Shared {
-    type Fold<H: 'static, R: 'static> = crate::fold::Fold<N, H, R>;
-    type Treeish = crate::graph::Treeish<N>;
+    type Fold<H: 'static, R: 'static> = shared::fold::Fold<N, H, R>;
+    type Treeish = shared::graph::Treeish<N>;
 }
 
 impl<N: 'static> Domain<N> for Local {
@@ -84,7 +84,7 @@ impl<N: 'static> ConstructFold<N> for Shared {
         init: impl Fn(&N) -> H + 'static,
         acc: impl Fn(&mut H, &R) + 'static,
         fin: impl Fn(&H) -> R + 'static,
-    ) -> crate::fold::Fold<N, H, R> {
+    ) -> shared::fold::Fold<N, H, R> {
         // SAFETY: caller guarantees closures are Send+Sync.
         // AssertSend bridges the type gap. Method call (.get())
         // forces Rust 2021 precise captures to grab the whole wrapper.
@@ -99,7 +99,7 @@ impl<N: 'static> ConstructFold<N> for Shared {
         let init = AssertSend(init);
         let acc = AssertSend(acc);
         let fin = AssertSend(fin);
-        crate::fold::fold(
+        shared::fold::fold(
             move |n: &N| init.get()(n),
             move |h: &mut H, r: &R| acc.get()(h, r),
             move |h: &H| fin.get()(h),

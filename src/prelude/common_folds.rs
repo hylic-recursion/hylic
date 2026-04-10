@@ -1,7 +1,7 @@
 //! Common fold patterns — ready-made folds for frequent use cases.
 
-use crate::fold::{Fold, simple_fold};
-use crate::graph::Treeish;
+use crate::domain::shared::fold::{Fold, simple_fold};
+use crate::domain::shared::graph::Treeish;
 use crate::cata::exec;
 use crate::domain;
 use crate::prelude::vec_fold::{vec_fold, VecHeap};

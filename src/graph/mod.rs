@@ -1,10 +1,9 @@
-pub mod types;
-pub mod visit;
-pub mod graph;
-pub mod seed;
-pub(crate) mod combinators;
+//! Graph infrastructure — domain-independent combinators and Visit iterator.
+//!
+//! The concrete graph types live in their domain modules:
+//! - `domain::shared::graph` (Arc-based Edgy/Treeish)
+//! - `domain::local::Treeish` (Rc-based)
+//! - `domain::owned::Treeish` (Box-based)
 
-pub use types::{Treeish, Edgy, treeish, treeish_visit, treeish_from, edgy, edgy_visit};
-pub use graph::Graph;
-pub use visit::{Visit, visit_slice};
-pub use seed::SeedGraph;
+pub(crate) mod combinators;
+pub mod visit;

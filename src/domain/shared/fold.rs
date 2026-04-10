@@ -1,4 +1,8 @@
+//! Shared-domain Fold — Arc-based closure storage, Clone, Send+Sync.
+
 use std::sync::Arc;
+use crate::ops::FoldOps;
+use crate::fold::combinators;
 
 // ANCHOR: fold_struct
 pub struct Fold<N, H, R> {
@@ -16,6 +20,12 @@ impl<N, H, R> Clone for Fold<N, H, R> {
             impl_finalize: self.impl_finalize.clone(),
         }
     }
+}
+
+impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
+    fn init(&self, node: &N) -> H { Fold::init(self, node) }
+    fn accumulate(&self, heap: &mut H, result: &R) { Fold::accumulate(self, heap, result) }
+    fn finalize(&self, heap: &H) -> R { Fold::finalize(self, heap) }
 }
 
 impl<N, H, R> Fold<N, H, R>
@@ -43,7 +53,7 @@ where N: 'static, H: 'static, R: 'static,
     pub fn wrap_init(&self, wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static) -> Self {
         let inner = self.impl_init.clone();
         Fold {
-            impl_init: Arc::new(super::combinators::wrap_init(move |n: &N| inner(n), wrapper)),
+            impl_init: Arc::new(combinators::wrap_init(move |n: &N| inner(n), wrapper)),
             impl_accumulate: self.impl_accumulate.clone(),
             impl_finalize: self.impl_finalize.clone(),
         }
@@ -53,7 +63,7 @@ where N: 'static, H: 'static, R: 'static,
         let inner = self.impl_accumulate.clone();
         Fold {
             impl_init: self.impl_init.clone(),
-            impl_accumulate: Arc::new(super::combinators::wrap_accumulate(move |h: &mut H, r: &R| inner(h, r), wrapper)),
+            impl_accumulate: Arc::new(combinators::wrap_accumulate(move |h: &mut H, r: &R| inner(h, r), wrapper)),
             impl_finalize: self.impl_finalize.clone(),
         }
     }
@@ -63,7 +73,7 @@ where N: 'static, H: 'static, R: 'static,
         Fold {
             impl_init: self.impl_init.clone(),
             impl_accumulate: self.impl_accumulate.clone(),
-            impl_finalize: Arc::new(super::combinators::wrap_finalize(move |h: &H| inner(h), wrapper)),
+            impl_finalize: Arc::new(combinators::wrap_finalize(move |h: &H| inner(h), wrapper)),
         }
     }
 
@@ -75,7 +85,7 @@ where N: 'static, H: 'static, R: 'static,
         MapF: Fn(&R) -> RNew + Send + Sync + 'static,
         BackF: Fn(&RNew) -> R + Send + Sync + 'static,
     {
-        let (i, a, f) = super::combinators::map_fold(
+        let (i, a, f) = combinators::map_fold(
             { let v = self.impl_init.clone(); move |n: &N| v(n) },
             { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
             { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
@@ -94,7 +104,7 @@ where N: 'static, H: 'static, R: 'static,
     }
 
     pub fn contramap<NewN: 'static>(&self, f: impl Fn(&NewN) -> N + Send + Sync + 'static) -> Fold<NewN, H, R> {
-        let (i, a, fin) = super::combinators::contramap_fold(
+        let (i, a, fin) = combinators::contramap_fold(
             { let v = self.impl_init.clone(); move |n: &N| v(n) },
             { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
             { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
@@ -104,7 +114,7 @@ where N: 'static, H: 'static, R: 'static,
     }
 
     pub fn product<H2: 'static, R2: 'static>(&self, other: &Fold<N, H2, R2>) -> Fold<N, (H, H2), (R, R2)> {
-        let (i, a, f) = super::combinators::product_fold(
+        let (i, a, f) = combinators::product_fold(
             { let v = self.impl_init.clone(); move |n: &N| v(n) },
             { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
             { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
@@ -114,4 +124,21 @@ where N: 'static, H: 'static, R: 'static,
         );
         Fold::new(i, a, f)
     }
+}
+
+// ── Constructors ───────────────────────────────────
+
+pub fn fold<N, H, R>(
+    init: impl Fn(&N) -> H + Send + Sync + 'static,
+    accumulate: impl Fn(&mut H, &R) + Send + Sync + 'static,
+    finalize: impl Fn(&H) -> R + Send + Sync + 'static,
+) -> Fold<N, H, R> where N: 'static, H: 'static, R: 'static {
+    Fold::new(init, accumulate, finalize)
+}
+
+pub fn simple_fold<N, H>(
+    init: impl Fn(&N) -> H + Send + Sync + 'static,
+    accumulate: impl Fn(&mut H, &H) + Send + Sync + 'static,
+) -> Fold<N, H, H> where N: 'static, H: Clone + 'static {
+    Fold::new(init, accumulate, |heap| heap.clone())
 }

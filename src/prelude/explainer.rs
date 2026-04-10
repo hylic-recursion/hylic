@@ -9,8 +9,8 @@
 //!   dom::FUSED.run_lifted(&Explainer::lift_with(cb), ...)     — callback receives trace, get R
 //!   dom::FUSED.run_lifted_zipped(&Explainer::lift(), ...)     — get (R, ExplainerResult)
 
-use crate::graph::{treeish, Treeish};
-use crate::fold::Fold;
+use crate::domain::shared::graph::{treeish, Treeish};
+use crate::domain::shared::fold::Fold;
 use crate::domain;
 use crate::cata::Lift;
 
@@ -107,7 +107,7 @@ impl Explainer {
         let f1 = original.clone();
         let f2 = original.clone();
         let f3 = original;
-        crate::fold::fold(
+        crate::domain::shared::fold::fold(
             move |node: &N| EH::new(node.clone(), f1.init(node)),
             move |heap: &mut EH<N, H, R>, result: &ER<N, H, R>| {
                 f2.accumulate(&mut heap.working_heap, &result.orig_result);

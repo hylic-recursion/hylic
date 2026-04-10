@@ -1,5 +1,9 @@
+//! Shared-domain graph types — Arc-based closure storage, Clone, Send+Sync.
+
 use std::sync::Arc;
 use either::Either;
+use crate::ops::TreeOps;
+use crate::graph::combinators;
 use crate::graph::visit::Visit;
 
 // ANCHOR: edgy_struct
@@ -32,7 +36,7 @@ where NodeT: 'static, EdgeT: 'static,
     where F: Fn(&EdgeT) -> NewEdgeT + Send + Sync + 'static,
     {
         let inner = self.impl_visit.clone();
-        edgy_visit(super::combinators::map_edges(
+        edgy_visit(combinators::map_edges(
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
         ))
     }
@@ -41,7 +45,7 @@ where NodeT: 'static, EdgeT: 'static,
     where F: Fn(&NewNodeT) -> NodeT + Send + Sync + 'static,
     {
         let inner = self.impl_visit.clone();
-        edgy_visit(super::combinators::contramap_node(
+        edgy_visit(combinators::contramap_node(
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
         ))
     }
@@ -50,14 +54,14 @@ where NodeT: 'static, EdgeT: 'static,
     where F: Fn(&NewNodeT) -> Either<NodeT, Vec<EdgeT>> + Send + Sync + 'static,
     {
         let inner = self.impl_visit.clone();
-        edgy_visit(super::combinators::contramap_or_node(
+        edgy_visit(combinators::contramap_or_node(
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
         ))
     }
 
     pub fn filter(&self, pred: impl Fn(&EdgeT) -> bool + Send + Sync + 'static) -> Self {
         let inner = self.impl_visit.clone();
-        edgy_visit(super::combinators::filter_edges(
+        edgy_visit(combinators::filter_edges(
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), pred,
         ))
     }
@@ -83,8 +87,6 @@ where NodeT: 'static,
 pub type Treeish<Node> = Edgy<Node, Node>;
 // ANCHOR_END: treeish_alias
 
-use crate::ops::TreeOps;
-
 impl<N: 'static> TreeOps<N> for Treeish<N> {
     fn visit(&self, node: &N, cb: &mut dyn FnMut(&N)) {
         Edgy::visit(self, node, cb)
@@ -93,7 +95,10 @@ impl<N: 'static> TreeOps<N> for Treeish<N> {
         Edgy::apply(self, node)
     }
 }
-// Direct callback constructor — zero allocation traversal
+
+// ── Constructors ───────────────────────────────────
+
+/// Direct callback constructor — zero allocation traversal.
 pub fn edgy_visit<NodeT, EdgeT>(
     func: impl Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync + 'static,
 ) -> Edgy<NodeT, EdgeT> {
@@ -106,7 +111,7 @@ pub fn treeish_visit<NodeT>(
     edgy_visit(func)
 }
 
-// Compat: Vec-returning constructors, wraps into callback internally
+/// Compat: Vec-returning constructor, wraps into callback internally.
 pub fn edgy<NodeT, EdgeT>(
     func: impl Fn(&NodeT) -> Vec<EdgeT> + Send + Sync + 'static,
 ) -> Edgy<NodeT, EdgeT> {
@@ -122,7 +127,6 @@ pub fn treeish<NodeT>(
 }
 
 /// Construct a Treeish from a slice-returning accessor.
-/// For types where children are stored as a field (`Vec`, `Arc<[T]>`, slice).
 pub fn treeish_from<N>(
     accessor: impl Fn(&N) -> &[N] + Send + Sync + 'static,
 ) -> Treeish<N> where N: 'static {

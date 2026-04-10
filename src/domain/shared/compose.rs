@@ -1,0 +1,271 @@
+//! Shared-domain composition types: Graph, SeedGraph, GraphWithFold.
+//!
+//! These combine graph traversal with fold computation. All Arc-based,
+//! Clone, Send+Sync. Shared-domain only.
+
+use std::sync::Arc;
+use super::fold::Fold;
+use super::graph::{Edgy, Treeish, edgy_visit, treeish_visit};
+use crate::cata::exec;
+use crate::domain;
+
+// ── Graph ───────────────────────────────────────────
+
+pub struct Graph<Top, Node> {
+    pub treeish: Treeish<Node>,
+    pub top_edgy: Edgy<Top, Node>,
+}
+
+impl<Top, Node> Clone for Graph<Top, Node> {
+    fn clone(&self) -> Self {
+        Graph { treeish: self.treeish.clone(), top_edgy: self.top_edgy.clone() }
+    }
+}
+
+impl<Top, Node> Graph<Top, Node>
+where Top: 'static, Node: 'static,
+{
+    pub fn new(treeish: Treeish<Node>, top_edgy: Edgy<Top, Node>) -> Self {
+        Graph { treeish, top_edgy }
+    }
+
+    pub fn map_treeish<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Treeish<Node>) -> Treeish<Node>,
+    {
+        Graph { treeish: mapper(self.treeish.clone()), top_edgy: self.top_edgy.clone() }
+    }
+
+    pub fn map_top_edgy<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Edgy<Top, Node>) -> Edgy<Top, Node>,
+    {
+        Graph { treeish: self.treeish.clone(), top_edgy: mapper(self.top_edgy.clone()) }
+    }
+}
+
+// ── SeedGraph ───────────────────────────────────────
+
+/// General seed-based anamorphism. No assumption about Node type —
+/// works with any Node, whether fallible (Either) or not.
+///
+/// Three functions define the unfolding:
+/// - seeds_from_node: given a node, what are its dependency seeds?
+/// - grow: given a seed, produce a node
+/// - seeds_from_top: given a top-level entry point, what are the initial seeds?
+pub struct SeedGraph<Node, Seed, Top> {
+    pub(crate) impl_seeds_from_node: Edgy<Node, Seed>,
+    pub(crate) impl_grow: Arc<dyn Fn(&Seed) -> Node + Send + Sync>,
+    pub(crate) impl_seeds_from_top: Edgy<Top, Seed>,
+}
+
+impl<Node, Seed, Top> Clone for SeedGraph<Node, Seed, Top> {
+    fn clone(&self) -> Self {
+        SeedGraph {
+            impl_seeds_from_node: self.impl_seeds_from_node.clone(),
+            impl_grow: self.impl_grow.clone(),
+            impl_seeds_from_top: self.impl_seeds_from_top.clone(),
+        }
+    }
+}
+
+impl<Node, Seed, Top> SeedGraph<Node, Seed, Top>
+where Node: 'static, Seed: 'static, Top: 'static,
+{
+    pub fn new(
+        seeds_from_node: Edgy<Node, Seed>,
+        grow: impl Fn(&Seed) -> Node + Send + Sync + 'static,
+        seeds_from_top: Edgy<Top, Seed>,
+    ) -> Self {
+        SeedGraph {
+            impl_seeds_from_node: seeds_from_node,
+            impl_grow: Arc::new(grow),
+            impl_seeds_from_top: seeds_from_top,
+        }
+    }
+
+    pub fn seeds_from_node(&self, node: &Node) -> Vec<Seed> where Seed: Clone {
+        self.impl_seeds_from_node.apply(node)
+    }
+
+    pub fn grow(&self, seed: &Seed) -> Node {
+        (self.impl_grow)(seed)
+    }
+
+    pub fn seeds_from_top(&self, top: &Top) -> Vec<Seed> where Seed: Clone {
+        self.impl_seeds_from_top.apply(top)
+    }
+
+    pub fn make_treeish(&self) -> Treeish<Node> {
+        let seeds = self.impl_seeds_from_node.clone();
+        let grow = self.impl_grow.clone();
+        treeish_visit(move |node: &Node, cb: &mut dyn FnMut(&Node)| {
+            seeds.visit(node, &mut |seed: &Seed| cb(&grow(seed)));
+        })
+    }
+
+    pub fn make_top_edgy(&self) -> Edgy<Top, Node> {
+        let seeds = self.impl_seeds_from_top.clone();
+        let grow = self.impl_grow.clone();
+        edgy_visit(move |top: &Top, cb: &mut dyn FnMut(&Node)| {
+            seeds.visit(top, &mut |seed: &Seed| cb(&grow(seed)));
+        })
+    }
+
+    pub fn make_graph(&self) -> Graph<Top, Node> {
+        Graph::new(self.make_treeish(), self.make_top_edgy())
+    }
+
+    pub fn map_grow<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Box<dyn Fn(&Seed) -> Node + Send + Sync>) -> Box<dyn Fn(&Seed) -> Node + Send + Sync> + 'static,
+    {
+        let orig = self.impl_grow.clone();
+        SeedGraph {
+            impl_seeds_from_node: self.impl_seeds_from_node.clone(),
+            impl_grow: Arc::from(mapper(Box::new(move |seed: &Seed| (*orig)(seed)))),
+            impl_seeds_from_top: self.impl_seeds_from_top.clone(),
+        }
+    }
+
+    pub fn map_seeds_from_node<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Edgy<Node, Seed>) -> Edgy<Node, Seed> + 'static,
+    {
+        SeedGraph {
+            impl_seeds_from_node: mapper(self.impl_seeds_from_node.clone()),
+            impl_grow: self.impl_grow.clone(),
+            impl_seeds_from_top: self.impl_seeds_from_top.clone(),
+        }
+    }
+
+    pub fn map_seeds_from_top<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Edgy<Top, Seed>) -> Edgy<Top, Seed> + 'static,
+    {
+        SeedGraph {
+            impl_seeds_from_node: self.impl_seeds_from_node.clone(),
+            impl_grow: self.impl_grow.clone(),
+            impl_seeds_from_top: mapper(self.impl_seeds_from_top.clone()),
+        }
+    }
+}
+
+// ── GraphWithFold (pipeline) ────────────────────────
+
+pub type HeapOfTopFn<Top, HeapT> = Box<dyn Fn(&Top) -> HeapT + Send + Sync>;
+
+pub struct GraphWithFold<NodeT, Top, HeapT, ReturnT> {
+    pub graph: Graph<Top, NodeT>,
+    pub(crate) impl_heap_of_top: Arc<dyn Fn(&Top) -> HeapT + Send + Sync>,
+    pub fold_impl: Fold<NodeT, HeapT, ReturnT>,
+}
+
+impl<NodeT, Top, HeapT, ReturnT> Clone for GraphWithFold<NodeT, Top, HeapT, ReturnT> {
+    fn clone(&self) -> Self {
+        GraphWithFold {
+            graph: self.graph.clone(),
+            impl_heap_of_top: self.impl_heap_of_top.clone(),
+            fold_impl: self.fold_impl.clone(),
+        }
+    }
+}
+
+impl<NodeT, Top, HeapT, ReturnT> GraphWithFold<NodeT, Top, HeapT, ReturnT>
+where
+    NodeT: 'static, Top: 'static, HeapT: 'static, ReturnT: 'static,
+{
+    pub fn new(
+        graph: &Graph<Top, NodeT>,
+        fold_impl: &Fold<NodeT, HeapT, ReturnT>,
+        heap_of_top_fn: impl Fn(&Top) -> HeapT + Send + Sync + 'static,
+    ) -> Self {
+        GraphWithFold {
+            graph: graph.clone(),
+            impl_heap_of_top: Arc::new(heap_of_top_fn),
+            fold_impl: fold_impl.clone(),
+        }
+    }
+
+    pub fn heap_of_top(&self, top: &Top) -> HeapT {
+        (self.impl_heap_of_top)(top)
+    }
+
+    pub fn run_node(&self, exec: &impl exec::Executor<NodeT, ReturnT, domain::Shared>, node: &NodeT) -> ReturnT {
+        exec.run(&self.fold_impl, &self.graph.treeish, node)
+    }
+
+    // ANCHOR: pipeline_run
+    pub fn run(&self, exec: &impl exec::Executor<NodeT, ReturnT, domain::Shared>, top: &Top) -> ReturnT {
+        let mut heap = (self.impl_heap_of_top)(top);
+        self.graph.top_edgy.visit(top, &mut |child| {
+            let result = exec.run(&self.fold_impl, &self.graph.treeish, child);
+            self.fold_impl.accumulate(&mut heap, &result);
+        });
+        self.fold_impl.finalize(&heap)
+    }
+    // ANCHOR_END: pipeline_run
+
+    pub fn map_heap_of_top<F>(&self, mapper: F) -> Self
+    where F: FnOnce(HeapOfTopFn<Top, HeapT>) -> HeapOfTopFn<Top, HeapT> + 'static,
+    {
+        let orig = self.impl_heap_of_top.clone();
+        GraphWithFold {
+            graph: self.graph.clone(),
+            fold_impl: self.fold_impl.clone(),
+            impl_heap_of_top: Arc::from(mapper(Box::new(move |top: &Top| (*orig)(top)))),
+        }
+    }
+
+    pub fn map_graph<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Graph<Top, NodeT>) -> Graph<Top, NodeT> + 'static,
+    {
+        GraphWithFold {
+            graph: mapper(self.graph.clone()),
+            fold_impl: self.fold_impl.clone(),
+            impl_heap_of_top: self.impl_heap_of_top.clone(),
+        }
+    }
+
+    pub fn map_fold<F>(&self, mapper: F) -> Self
+    where F: FnOnce(Fold<NodeT, HeapT, ReturnT>) -> Fold<NodeT, HeapT, ReturnT> + 'static,
+    {
+        GraphWithFold {
+            graph: self.graph.clone(),
+            fold_impl: mapper(self.fold_impl.clone()),
+            impl_heap_of_top: self.impl_heap_of_top.clone(),
+        }
+    }
+
+    pub fn map<ReturnNew: 'static, MapF, BackF>(
+        &self, mapper: MapF, backmapper: BackF,
+    ) -> GraphWithFold<NodeT, Top, HeapT, ReturnNew>
+    where
+        MapF: Fn(&ReturnT) -> ReturnNew + Send + Sync + 'static,
+        BackF: Fn(&ReturnNew) -> ReturnT + Send + Sync + 'static,
+    {
+        let h = self.impl_heap_of_top.clone();
+        GraphWithFold::new(
+            &self.graph,
+            &self.fold_impl.map(mapper, backmapper),
+            move |top| h(top),
+        )
+    }
+
+    pub fn zipmap<ReturnZip: 'static, MapF>(
+        &self, mapper: MapF,
+    ) -> GraphWithFold<NodeT, Top, HeapT, (ReturnT, ReturnZip)>
+    where
+        ReturnT: Clone,
+        MapF: Fn(&ReturnT) -> ReturnZip + Send + Sync + 'static,
+    {
+        self.map(
+            move |x| (x.clone(), mapper(x)),
+            |x: &(ReturnT, ReturnZip)| x.0.clone(),
+        )
+    }
+}
+
+impl<NodeE, NodeV, Top, HeapT, ReturnT> GraphWithFold<either::Either<NodeE, NodeV>, Top, HeapT, ReturnT>
+where
+    NodeE: 'static, NodeV: Clone + 'static, Top: 'static, HeapT: 'static, ReturnT: 'static,
+{
+    pub fn run_valid(&self, exec: &impl exec::Executor<either::Either<NodeE, NodeV>, ReturnT, domain::Shared>, node: &NodeV) -> ReturnT {
+        self.run_node(exec, &either::Either::Right(node.clone()))
+    }
+}

@@ -5,7 +5,7 @@
 //! is generic over any Node type.
 
 use either::Either;
-use crate::graph::Edgy;
+use crate::domain::shared::graph::Edgy;
 
 /// Lift an Edgy<ValidNode, Seed> to Edgy<Either<Err, ValidNode>, Seed>.
 /// Valid nodes delegate to the inner edgy; error nodes produce no seeds.

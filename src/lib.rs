@@ -10,9 +10,8 @@
 pub mod ops;
 pub mod domain;
 
-pub(crate) mod graph;
 pub(crate) mod fold;
+pub(crate) mod graph;
 pub mod cata;
-pub(crate) mod pipeline;
 
 pub mod prelude;
