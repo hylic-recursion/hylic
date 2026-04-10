@@ -5,15 +5,16 @@
 //! tree, where Seed nodes are transparent single-child relays that
 //! resolve via a `grow` function.
 //!
-//! After one Seed→Node transition, the original treeish drives all
-//! further traversal. The lifted computation converges to the original.
+//! SeedPipeline bundles the lift with a treeish, fold, top entry
+//! mapping, and heap initializer — encapsulating Either<Seed, N>
+//! entirely. The user sees only N, Top, H, R.
 
 use std::sync::Arc;
 use either::Either;
 use crate::domain::{self, shared};
-use crate::graph::{Treeish, treeish_visit};
+use crate::graph::{Edgy, Treeish, treeish_visit};
 use crate::ops::LiftOps;
-use super::exec::{Exec, Executor};
+use super::exec::Executor;
 
 // ── SeedHeap: the parallel-world heap ───────────────
 
@@ -65,7 +66,7 @@ impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
     /// Transform a fold to handle Either<Seed, N>.
     /// Node branch: delegates to the original fold.
     /// Seed branch: transparent relay (stores and returns child R).
-    pub fn lift_fold<H: 'static, R: Clone + 'static>(
+    pub fn lift_fold<H: Clone + 'static, R: Clone + 'static>(
         &self,
         f: shared::fold::Fold<N, H, R>,
     ) -> shared::fold::Fold<Either<Seed, N>, SeedHeap<H, R>, R> {
@@ -123,60 +124,73 @@ where
     }
 }
 
-// ── SeedAdapter: wraps an inner executor ────────────
+// ── SeedPipeline: user-facing wrapper ───────────────
 
-/// Wraps an inner executor S, lifting at the `.run()` boundary.
-/// The user sees original types (N, H, R). Internally, the adapter
-/// lifts to Either<Seed, N> and delegates to S.
-pub struct SeedAdapter<S, N, Seed> {
-    inner: S,
+/// Bundles a SeedLift with a treeish, fold, top entry mapping, and
+/// heap initializer. Encapsulates Either<Seed, N> entirely — the user
+/// provides N, Top, H, R and an executor; the internal types are inferred.
+pub struct SeedPipeline<N, Seed, Top, H, R> {
     seed_lift: SeedLift<N, Seed>,
+    treeish: Treeish<N>,
+    seeds_from_top: Edgy<Top, Seed>,
+    fold: shared::fold::Fold<N, H, R>,
+    heap_of_top: Arc<dyn Fn(&Top) -> H + Send + Sync>,
 }
 
-impl<S, N, Seed, R> Executor<N, R, domain::Shared, Treeish<N>>
-    for SeedAdapter<S, N, Seed>
+impl<N, Seed, Top, H, R> SeedPipeline<N, Seed, Top, H, R>
 where
     N: Clone + Send + Sync + 'static,
     Seed: Clone + Send + Sync + 'static,
+    Top: 'static,
+    H: Clone + 'static,
     R: Clone + Send + 'static,
-    S: Executor<Either<Seed, N>, R, domain::Shared, Treeish<Either<Seed, N>>>,
 {
-    fn run<H: 'static>(
-        &self,
+    pub fn new(
+        seed_lift: SeedLift<N, Seed>,
+        treeish: Treeish<N>,
+        seeds_from_top: Edgy<Top, Seed>,
         fold: &shared::fold::Fold<N, H, R>,
-        graph: &Treeish<N>,
-        root: &N,
+        heap_of_top: impl Fn(&Top) -> H + Send + Sync + 'static,
+    ) -> Self {
+        SeedPipeline {
+            seed_lift,
+            treeish,
+            seeds_from_top,
+            fold: fold.clone(),
+            heap_of_top: Arc::new(heap_of_top),
+        }
+    }
+
+    /// Execute the pipeline over a Top entry point.
+    /// The executor operates on the internal Either<Seed, N> — inferred,
+    /// never named by the caller.
+    pub fn run(
+        &self,
+        exec: &impl Executor<Either<Seed, N>, R, domain::Shared, Treeish<Either<Seed, N>>>,
+        top: &Top,
     ) -> R {
-        let lifted_fold = self.seed_lift.lift_fold(fold.clone());
-        let lifted_treeish = self.seed_lift.lift_treeish(graph.clone());
-        self.inner.run(&lifted_fold, &lifted_treeish, &Either::Right(root.clone()))
-    }
-}
+        let lifted_fold = self.seed_lift.lift_fold(self.fold.clone());
+        let lifted_treeish = self.seed_lift.lift_treeish(self.treeish.clone());
 
-// ── SeedSetup: user-facing factory ──────────────────
-
-/// Carries the seed lift configuration. Produces wrapped executors
-/// via `.wrap()`.
-pub struct SeedSetup<N, Seed> {
-    seed_lift: SeedLift<N, Seed>,
-}
-
-impl<N: Clone + 'static, Seed: Clone + 'static> SeedSetup<N, Seed> {
-    pub fn new(grow: impl Fn(&Seed) -> N + Send + Sync + 'static) -> Self {
-        SeedSetup { seed_lift: SeedLift::new(grow) }
+        let mut heap = (self.heap_of_top)(top);
+        self.seeds_from_top.visit(top, &mut |seed: &Seed| {
+            let root = Either::Left(seed.clone());
+            let result = exec.run(&lifted_fold, &lifted_treeish, &root);
+            self.fold.accumulate(&mut heap, &result);
+        });
+        self.fold.finalize(&heap)
     }
 
-    /// Wrap an executor to produce one that lifts transparently.
-    /// The returned Exec operates on the original types (N, H, R).
-    pub fn wrap<D, S>(&self, exec: Exec<D, S>) -> Exec<D, SeedAdapter<S, N, Seed>> {
-        Exec::new(SeedAdapter {
-            inner: exec.into_inner(),
-            seed_lift: self.seed_lift.clone(),
-        })
-    }
-
-    /// Access the underlying SeedLift for direct use.
-    pub fn lift(&self) -> &SeedLift<N, Seed> {
-        &self.seed_lift
+    /// Execute on a single root node (no Top, no seeds_from_top).
+    /// Enters through Right(node) — the lift is transparent, the original
+    /// treeish drives traversal immediately.
+    pub fn run_node(
+        &self,
+        exec: &impl Executor<Either<Seed, N>, R, domain::Shared, Treeish<Either<Seed, N>>>,
+        node: &N,
+    ) -> R {
+        let lifted_fold = self.seed_lift.lift_fold(self.fold.clone());
+        let lifted_treeish = self.seed_lift.lift_treeish(self.treeish.clone());
+        exec.run(&lifted_fold, &lifted_treeish, &Either::Right(node.clone()))
     }
 }
