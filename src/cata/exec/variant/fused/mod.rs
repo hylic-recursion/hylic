@@ -32,7 +32,7 @@ fn recurse<N, H, R>(
     node: &N,
 ) -> R {
     let mut heap = fold.init(node);
-    graph.visit_inline(node, &mut |child: &N| {
+    graph.visit(node, &mut |child: &N| {
         let r = recurse(fold, graph, child);
         fold.accumulate(&mut heap, &r);
     });

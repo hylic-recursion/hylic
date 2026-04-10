@@ -34,6 +34,10 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
         }
     }
 
+    pub fn init(&self, node: &N) -> H { (self.impl_init)(node) }
+    pub fn accumulate(&self, heap: &mut H, result: &R) { (self.impl_accumulate)(heap, result) }
+    pub fn finalize(&self, heap: &H) -> R { (self.impl_finalize)(heap) }
+
     // ── Phase-wrapping (consume self) ──────────────
 
     pub fn wrap_init(self, wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + 'static) -> Self {

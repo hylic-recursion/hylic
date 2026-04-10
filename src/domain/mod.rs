@@ -39,17 +39,24 @@ pub struct Local;
 /// with Fused only (no cloning needed for fused recursion).
 pub struct Owned;
 
-/// Construct a domain fold from three closures.
+/// Construct a domain fold from three unboxed closures.
 ///
-/// SAFETY: For Shared domain, closures must actually be Send+Sync
-/// (the trait signature doesn't enforce this; the concrete Shared impl
-/// uses AssertSend to bridge the gap). Callers must ensure closures
-/// only capture domain-compatible data.
+/// Used by lift machinery (`hylic-parallel-lifts`) to construct folds
+/// in the target domain without knowing the concrete Fold type.
 ///
-/// pub(crate) — only used by lift constructors (ParLazy, ParEager).
+/// # Safety
+///
+/// The closures' trait bounds are intentionally weaker than required
+/// by the domain's storage. For the Shared domain, the concrete impl
+/// wraps closures in `Arc<dyn Fn + Send + Sync>` — callers MUST
+/// ensure the closures actually satisfy Send + Sync. Passing
+/// non-Send closures to the Shared impl is undefined behavior.
+///
+/// The Local and Owned impls have no additional safety requirements
+/// beyond the `'static` bounds.
 pub trait ConstructFold<N: 'static>: Domain<N> {
     /// # Safety
-    /// For Shared: closures must be Send+Sync (they'll be stored in Arc).
+    /// For Shared: closures must be Send+Sync (stored in Arc).
     unsafe fn make_fold<H: 'static, R: 'static>(
         init: impl Fn(&N) -> H + 'static,
         acc: impl Fn(&mut H, &R) + 'static,

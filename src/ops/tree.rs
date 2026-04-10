@@ -11,14 +11,6 @@ pub trait TreeOps<N> {
     /// Visit children of `node` via callback. Zero allocation.
     fn visit(&self, node: &N, cb: &mut dyn FnMut(&N));
 
-    /// Visit with a monomorphized callback — avoids the `dyn FnMut`
-    /// vtable dispatch that `visit` requires.
-    fn visit_inline<F: FnMut(&N)>(&self, node: &N, cb: &mut F)
-    where Self: Sized
-    {
-        self.visit(node, cb)
-    }
-
     /// Collect children to Vec. Default: collect via visit.
     fn apply(&self, node: &N) -> Vec<N> where N: Clone {
         let mut v = Vec::new();
