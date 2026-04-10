@@ -1,125 +1,20 @@
-//! Lift: paired transformation of Treeish + Fold.
+//! Lift infrastructure: `run_lifted` and `run_lifted_zipped`.
 //!
-//! Operates on Shared-domain types (Arc-based). Lifts transform a
-//! computation to a different type domain — the fold sees different
-//! heap/result types while the graph sees different node types.
-//!
-//! `run_lifted` and `run_lifted_zipped` execute a lifted computation
-//! through any Shared-domain executor.
+//! These free functions execute a lifted computation through any
+//! Shared-domain executor. The lift (implementing `LiftOps`) transforms
+//! both treeish and fold, the executor runs the result, and `unwrap`
+//! extracts the original result type.
 
 use crate::domain::{self, shared};
 use crate::graph;
 use crate::ops::LiftOps;
 use super::exec::Executor;
 
-/// A paired transformation that lifts Treeish + Fold to a different
-/// type domain. Purely a transformation — knows nothing about execution.
-///
-/// H and H2 are type parameters on the struct because the boxed closures
-/// inside carry them. The LiftOps GAT `LiftedH<H> = H2` maps between them.
-// ANCHOR: lift_struct
-pub struct Lift<N, H, R, N2, H2, R2>
-where
-    N: 'static, H: 'static, R: 'static,
-    N2: 'static, H2: 'static, R2: 'static,
-{
-    pub(crate) impl_lift_treeish: Box<dyn Fn(graph::Treeish<N>) -> graph::Treeish<N2>>,
-    pub(crate) impl_lift_fold: Box<dyn Fn(shared::fold::Fold<N, H, R>) -> shared::fold::Fold<N2, H2, R2>>,
-    pub(crate) impl_lift_root: Box<dyn Fn(&N) -> N2>,
-    pub(crate) impl_unwrap: Box<dyn Fn(R2) -> R>,
-}
-// ANCHOR_END: lift_struct
-
-impl<N, H, R, N2, H2, R2> Lift<N, H, R, N2, H2, R2>
-where
-    N: 'static, H: 'static, R: 'static,
-    N2: 'static, H2: 'static, R2: 'static,
-{
-    pub fn new(
-        lift_treeish: impl Fn(graph::Treeish<N>) -> graph::Treeish<N2> + 'static,
-        lift_fold: impl Fn(shared::fold::Fold<N, H, R>) -> shared::fold::Fold<N2, H2, R2> + 'static,
-        lift_root: impl Fn(&N) -> N2 + 'static,
-        unwrap: impl Fn(R2) -> R + 'static,
-    ) -> Self {
-        Lift {
-            impl_lift_treeish: Box::new(lift_treeish),
-            impl_lift_fold: Box::new(lift_fold),
-            impl_lift_root: Box::new(lift_root),
-            impl_unwrap: Box::new(unwrap),
-        }
-    }
-
-    pub fn map_lifted_fold(self, mapper: impl Fn(shared::fold::Fold<N2, H2, R2>) -> shared::fold::Fold<N2, H2, R2> + 'static) -> Self {
-        let orig = self.impl_lift_fold;
-        Lift {
-            impl_lift_treeish: self.impl_lift_treeish,
-            impl_lift_fold: Box::new(move |fold| mapper(orig(fold))),
-            impl_lift_root: self.impl_lift_root,
-            impl_unwrap: self.impl_unwrap,
-        }
-    }
-
-    pub fn map_lifted_treeish(self, mapper: impl Fn(graph::Treeish<N2>) -> graph::Treeish<N2> + 'static) -> Self {
-        let orig = self.impl_lift_treeish;
-        Lift {
-            impl_lift_treeish: Box::new(move |treeish| mapper(orig(treeish))),
-            impl_lift_fold: self.impl_lift_fold,
-            impl_lift_root: self.impl_lift_root,
-            impl_unwrap: self.impl_unwrap,
-        }
-    }
-}
-
-/// The Lift struct implements LiftOps with LiftedH<H> fixed to H2.
-/// The struct carries H and H2 as type params (the closures need them).
-/// The GAT maps: for this specific Lift, LiftedH<H> = H2.
-impl<N, H, R, N2, H2, R2> LiftOps<N, R, N2, R2>
-    for Lift<N, H, R, N2, H2, R2>
-where
-    N: 'static, H: 'static, R: 'static,
-    N2: 'static, H2: 'static, R2: 'static,
-{
-    type LiftedH<HH: 'static> = H2;
-    // Note: LiftedH<HH> = H2 regardless of HH. This is because the Lift
-    // struct's boxed closure is monomorphic over H — it only works for the
-    // specific H it was constructed with. The GAT formally requires a
-    // generic mapping, but Lift ignores the input HH and always returns H2.
-    // This is correct: run_lifted calls lift_fold with the matching H.
-
-    fn lift_treeish(&self, t: graph::Treeish<N>) -> graph::Treeish<N2> {
-        (self.impl_lift_treeish)(t)
-    }
-    fn lift_fold<HH: 'static>(&self, f: shared::fold::Fold<N, HH, R>) -> shared::fold::Fold<N2, H2, R2> {
-        // SAFETY of the transmute: the Lift was constructed for a specific H.
-        // The caller (run_lifted) passes the same H. HH = H at every call site.
-        // The boxed closure expects Fold<N, H, R> and we receive Fold<N, HH, R>.
-        // When HH = H, these are the same type. We transmute to bridge the
-        // generic HH to the concrete H.
-        //
-        // This is sound because:
-        // 1. Lift<N, H, ...> is only constructed with closures for H
-        // 2. run_lifted passes the fold that determines H
-        // 3. No other caller can provide a different HH
-        let f_concrete: shared::fold::Fold<N, H, R> = unsafe {
-            std::mem::transmute(f)
-        };
-        (self.impl_lift_fold)(f_concrete)
-    }
-    fn lift_root(&self, root: &N) -> N2 {
-        (self.impl_lift_root)(root)
-    }
-    fn unwrap(&self, result: R2) -> R {
-        (self.impl_unwrap)(result)
-    }
-}
-
-// ── run_lifted: execute a lift through any Shared-domain executor ──
-
 /// Execute a lifted computation. Shared-domain only.
-pub fn run_lifted<N: 'static, R: 'static, N2: 'static, R2: 'static>(
-    exec: &impl Executor<N2, R2, domain::Shared, graph::Treeish<N2>>,
-    lift: &impl LiftOps<N, R, N2, R2>,
-    fold: &shared::fold::Fold<N, impl 'static, R>,
+pub fn run_lifted<N: 'static, R: 'static, N2: 'static, H: 'static, L: LiftOps<N, R, N2>>(
+    exec: &impl Executor<N2, L::LiftedR<H>, domain::Shared, graph::Treeish<N2>>,
+    lift: &L,
+    fold: &shared::fold::Fold<N, H, R>,
     graph: &graph::Treeish<N>,
     root: &N,
 ) -> R {
@@ -130,14 +25,14 @@ pub fn run_lifted<N: 'static, R: 'static, N2: 'static, R2: 'static>(
 }
 
 /// Execute a lifted computation and return both the original and lifted results.
-pub fn run_lifted_zipped<N: 'static, R: 'static, N2: 'static, R2: 'static>(
-    exec: &impl Executor<N2, R2, domain::Shared, graph::Treeish<N2>>,
-    lift: &impl LiftOps<N, R, N2, R2>,
-    fold: &shared::fold::Fold<N, impl 'static, R>,
+pub fn run_lifted_zipped<N: 'static, R: 'static, N2: 'static, H: 'static, L: LiftOps<N, R, N2>>(
+    exec: &impl Executor<N2, L::LiftedR<H>, domain::Shared, graph::Treeish<N2>>,
+    lift: &L,
+    fold: &shared::fold::Fold<N, H, R>,
     graph: &graph::Treeish<N>,
     root: &N,
-) -> (R, R2)
-where R2: Clone,
+) -> (R, L::LiftedR<H>)
+where L::LiftedR<H>: Clone,
 {
     let lifted_fold = lift.lift_fold(fold.clone());
     let lifted_treeish = lift.lift_treeish(graph.clone());

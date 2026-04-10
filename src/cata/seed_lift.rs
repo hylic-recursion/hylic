@@ -96,19 +96,21 @@ impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
     }
 }
 
-impl<N, Seed, H, R> LiftOps<N, H, R, Either<Seed, N>, SeedHeap<H, R>, R>
+impl<N, Seed, R> LiftOps<N, R, Either<Seed, N>>
     for SeedLift<N, Seed>
 where
     N: Clone + 'static,
     Seed: Clone + 'static,
-    H: 'static,
     R: Clone + 'static,
 {
+    type LiftedH<H: 'static> = SeedHeap<H, R>;
+    type LiftedR<H: 'static> = R;
+
     fn lift_treeish(&self, t: Treeish<N>) -> Treeish<Either<Seed, N>> {
         SeedLift::lift_treeish(self, t)
     }
 
-    fn lift_fold(&self, f: shared::fold::Fold<N, H, R>) -> shared::fold::Fold<Either<Seed, N>, SeedHeap<H, R>, R> {
+    fn lift_fold<H: 'static>(&self, f: shared::fold::Fold<N, H, R>) -> shared::fold::Fold<Either<Seed, N>, SeedHeap<H, R>, R> {
         SeedLift::lift_fold(self, f)
     }
 
@@ -116,7 +118,7 @@ where
         Either::Right(root.clone())
     }
 
-    fn unwrap(&self, result: R) -> R {
+    fn unwrap<H: 'static>(&self, result: R) -> R {
         result
     }
 }
