@@ -65,66 +65,73 @@ impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
 impl<N, H, R> Fold<N, H, R>
 where N: 'static, H: 'static, R: 'static,
 {
-    pub fn map<RNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> Fold<N, H, RNew>
-    where
-        RNew: 'static,
-        MapF: Fn(&R) -> RNew + 'static,
-        BackF: Fn(&RNew) -> R + 'static,
+    // ── Phase-wrapping ─────────────────────────────
+
+    pub fn wrap_init(&self, wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + 'static) -> Self {
+        let inner = self.impl_init.clone();
+        Fold {
+            impl_init: Rc::new(crate::fold::combinators::wrap_init(move |n: &N| inner(n), wrapper)),
+            impl_accumulate: self.impl_accumulate.clone(),
+            impl_finalize: self.impl_finalize.clone(),
+        }
+    }
+
+    pub fn wrap_accumulate(&self, wrapper: impl Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + 'static) -> Self {
+        let inner = self.impl_accumulate.clone();
+        Fold {
+            impl_init: self.impl_init.clone(),
+            impl_accumulate: Rc::new(crate::fold::combinators::wrap_accumulate(move |h: &mut H, r: &R| inner(h, r), wrapper)),
+            impl_finalize: self.impl_finalize.clone(),
+        }
+    }
+
+    pub fn wrap_finalize(&self, wrapper: impl Fn(&H, &dyn Fn(&H) -> R) -> R + 'static) -> Self {
+        let inner = self.impl_finalize.clone();
+        Fold {
+            impl_init: self.impl_init.clone(),
+            impl_accumulate: self.impl_accumulate.clone(),
+            impl_finalize: Rc::new(crate::fold::combinators::wrap_finalize(move |h: &H| inner(h), wrapper)),
+        }
+    }
+
+    // ── Type-changing combinators ───────────────────
+
+    pub fn map<RNew: 'static>(&self, mapper: impl Fn(&R) -> RNew + 'static, backmapper: impl Fn(&RNew) -> R + 'static) -> Fold<N, H, RNew> {
+        let (i, a, f) = crate::fold::combinators::map_fold(
+            { let v = self.impl_init.clone(); move |n: &N| v(n) },
+            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
+            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
+            mapper, backmapper,
+        );
+        Fold::new(i, a, f)
+    }
+
+    pub fn zipmap<RZip: 'static>(&self, mapper: impl Fn(&R) -> RZip + 'static) -> Fold<N, H, (R, RZip)>
+    where R: Clone,
     {
-        let init = self.impl_init.clone();
-        let acc = self.impl_accumulate.clone();
-        let fin = self.impl_finalize.clone();
-        Fold::new(
-            move |node| init(node),
-            move |heap, result| { acc(heap, &backmapper(result)); },
-            move |heap| mapper(&fin(heap)),
-        )
+        self.map(move |x| (x.clone(), mapper(x)), |x: &(R, RZip)| x.0.clone())
     }
 
-    pub fn zipmap<RZip, MapF>(&self, mapper: MapF) -> Fold<N, H, (R, RZip)>
-    where
-        R: Clone,
-        RZip: 'static,
-        MapF: Fn(&R) -> RZip + 'static,
-    {
-        self.map(
-            move |x| (x.clone(), mapper(x)),
-            |x: &(R, RZip)| x.0.clone(),
-        )
+    pub fn contramap<NewN: 'static>(&self, f: impl Fn(&NewN) -> N + 'static) -> Fold<NewN, H, R> {
+        let (i, a, fin) = crate::fold::combinators::contramap_fold(
+            { let v = self.impl_init.clone(); move |n: &N| v(n) },
+            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
+            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
+            f,
+        );
+        Fold::new(i, a, fin)
     }
 
-    pub fn contramap<NewN: 'static>(
-        &self,
-        f: impl Fn(&NewN) -> N + 'static,
-    ) -> Fold<NewN, H, R> {
-        let init = self.impl_init.clone();
-        let acc = self.impl_accumulate.clone();
-        let fin = self.impl_finalize.clone();
-        Fold::new(
-            move |new_n: &NewN| init(&f(new_n)),
-            move |h: &mut H, r: &R| acc(h, r),
-            move |h: &H| fin(h),
-        )
-    }
-
-    pub fn product<H2: 'static, R2: 'static>(
-        &self,
-        other: &Fold<N, H2, R2>,
-    ) -> Fold<N, (H, H2), (R, R2)> {
-        let init1 = self.impl_init.clone();
-        let init2 = other.impl_init.clone();
-        let acc1 = self.impl_accumulate.clone();
-        let acc2 = other.impl_accumulate.clone();
-        let fin1 = self.impl_finalize.clone();
-        let fin2 = other.impl_finalize.clone();
-        Fold::new(
-            move |n: &N| (init1(n), init2(n)),
-            move |heap: &mut (H, H2), child: &(R, R2)| {
-                acc1(&mut heap.0, &child.0);
-                acc2(&mut heap.1, &child.1);
-            },
-            move |heap: &(H, H2)| (fin1(&heap.0), fin2(&heap.1)),
-        )
+    pub fn product<H2: 'static, R2: 'static>(&self, other: &Fold<N, H2, R2>) -> Fold<N, (H, H2), (R, R2)> {
+        let (i, a, f) = crate::fold::combinators::product_fold(
+            { let v = self.impl_init.clone(); move |n: &N| v(n) },
+            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
+            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
+            { let v = other.impl_init.clone(); move |n: &N| v(n) },
+            { let v = other.impl_accumulate.clone(); move |h: &mut H2, r: &R2| v(h, r) },
+            { let v = other.impl_finalize.clone(); move |h: &H2| v(h) },
+        );
+        Fold::new(i, a, f)
     }
 }
 

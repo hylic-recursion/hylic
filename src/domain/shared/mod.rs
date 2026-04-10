@@ -19,7 +19,6 @@ pub const fn exec<S>(s: S) -> Exec<super::Shared, S> { Exec::new(s) }
 // ── Fold types + constructors ─────────────────────
 
 pub use crate::fold::{Fold, fold, simple_fold};
-pub use crate::fold::{InitFn, AccumulateFn, FinalizeFn};
 
 // ── Graph types + constructors ────────────────────
 
