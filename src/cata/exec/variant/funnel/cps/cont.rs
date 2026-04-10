@@ -1,7 +1,6 @@
 //! CPS data types: defunctionalized tasks and continuations.
 
 use std::cell::UnsafeCell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use super::chain::{FoldChain, SlotRef};
 use crate::cata::exec::funnel::infra::arena::ArenaIdx;
@@ -17,7 +16,10 @@ unsafe impl<N: Send, H, R: Send> Send for FunnelTask<N, H, R> {}
 
 // ANCHOR: cont_enum
 pub enum Cont<H, R> {
-    Root(Arc<RootCell<R>>),
+    /// Raw pointer to stack-local RootCell in run_fold.
+    /// SAFETY: The scoped pool guarantees all workers complete before
+    /// run_fold returns — the RootCell outlives every Cont::Root.
+    Root(*const RootCell<R>),
     Direct { heap: H, parent_idx: ContIdx },
     Slot { node: ArenaIdx, slot: SlotRef },
 }

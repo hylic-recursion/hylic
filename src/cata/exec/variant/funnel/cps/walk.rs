@@ -58,7 +58,10 @@ pub(crate) fn fire_cont<N, H, R, F, G, P: FunnelPolicy>(
 {
     loop {
         match cont {
-            Cont::Root(cell) => {
+            Cont::Root(cell_ptr) => {
+                // SAFETY: cell_ptr points to stack-local RootCell in run_fold.
+                // The scoped pool guarantees this thread finishes before run_fold returns.
+                let cell = unsafe { &*cell_ptr };
                 cell.set(result);
                 let view = ctx.view_ref();
                 view.fold_done.store(true, Ordering::Release);

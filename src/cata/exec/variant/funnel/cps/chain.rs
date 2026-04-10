@@ -208,7 +208,11 @@ impl<H, R> FoldChain<H, R> {
                 }
                 std::hint::spin_loop();
             }
-            fold.accumulate(heap, unsafe { (*self.slot_at(pos).result.get()).assume_init_ref() });
+            // Move result out of slot (destructive read). Slot becomes uninit.
+            // Each slot is read exactly once — the ticket system guarantees
+            // bulk_finalize runs only after all deliveries complete.
+            let result = unsafe { (*self.slot_at(pos).result.get()).assume_init_read() };
+            fold.accumulate(heap, &result);
         }
         fold.finalize(unsafe { &*self.heap.get() })
     }
@@ -235,7 +239,11 @@ impl<H, R> FoldChain<H, R> {
 
         while pos < appended {
             if !self.slot_at(pos).filled.load(Ordering::Acquire) { break; }
-            fold.accumulate(heap, unsafe { (*self.slot_at(pos).result.get()).assume_init_ref() });
+            // Move result out of slot (destructive read). Slot becomes uninit.
+            // The sweep cursor is monotonic — each position is swept exactly
+            // once across all try_sweep invocations for this chain.
+            let result = unsafe { (*self.slot_at(pos).result.get()).assume_init_read() };
+            fold.accumulate(heap, &result);
             pos += 1;
         }
 

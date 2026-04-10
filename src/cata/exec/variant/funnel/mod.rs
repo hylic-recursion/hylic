@@ -165,7 +165,7 @@ impl<P: FunnelPolicy> ExecutorSpec for Spec<P> {
 // ── Spec: computation (routes through with_session) ─
 
 impl<N, R, D: Domain<N>, P: FunnelPolicy> Executor<N, R, D> for Spec<P>
-where N: Clone + Send + 'static, R: Clone + Send + 'static,
+where N: Clone + Send + 'static, R: Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         self.with_session(|session| Executor::<N, R, D>::run(session, fold, graph, root))
@@ -184,7 +184,7 @@ pub struct Session<'s, P: FunnelPolicy = policy::Default> {
 // ── Session: computation (direct dispatch) ──────────
 
 impl<N, R, D: Domain<N>, P: FunnelPolicy> Executor<N, R, D> for Session<'_, P>
-where N: Clone + Send + 'static, R: Clone + Send + 'static,
+where N: Clone + Send + 'static, R: Send + 'static,
 {
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
         dispatch::run_fold::<_, _, _, _, _, P>(fold, graph, root, self.pool_state, &self.spec)

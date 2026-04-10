@@ -4,7 +4,6 @@ pub(crate) mod view;
 pub(crate) mod worker;
 
 use std::cell::Cell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use crate::ops::{FoldOps, TreeOps};
 use super::cps::cont::{Cont, RootCell, ChainNode};
@@ -26,12 +25,12 @@ pub(crate) fn run_fold<N, H, R, F, G, P: FunnelPolicy>(
 ) -> R
 where
     F: FoldOps<N, H, R> + 'static, G: TreeOps<N> + 'static,
-    N: Clone + Send + 'static, H: 'static, R: Clone + Send + 'static,
+    N: Clone + Send + 'static, H: 'static, R: Send + 'static,
 {
     let store = P::Queue::create_store(&spec.queue, pool_state.n_threads);
     let chain_arena = Arena::<ChainNode<H, R>>::new();
     let cont_arena = ContArena::<Cont<H, R>>::new();
-    let root_cell = Arc::new(RootCell::new());
+    let root_cell = RootCell::new();
 
     let view = FoldView {
         pool_state,
@@ -65,7 +64,7 @@ where
         let wake_state = Cell::new(P::Wake::init_state(&spec.wake));
         let wctx = WorkerCtx::<N, H, R, F, G, P> { ctx: &ctx, handle, wake_state };
 
-        walk_cps(&wctx, root.clone(), Cont::Root(root_cell.clone()));
+        walk_cps(&wctx, root.clone(), Cont::Root(&root_cell as *const RootCell<R>));
 
         let mut spins = 0u64;
         while !root_cell.is_done() {
