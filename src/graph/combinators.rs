@@ -55,17 +55,3 @@ pub fn filter_edges<N: 'static, E: 'static>(
         inner(n, &mut |e: &E| { if pred(e) { cb(e); } });
     }
 }
-
-/// Both map + contramap for Treeish (E=N): (N, N) → (NewN, NewN).
-pub fn treemap<N: 'static, NewN: 'static>(
-    inner: impl Fn(&N, &mut dyn FnMut(&N)) + 'static,
-    co_tf: impl Fn(&N) -> NewN + 'static,
-    contra_tf: impl Fn(&NewN) -> N + 'static,
-) -> impl Fn(&NewN, &mut dyn FnMut(&NewN)) + 'static {
-    move |n: &NewN, cb: &mut dyn FnMut(&NewN)| {
-        inner(&contra_tf(n), &mut |e: &N| {
-            let mapped = co_tf(e);
-            cb(&mapped);
-        });
-    }
-}

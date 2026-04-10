@@ -13,7 +13,7 @@ pub mod shared;
 pub mod local;
 pub mod owned;
 
-use crate::ops::{FoldOps, TreeOps};
+use crate::ops::FoldOps;
 
 /// A boxing domain: selects how closures are stored in Fold and Treeish.
 ///
@@ -21,9 +21,12 @@ use crate::ops::{FoldOps, TreeOps};
 /// parameterized by the domain, and each executor declares which
 /// domains it supports.
 // ANCHOR: domain_trait
+/// A boxing domain: selects how fold closures are stored.
+///
+/// Each domain provides a concrete Fold type via GAT. Graph types
+/// are domain-independent — see `hylic::graph`.
 pub trait Domain<N: 'static>: 'static {
     type Fold<H: 'static, R: 'static>: FoldOps<N, H, R>;
-    type Treeish: TreeOps<N>;
 }
 // ANCHOR_END: domain_trait
 
@@ -66,17 +69,14 @@ pub trait ConstructFold<N: 'static>: Domain<N> {
 
 impl<N: 'static> Domain<N> for Shared {
     type Fold<H: 'static, R: 'static> = shared::fold::Fold<N, H, R>;
-    type Treeish = shared::graph::Treeish<N>;
 }
 
 impl<N: 'static> Domain<N> for Local {
     type Fold<H: 'static, R: 'static> = local::Fold<N, H, R>;
-    type Treeish = local::Treeish<N>;
 }
 
 impl<N: 'static> Domain<N> for Owned {
     type Fold<H: 'static, R: 'static> = owned::Fold<N, H, R>;
-    type Treeish = owned::Treeish<N>;
 }
 
 impl<N: 'static> ConstructFold<N> for Shared {

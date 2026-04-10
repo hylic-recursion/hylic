@@ -1,4 +1,4 @@
-use crate::domain::shared::graph::{Treeish, treeish_visit};
+use crate::graph::{Treeish, treeish_visit};
 
 type Index = usize;
 #[derive(Clone, Debug)]

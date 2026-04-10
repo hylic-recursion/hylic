@@ -6,7 +6,7 @@
 //! Supports the full transformation API (map, zipmap, contramap, product).
 
 use std::rc::Rc;
-use crate::ops::{FoldOps, TreeOps};
+use crate::ops::FoldOps;
 use crate::cata::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
@@ -152,48 +152,3 @@ pub fn simple_fold<N: 'static, H: Clone + 'static>(
     Fold::new(init, accumulate, |heap| heap.clone())
 }
 
-// ── Treeish ───────────────────────────────────────
-
-pub struct Treeish<N> {
-    impl_visit: Rc<dyn Fn(&N, &mut dyn FnMut(&N))>,
-}
-
-impl<N> Clone for Treeish<N> {
-    fn clone(&self) -> Self { Treeish { impl_visit: self.impl_visit.clone() } }
-}
-
-impl<N: 'static> Treeish<N> {
-    pub fn new(func: impl Fn(&N, &mut dyn FnMut(&N)) + 'static) -> Self {
-        Treeish { impl_visit: Rc::new(func) }
-    }
-
-    pub fn filter(&self, pred: impl Fn(&N) -> bool + 'static) -> Self {
-        let inner = self.impl_visit.clone();
-        treeish_visit(crate::graph::combinators::filter_edges(
-            move |n: &N, cb: &mut dyn FnMut(&N)| inner(n, cb), pred,
-        ))
-    }
-
-    pub fn treemap<NewN: 'static>(
-        &self,
-        co_tf: impl Fn(&N) -> NewN + 'static,
-        contra_tf: impl Fn(&NewN) -> N + 'static,
-    ) -> Treeish<NewN> {
-        let inner = self.impl_visit.clone();
-        Treeish::new(crate::graph::combinators::treemap(
-            move |n: &N, cb: &mut dyn FnMut(&N)| inner(n, cb), co_tf, contra_tf,
-        ))
-    }
-}
-
-impl<N: 'static> TreeOps<N> for Treeish<N> {
-    fn visit(&self, node: &N, cb: &mut dyn FnMut(&N)) {
-        (self.impl_visit)(node, cb)
-    }
-}
-
-pub fn treeish_visit<N: 'static>(
-    func: impl Fn(&N, &mut dyn FnMut(&N)) + 'static,
-) -> Treeish<N> {
-    Treeish::new(func)
-}

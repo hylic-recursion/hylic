@@ -3,7 +3,7 @@
 //! Not Clone, not Send+Sync. The lightest domain — zero refcount.
 //! Transformations consume self (move semantics).
 
-use crate::ops::{FoldOps, TreeOps};
+use crate::ops::FoldOps;
 use crate::cata::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
@@ -117,38 +117,3 @@ pub fn simple_fold<N: 'static, H: Clone + 'static>(
     Fold::new(init, accumulate, |heap| heap.clone())
 }
 
-// ── Treeish ───────────────────────────────────────
-
-pub struct Treeish<N> {
-    impl_visit: Box<dyn Fn(&N, &mut dyn FnMut(&N))>,
-}
-
-impl<N: 'static> Treeish<N> {
-    pub fn new(func: impl Fn(&N, &mut dyn FnMut(&N)) + 'static) -> Self {
-        Treeish { impl_visit: Box::new(func) }
-    }
-
-    pub fn filter(self, pred: impl Fn(&N) -> bool + 'static) -> Self {
-        Treeish::new(crate::graph::combinators::filter_edges(self.impl_visit, pred))
-    }
-
-    pub fn treemap<NewN: 'static>(
-        self,
-        co_tf: impl Fn(&N) -> NewN + 'static,
-        contra_tf: impl Fn(&NewN) -> N + 'static,
-    ) -> Treeish<NewN> {
-        Treeish::new(crate::graph::combinators::treemap(self.impl_visit, co_tf, contra_tf))
-    }
-}
-
-impl<N: 'static> TreeOps<N> for Treeish<N> {
-    fn visit(&self, node: &N, cb: &mut dyn FnMut(&N)) {
-        (self.impl_visit)(node, cb)
-    }
-}
-
-pub fn treeish_visit<N: 'static>(
-    func: impl Fn(&N, &mut dyn FnMut(&N)) + 'static,
-) -> Treeish<N> {
-    Treeish::new(func)
-}

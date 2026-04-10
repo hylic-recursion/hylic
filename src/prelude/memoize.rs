@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
-use crate::domain::shared::graph::{Treeish, treeish};
+use crate::graph::{Treeish, treeish};
 
 /// Memoize a Treeish using a caller-provided key function.
 ///

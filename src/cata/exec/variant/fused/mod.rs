@@ -1,5 +1,5 @@
 //! Fused executor: zero-overhead sequential recursive traversal.
-//! Supports ALL domains — it never clones the fold or graph.
+//! Supports ALL domains and ALL graph types.
 
 use crate::ops::{FoldOps, TreeOps};
 use crate::domain::Domain;
@@ -20,8 +20,8 @@ impl ExecutorSpec for Spec {
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Self) -> R) -> R { f(self) }
 }
 
-impl<N: 'static, R: 'static, D: Domain<N>> Executor<N, R, D> for Spec {
-    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &D::Treeish, root: &N) -> R {
+impl<N: 'static, R: 'static, D: Domain<N>, G: TreeOps<N> + 'static> Executor<N, R, D, G> for Spec {
+    fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &G, root: &N) -> R {
         recurse(fold, graph, root)
     }
 }

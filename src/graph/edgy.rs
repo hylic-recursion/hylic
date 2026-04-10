@@ -1,4 +1,7 @@
-//! Shared-domain graph types — Arc-based closure storage, Clone, Send+Sync.
+//! Edgy and Treeish — Arc-based graph types with full combinators.
+//!
+//! Domain-independent: used by all executors via TreeOps. Arc storage
+//! enables Clone for graph composition (Graph, SeedGraph).
 
 use std::sync::Arc;
 use either::Either;

@@ -1,11 +1,11 @@
-//! Shared-domain composition types: Graph, SeedGraph, GraphWithFold.
+//! Graph composition: Graph, SeedGraph, GraphWithFold.
 //!
 //! These combine graph traversal with fold computation. All Arc-based,
-//! Clone, Send+Sync. Shared-domain only.
+//! Clone, Send+Sync. GraphWithFold uses Shared-domain Fold.
 
 use std::sync::Arc;
-use super::fold::Fold;
-use super::graph::{Edgy, Treeish, edgy_visit, treeish_visit};
+use super::edgy::{Edgy, Treeish, edgy_visit, treeish_visit};
+use crate::domain::shared::fold::Fold;
 use crate::cata::exec;
 use crate::domain;
 
