@@ -146,14 +146,14 @@ where
     R: Clone + Send + 'static,
 {
     pub fn new(
-        seed_lift: SeedLift<N, Seed>,
+        grow: impl Fn(&Seed) -> N + Send + Sync + 'static,
         treeish: Treeish<N>,
         seeds_from_top: Edgy<Top, Seed>,
         fold: &shared::fold::Fold<N, H, R>,
         heap_of_top: impl Fn(&Top) -> H + Send + Sync + 'static,
     ) -> Self {
         SeedPipeline {
-            seed_lift,
+            seed_lift: SeedLift::new(grow),
             treeish,
             seeds_from_top,
             fold: fold.clone(),
@@ -192,5 +192,169 @@ where
         let lifted_fold = self.seed_lift.lift_fold(self.fold.clone());
         let lifted_treeish = self.seed_lift.lift_treeish(self.treeish.clone());
         exec.run(&lifted_fold, &lifted_treeish, &Either::Right(node.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::shared::{self as dom, fold};
+    use crate::graph;
+
+    // A simple model: Node = usize, Seed = usize.
+    // grow is identity (or a transformation).
+    // The tree is an adjacency list.
+
+    type N = usize;
+    type S = usize;
+
+    fn test_children() -> Vec<Vec<usize>> {
+        // 0 → [1, 2], 1 → [3], 2 → [], 3 → []
+        vec![vec![1, 2], vec![3], vec![], vec![]]
+    }
+
+    fn test_treeish() -> graph::Treeish<N> {
+        let ch = test_children();
+        graph::treeish_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {
+            for &c in &ch[*n] { cb(&c); }
+        })
+    }
+
+    fn sum_fold() -> fold::Fold<N, u64, u64> {
+        fold::fold(
+            |n: &N| *n as u64,
+            |h: &mut u64, c: &u64| *h += c,
+            |h: &u64| *h,
+        )
+    }
+
+    // ── Core lift mechanics ─────────────────────────
+
+    #[test]
+    fn convergence_right_entry() {
+        // Entering through Right(node) produces the same result as
+        // running the original fold on the original treeish.
+        let treeish = test_treeish();
+        let f = sum_fold();
+        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
+
+        let original = dom::FUSED.run(&f, &treeish, &0);
+
+        let lt = lift.lift_treeish(treeish);
+        let lf = lift.lift_fold(f);
+        let lifted = dom::FUSED.run(&lf, &lt, &Either::Right(0));
+
+        assert_eq!(original, lifted);
+    }
+
+    #[test]
+    fn seed_entry_grows_then_converges() {
+        // Left(seed) → grow → node. Result must match running from that node.
+        let treeish = test_treeish();
+        let f = sum_fold();
+        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
+
+        let direct = dom::FUSED.run(&f, &treeish, &1);
+
+        let lt = lift.lift_treeish(treeish);
+        let lf = lift.lift_fold(f);
+        let via_seed = dom::FUSED.run(&lf, &lt, &Either::Left(1));
+
+        assert_eq!(direct, via_seed);
+    }
+
+    #[test]
+    fn relay_passes_leaf_result() {
+        // A leaf entered via Left(seed): init returns the node value,
+        // no children, finalize returns it. Relay passes through unchanged.
+        let treeish = test_treeish();
+        let f = sum_fold();
+        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
+
+        let lt = lift.lift_treeish(treeish);
+        let lf = lift.lift_fold(f);
+        assert_eq!(dom::FUSED.run(&lf, &lt, &Either::Left(3)), 3);
+    }
+
+    #[test]
+    fn grow_transforms_seed() {
+        // grow doubles the seed. Left(1) → node 2 (leaf) → result = 2.
+        let treeish = test_treeish();
+        let f = sum_fold();
+        let lift = SeedLift::<N, S>::new(|seed: &S| seed * 2);
+
+        let lt = lift.lift_treeish(treeish.clone());
+        let lf = lift.lift_fold(f.clone());
+
+        let result = dom::FUSED.run(&lf, &lt, &Either::Left(1));
+        let direct = dom::FUSED.run(&f, &treeish, &2);
+        assert_eq!(result, direct);
+    }
+
+    // ── SeedPipeline ────────────────────────────────
+
+    #[test]
+    fn pipeline_single_top_seed() {
+        type Top = Vec<S>;
+
+        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
+            |seed: &S| *seed,
+            test_treeish(),
+            graph::edgy(|top: &Top| top.clone()),
+            &sum_fold(),
+            |_top: &Top| 0u64,
+        );
+
+        let result = pipeline.run(&dom::FUSED, &vec![0usize]);
+        let expected = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn pipeline_multiple_top_seeds() {
+        type Top = Vec<S>;
+
+        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
+            |seed: &S| *seed,
+            test_treeish(),
+            graph::edgy(|top: &Top| top.clone()),
+            &sum_fold(),
+            |_top: &Top| 0u64,
+        );
+
+        // Seeds [1, 2]: subtree(1) = 1+3 = 4, subtree(2) = 2. Total = 6.
+        let result = pipeline.run(&dom::FUSED, &vec![1usize, 2]);
+        assert_eq!(result, 6);
+    }
+
+    #[test]
+    fn pipeline_run_node_matches_direct() {
+        type Top = Vec<S>;
+
+        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
+            |seed: &S| *seed,
+            test_treeish(),
+            graph::edgy(|top: &Top| top.clone()),
+            &sum_fold(),
+            |_top: &Top| 0u64,
+        );
+
+        let result = pipeline.run_node(&dom::FUSED, &0);
+        let expected = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
+        assert_eq!(result, expected);
+    }
+
+    // ── LiftOps trait interop ───────────────────────
+
+    #[test]
+    fn liftops_via_run_lifted() {
+        // SeedLift implements LiftOps — verify through the free function.
+        let treeish = test_treeish();
+        let f = sum_fold();
+        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
+
+        let original = dom::FUSED.run(&f, &treeish, &0);
+        let result = crate::cata::lift::run_lifted(&dom::FUSED, &lift, &f, &treeish, &0);
+        assert_eq!(original, result);
     }
 }
