@@ -137,6 +137,18 @@ pub struct SeedPipeline<N, Seed, Top, H, R> {
     heap_of_top: Arc<dyn Fn(&Top) -> H + Send + Sync>,
 }
 
+impl<N, Seed, Top, H, R> Clone for SeedPipeline<N, Seed, Top, H, R> {
+    fn clone(&self) -> Self {
+        SeedPipeline {
+            seed_lift: self.seed_lift.clone(),
+            treeish: self.treeish.clone(),
+            seeds_from_top: self.seeds_from_top.clone(),
+            fold: self.fold.clone(),
+            heap_of_top: self.heap_of_top.clone(),
+        }
+    }
+}
+
 impl<N, Seed, Top, H, R> SeedPipeline<N, Seed, Top, H, R>
 where
     N: Clone + Send + Sync + 'static,
@@ -192,6 +204,37 @@ where
         let lifted_fold = self.seed_lift.lift_fold(self.fold.clone());
         let lifted_treeish = self.seed_lift.lift_treeish(self.treeish.clone());
         exec.run(&lifted_fold, &lifted_treeish, &Either::Right(node.clone()))
+    }
+
+    /// Augment the result type: R → (R, Extra).
+    pub fn zipmap<Extra: 'static>(
+        &self,
+        mapper: impl Fn(&R) -> Extra + Send + Sync + 'static,
+    ) -> SeedPipeline<N, Seed, Top, H, (R, Extra)>
+    where R: Clone,
+    {
+        SeedPipeline {
+            seed_lift: self.seed_lift.clone(),
+            treeish: self.treeish.clone(),
+            seeds_from_top: self.seeds_from_top.clone(),
+            fold: self.fold.zipmap(mapper),
+            heap_of_top: self.heap_of_top.clone(),
+        }
+    }
+
+    /// Change the result type: R → RNew.
+    pub fn map<RNew: Clone + Send + 'static>(
+        &self,
+        mapper: impl Fn(&R) -> RNew + Send + Sync + 'static,
+        backmapper: impl Fn(&RNew) -> R + Send + Sync + 'static,
+    ) -> SeedPipeline<N, Seed, Top, H, RNew> {
+        SeedPipeline {
+            seed_lift: self.seed_lift.clone(),
+            treeish: self.treeish.clone(),
+            seeds_from_top: self.seeds_from_top.clone(),
+            fold: self.fold.map(mapper, backmapper),
+            heap_of_top: self.heap_of_top.clone(),
+        }
     }
 }
 
