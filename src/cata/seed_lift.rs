@@ -357,4 +357,101 @@ mod tests {
         let result = crate::cata::lift::run_lifted(&dom::FUSED, &lift, &f, &treeish, &0);
         assert_eq!(original, result);
     }
+
+    // ── Funnel executor ─────────────────────────────
+
+    #[test]
+    fn pipeline_with_funnel() {
+        use crate::cata::exec::funnel;
+
+        type Top = Vec<S>;
+
+        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
+            |seed: &S| *seed,
+            test_treeish(),
+            graph::edgy(|top: &Top| top.clone()),
+            &sum_fold(),
+            |_top: &Top| 0u64,
+        );
+
+        let expected = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
+
+        // One-shot funnel execution
+        let result = pipeline.run(
+            &dom::exec(funnel::Spec::default(2)),
+            &vec![0usize],
+        );
+        assert_eq!(result, expected, "funnel one-shot must match fused");
+
+        // Session-scoped funnel execution
+        dom::exec(funnel::Spec::default(2)).session(|s| {
+            let result = pipeline.run(s.inner(), &vec![0usize]);
+            assert_eq!(result, expected, "funnel session must match fused");
+        });
+    }
+
+    // ── Error domain (Either<Err, Valid>) ───────────
+
+    #[test]
+    fn error_nodes_are_leaves() {
+        // Models mb_resolver's Node = Either<Error, ValidModule>.
+        // Error nodes have no children (seeds_from_node yields nothing).
+        // The lift must handle this: grow produces an error node,
+        // the treeish yields no children, the fold inits and finalizes.
+
+        #[derive(Clone, Debug, PartialEq)]
+        enum ResNode {
+            Ok(u64, Vec<u64>),    // value + child indices
+            Err(String),           // error leaf
+        }
+
+        type Seed = u64;
+
+        let nodes: Vec<ResNode> = vec![
+            ResNode::Ok(10, vec![1, 2]),  // 0: ok, children [1, 2]
+            ResNode::Ok(20, vec![3]),      // 1: ok, child [3]
+            ResNode::Err("bad".into()),    // 2: error leaf
+            ResNode::Ok(30, vec![]),       // 3: ok leaf
+        ];
+
+        let nodes_for_treeish = nodes.clone();
+        let treeish = graph::treeish_visit(move |n: &ResNode, cb: &mut dyn FnMut(&ResNode)| {
+            match n {
+                ResNode::Ok(_, children) => {
+                    for &idx in children {
+                        cb(&nodes_for_treeish[idx as usize]);
+                    }
+                }
+                ResNode::Err(_) => {} // error nodes have no children
+            }
+        });
+
+        let f = fold::fold(
+            |n: &ResNode| match n {
+                ResNode::Ok(v, _) => *v,
+                ResNode::Err(_) => 0,
+            },
+            |h: &mut u64, c: &u64| *h += c,
+            |h: &u64| *h,
+        );
+
+        let nodes_for_grow = nodes.clone();
+        let lift = SeedLift::<ResNode, Seed>::new(move |seed: &Seed| {
+            nodes_for_grow[*seed as usize].clone()
+        });
+
+        // Direct execution from node 0: 10 + (20 + 30) + 0 = 60
+        let direct = dom::FUSED.run(&f, &treeish, &nodes[0]);
+        assert_eq!(direct, 60);
+
+        // Via seed lift: Left(0) → grow → nodes[0], then same tree
+        let lt = lift.lift_treeish(treeish);
+        let lf = lift.lift_fold(f);
+        let via_seed = dom::FUSED.run(&lf, &lt, &Either::Left(0));
+        assert_eq!(via_seed, direct);
+
+        // Error node via seed: Left(2) → grow → Err("bad") → leaf → 0
+        let error_result = dom::FUSED.run(&lf, &lt, &Either::Left(2));
+        assert_eq!(error_result, 0, "error node must be a leaf with init value");
+    }
 }
