@@ -35,6 +35,7 @@ where NodeT: 'static, EdgeT: 'static,
         self.at(input).collect_vec()
     }
 
+    // ANCHOR: edgy_map
     pub fn map<F, NewEdgeT: 'static>(&self, transform: F) -> Edgy<NodeT, NewEdgeT>
     where F: Fn(&EdgeT) -> NewEdgeT + Send + Sync + 'static,
     {
@@ -43,7 +44,9 @@ where NodeT: 'static, EdgeT: 'static,
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
         ))
     }
+    // ANCHOR_END: edgy_map
 
+    // ANCHOR: edgy_contramap
     pub fn contramap<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> NodeT + Send + Sync + 'static,
     {
@@ -52,7 +55,9 @@ where NodeT: 'static, EdgeT: 'static,
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
         ))
     }
+    // ANCHOR_END: edgy_contramap
 
+    // ANCHOR: edgy_contramap_or
     pub fn contramap_or<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> Either<NodeT, Vec<EdgeT>> + Send + Sync + 'static,
     {
@@ -61,6 +66,7 @@ where NodeT: 'static, EdgeT: 'static,
             move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
         ))
     }
+    // ANCHOR_END: edgy_contramap_or
 
     pub fn filter(&self, pred: impl Fn(&EdgeT) -> bool + Send + Sync + 'static) -> Self {
         let inner = self.impl_visit.clone();

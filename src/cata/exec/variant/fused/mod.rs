@@ -26,6 +26,7 @@ impl<N: 'static, R: 'static, D: Domain<N>, G: TreeOps<N> + 'static> Executor<N, 
     }
 }
 
+// ANCHOR: run_inner
 fn recurse<N, H, R>(
     fold: &impl FoldOps<N, H, R>,
     graph: &impl TreeOps<N>,
@@ -38,3 +39,4 @@ fn recurse<N, H, R>(
     });
     fold.finalize(&heap)
 }
+// ANCHOR_END: run_inner

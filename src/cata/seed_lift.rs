@@ -12,18 +12,20 @@
 use std::sync::Arc;
 use either::Either;
 use crate::domain::{self, shared};
-use crate::graph::{Edgy, Treeish, treeish_visit};
+use crate::graph::{Edgy, Treeish};
 use crate::ops::LiftOps;
 use super::exec::Executor;
 
 // ── SeedHeap: the parallel-world heap ───────────────
 
+// ANCHOR: seed_heap
 /// Heap in the seeded world. Resolved nodes carry the original fold's
 /// heap. Seed nodes carry a relay slot for the single child's result.
 pub enum SeedHeap<H, R> {
     Node(H),
     Relay(Option<R>),
 }
+// ANCHOR_END: seed_heap
 
 // ── SeedLift: the FP core ───────────────────────────
 
@@ -42,26 +44,16 @@ impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
         SeedLift { grow: Arc::new(grow) }
     }
 
-    /// The seeded treeish: embeds the original treeish t.
-    /// Right(node) → t.visit(node) → [Right(child)]
-    /// Left(seed)  → [Right(grow(seed))]
+    // ANCHOR: lift_treeish
     pub fn lift_treeish(&self, t: Treeish<N>) -> Treeish<Either<Seed, N>> {
         let grow = self.grow.clone();
-        treeish_visit(move |n: &Either<Seed, N>, cb: &mut dyn FnMut(&Either<Seed, N>)| {
-            match n {
-                Either::Right(node) => {
-                    t.visit(node, &mut |child: &N| {
-                        let wrapped = Either::Right(child.clone());
-                        cb(&wrapped);
-                    });
-                }
-                Either::Left(seed) => {
-                    let grown = Either::Right(grow(seed));
-                    cb(&grown);
-                }
-            }
-        })
+        t.map(|child: &N| Either::Right(child.clone()))
+         .contramap_or(move |n: &Either<Seed, N>| match n {
+             Either::Right(node) => Either::Left(node.clone()),
+             Either::Left(seed) => Either::Right(vec![Either::Right(grow(seed))]),
+         })
     }
+    // ANCHOR_END: lift_treeish
 
     /// Transform a fold to handle Either<Seed, N>.
     /// Node branch: delegates to the original fold.
@@ -118,17 +110,14 @@ where
     fn lift_root(&self, root: &N) -> Either<Seed, N> {
         Either::Right(root.clone())
     }
-
-    fn unwrap<H: Clone + 'static>(&self, result: R) -> R {
-        result
-    }
 }
 
 // ── SeedPipeline: user-facing wrapper ───────────────
 
-/// Bundles a SeedLift with a treeish, fold, top entry mapping, and
-/// heap initializer. Encapsulates Either<Seed, N> entirely — the user
-/// provides N, Top, H, R and an executor; the internal types are inferred.
+/// Bundles a SeedLift with a seed edge function, fold, top entry mapping,
+/// and heap initializer. Constructs the treeish internally from
+/// seeds_from_node + grow. Encapsulates Either<Seed, N> entirely — the
+/// user provides N, Seed, Top, H, R and an executor.
 pub struct SeedPipeline<N, Seed, Top, H, R> {
     seed_lift: SeedLift<N, Seed>,
     treeish: Treeish<N>,
@@ -159,13 +148,18 @@ where
 {
     pub fn new(
         grow: impl Fn(&Seed) -> N + Send + Sync + 'static,
-        treeish: Treeish<N>,
+        seeds_from_node: Edgy<N, Seed>,
         seeds_from_top: Edgy<Top, Seed>,
         fold: &shared::fold::Fold<N, H, R>,
         heap_of_top: impl Fn(&Top) -> H + Send + Sync + 'static,
     ) -> Self {
+        let grow = Arc::new(grow);
+        // ANCHOR: treeish_from_seeds
+        let grow_edge = { let g = grow.clone(); move |seed: &Seed| g(seed) };
+        let treeish = seeds_from_node.map(grow_edge);
+        // ANCHOR_END: treeish_from_seeds
         SeedPipeline {
-            seed_lift: SeedLift::new(grow),
+            seed_lift: SeedLift { grow },
             treeish,
             seeds_from_top,
             fold: fold.clone(),
@@ -256,6 +250,13 @@ mod tests {
         vec![vec![1, 2], vec![3], vec![], vec![]]
     }
 
+    fn test_seeds_from_node() -> graph::Edgy<N, S> {
+        let ch = test_children();
+        graph::edgy_visit(move |n: &N, cb: &mut dyn FnMut(&S)| {
+            for &c in &ch[*n] { cb(&c); }
+        })
+    }
+
     fn test_treeish() -> graph::Treeish<N> {
         let ch = test_children();
         graph::treeish_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {
@@ -342,7 +343,7 @@ mod tests {
 
         let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
             |seed: &S| *seed,
-            test_treeish(),
+            test_seeds_from_node(),
             graph::edgy(|top: &Top| top.clone()),
             &sum_fold(),
             |_top: &Top| 0u64,
@@ -359,7 +360,7 @@ mod tests {
 
         let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
             |seed: &S| *seed,
-            test_treeish(),
+            test_seeds_from_node(),
             graph::edgy(|top: &Top| top.clone()),
             &sum_fold(),
             |_top: &Top| 0u64,
@@ -376,7 +377,7 @@ mod tests {
 
         let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
             |seed: &S| *seed,
-            test_treeish(),
+            test_seeds_from_node(),
             graph::edgy(|top: &Top| top.clone()),
             &sum_fold(),
             |_top: &Top| 0u64,
@@ -411,7 +412,7 @@ mod tests {
 
         let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
             |seed: &S| *seed,
-            test_treeish(),
+            test_seeds_from_node(),
             graph::edgy(|top: &Top| top.clone()),
             &sum_fold(),
             |_top: &Top| 0u64,

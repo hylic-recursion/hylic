@@ -10,6 +10,7 @@
 
 use either::Either;
 
+// ANCHOR: map_edges
 /// Map edges: (N, E) → (N, NewE).
 pub fn map_edges<N: 'static, E: 'static, NewE: 'static>(
     inner: impl Fn(&N, &mut dyn FnMut(&E)) + 'static,
@@ -22,6 +23,7 @@ pub fn map_edges<N: 'static, E: 'static, NewE: 'static>(
         });
     }
 }
+// ANCHOR_END: map_edges
 
 /// Change node type: (N, E) → (NewN, E).
 pub fn contramap_node<N: 'static, E: 'static, NewN: 'static>(
@@ -33,6 +35,7 @@ pub fn contramap_node<N: 'static, E: 'static, NewN: 'static>(
     }
 }
 
+// ANCHOR: contramap_or_node
 /// Change node type with fallback: either convert or provide edges.
 pub fn contramap_or_node<N: 'static, E: 'static, NewN: 'static>(
     inner: impl Fn(&N, &mut dyn FnMut(&E)) + 'static,
@@ -45,6 +48,7 @@ pub fn contramap_or_node<N: 'static, E: 'static, NewN: 'static>(
         }
     }
 }
+// ANCHOR_END: contramap_or_node
 
 /// Filter edges by predicate.
 pub fn filter_edges<N: 'static, E: 'static>(

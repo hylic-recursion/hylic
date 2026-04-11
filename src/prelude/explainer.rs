@@ -86,10 +86,6 @@ impl<N: Clone + 'static, R: Clone + 'static> LiftOps<N, R, N> for Explainer {
     }
 
     fn lift_root(&self, root: &N) -> N { root.clone() }
-
-    fn unwrap<H: Clone + 'static>(&self, result: ER<N, H, R>) -> R {
-        result.orig_result
-    }
 }
 
 /// Treeish over ExplainerResult — each result's transitions are its children.
