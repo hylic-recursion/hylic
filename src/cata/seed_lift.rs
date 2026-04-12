@@ -305,14 +305,19 @@ where
     }
 }
 
-// ── Run methods (add executor bounds) ───────────────
+// ── Run methods ─────────────────────────────────────
+//
+// Bounds: N and Seed need Clone + 'static (for late fusion).
+// H needs Clone + Send + Sync (for factory closure wrapping).
+// R needs Clone + 'static. Executor-specific bounds (N: Send etc)
+// propagate from the Executor trait bound on exec, not from here.
 
 impl<N, Seed, H, R> SeedPipeline<N, Seed, H, R>
 where
-    N: Clone + Send + Sync + 'static,
-    Seed: Clone + Send + Sync + 'static,
+    N: Clone + 'static,
+    Seed: Clone + 'static,
     H: Clone + Send + Sync + 'static,
-    R: Clone + Send + 'static,
+    R: Clone + 'static,
 {
     /// Enter with a streaming edge function that produces seeds.
     pub fn run(
@@ -331,7 +336,9 @@ where
         exec: &impl Executor<LiftedNode<Seed, N>, R, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
         seeds: &[Seed],
         entry_heap: H,
-    ) -> R {
+    ) -> R
+    where Seed: Send + Sync,
+    {
         let owned = seeds.to_vec();
         let entry_seeds = graph::edgy_visit(move |_: &(), cb: &mut dyn FnMut(&Seed)| {
             for s in &owned { cb(s); }
@@ -345,7 +352,9 @@ where
         exec: &impl Executor<LiftedNode<Seed, N>, R, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
         seed: &Seed,
         entry_heap: H,
-    ) -> R {
+    ) -> R
+    where Seed: Send + Sync,
+    {
         self.run_from_slice(exec, &[seed.clone()], entry_heap)
     }
 
