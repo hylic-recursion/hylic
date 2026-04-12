@@ -16,6 +16,7 @@ fn map_constituents_identity() {
         |g| g,    // grow: identity
         |e| e,    // seeds: identity
         |f| f,    // fold: identity
+        |l| l,    // pre_lift: identity
     );
 
     let original = pipeline.run_from_slice(&dom::FUSED, &[0], 0u64);
@@ -37,6 +38,7 @@ fn map_constituents_wrap_grow_via_general() {
         },
         |e| e,
         |f| f,
+        |l| l,
     );
 
     let result = transformed.run_from_slice(&dom::FUSED, &[0], 0u64);
@@ -52,6 +54,7 @@ fn map_constituents_change_fold() {
         |g| g,
         |e| e,
         |f| f.map(|r: &u64| *r * 10, |r: &u64| *r / 10),
+        |l| l,
     );
 
     // map(f, f⁻¹): finalize maps r→r*10, accumulate backmaps
