@@ -1,36 +1,48 @@
 //! SeedLift: anamorphic lift for seed-based graph construction.
 //!
-//! Expresses the Seed→Node indirection as a LiftOps implementation.
-//! The lift embeds the original treeish inside a lifted Either<Seed, N>
-//! tree, where Seed nodes are transparent single-child relays that
-//! resolve via a `grow` function.
+//! The lift embeds the original treeish inside a LiftedNode tree with
+//! three variants: Entry (root branching), Seed (single-child relay),
+//! Node (original fold + treeish).
 //!
-//! SeedPipeline bundles the lift with a treeish, fold, top entry
-//! mapping, and heap initializer — encapsulating Either<Seed, N>
-//! entirely. The user sees only N, Top, H, R.
+//! SeedPipeline stores grow, seeds_from_node, and fold decomposed.
+//! Fusion into the lifted graph happens at the point of use (inside
+//! run methods / with_lifted CPS). This preserves independent
+//! transformability of each constituent.
 
 use std::sync::Arc;
-use either::Either;
 use crate::domain::{self, shared};
-use crate::graph::{Edgy, Treeish};
-use crate::ops::LiftOps;
+use crate::graph::{self, Edgy, Treeish};
 use super::exec::Executor;
 
-// ── SeedHeap: the parallel-world heap ───────────────
+// ── LiftedNode: the three-variant lifted node ──────
+
+#[derive(Clone)]
+pub enum LiftedNode<Seed, N> {
+    Entry,
+    Seed(Seed),
+    Node(N),
+}
+
+// ── LiftedHeap: the lifted heap ────────────────────
 
 // ANCHOR: seed_heap
-/// Heap in the seeded world. Resolved nodes carry the original fold's
-/// heap. Seed nodes carry a relay slot for the single child's result.
-pub enum SeedHeap<H, R> {
-    Node(H),
+pub enum LiftedHeap<H, R> {
+    Active(H),
     Relay(Option<R>),
 }
 // ANCHOR_END: seed_heap
 
-// ── SeedLift: the FP core ───────────────────────────
+impl<H: Clone, R: Clone> Clone for LiftedHeap<H, R> {
+    fn clone(&self) -> Self {
+        match self {
+            LiftedHeap::Active(h) => LiftedHeap::Active(h.clone()),
+            LiftedHeap::Relay(r) => LiftedHeap::Relay(r.clone()),
+        }
+    }
+}
 
-/// Anamorphic lift: resolves Seed values into Nodes via `grow`.
-/// Implements LiftOps — transforms both treeish and fold.
+// ── SeedLift: the FP core ──────────────────────────
+
 pub struct SeedLift<N, Seed> {
     grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
 }
@@ -45,189 +57,279 @@ impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
     }
 
     // ANCHOR: lift_treeish
-    pub fn lift_treeish(&self, t: Treeish<N>) -> Treeish<Either<Seed, N>> {
+    pub fn lift_treeish(
+        &self,
+        t: Treeish<N>,
+        entry_seeds: Edgy<(), Seed>,
+    ) -> Treeish<LiftedNode<Seed, N>> {
         let grow = self.grow.clone();
-        t.map(|child: &N| Either::Right(child.clone()))
-         .contramap_or(move |n: &Either<Seed, N>| match n {
-             Either::Right(node) => Either::Left(node.clone()),
-             Either::Left(seed) => Either::Right(vec![Either::Right(grow(seed))]),
-         })
+        graph::treeish_visit(move |n: &LiftedNode<Seed, N>, cb: &mut dyn FnMut(&LiftedNode<Seed, N>)| {
+            match n {
+                LiftedNode::Node(node) => {
+                    t.visit(node, &mut |child: &N| {
+                        cb(&LiftedNode::Node(child.clone()));
+                    });
+                }
+                LiftedNode::Seed(seed) => {
+                    cb(&LiftedNode::Node(grow(seed)));
+                }
+                LiftedNode::Entry => {
+                    entry_seeds.visit(&(), &mut |seed: &Seed| {
+                        cb(&LiftedNode::Node(grow(seed)));
+                    });
+                }
+            }
+        })
     }
     // ANCHOR_END: lift_treeish
 
-    /// Transform a fold to handle Either<Seed, N>.
-    /// Node branch: delegates to the original fold.
-    /// Seed branch: transparent relay (stores and returns child R).
-    pub fn lift_fold<H: Clone + 'static, R: Clone + 'static>(
+    pub fn lift_fold<H: Clone + Send + Sync + 'static, R: Clone + 'static>(
         &self,
         f: shared::fold::Fold<N, H, R>,
-    ) -> shared::fold::Fold<Either<Seed, N>, SeedHeap<H, R>, R> {
+        entry_heap: H,
+    ) -> shared::fold::Fold<LiftedNode<Seed, N>, LiftedHeap<H, R>, R> {
         let f1 = f.clone();
         let f2 = f.clone();
         let f3 = f;
         shared::fold::fold(
-            move |n: &Either<Seed, N>| -> SeedHeap<H, R> {
+            move |n: &LiftedNode<Seed, N>| -> LiftedHeap<H, R> {
                 match n {
-                    Either::Right(node) => SeedHeap::Node(f1.init(node)),
-                    Either::Left(_) => SeedHeap::Relay(None),
+                    LiftedNode::Node(node) => LiftedHeap::Active(f1.init(node)),
+                    LiftedNode::Seed(_) => LiftedHeap::Relay(None),
+                    LiftedNode::Entry => LiftedHeap::Active(entry_heap.clone()),
                 }
             },
-            move |heap: &mut SeedHeap<H, R>, result: &R| {
+            move |heap: &mut LiftedHeap<H, R>, result: &R| {
                 match heap {
-                    SeedHeap::Node(h) => f2.accumulate(h, result),
-                    SeedHeap::Relay(slot) => *slot = Some(result.clone()),
+                    LiftedHeap::Active(h) => f2.accumulate(h, result),
+                    LiftedHeap::Relay(slot) => *slot = Some(result.clone()),
                 }
             },
-            move |heap: &SeedHeap<H, R>| -> R {
+            move |heap: &LiftedHeap<H, R>| -> R {
                 match heap {
-                    SeedHeap::Node(h) => f3.finalize(h),
-                    SeedHeap::Relay(Some(r)) => r.clone(),
-                    SeedHeap::Relay(None) => panic!("seed relay finalized without child result"),
+                    LiftedHeap::Active(h) => f3.finalize(h),
+                    LiftedHeap::Relay(Some(r)) => r.clone(),
+                    LiftedHeap::Relay(None) => panic!("relay finalized without child result"),
                 }
             },
         )
     }
 }
 
-impl<N, Seed, R> LiftOps<N, R, Either<Seed, N>>
-    for SeedLift<N, Seed>
-where
-    N: Clone + 'static,
-    Seed: Clone + 'static,
-    R: Clone + 'static,
-{
-    type LiftedH<H: Clone + 'static> = SeedHeap<H, R>;
-    type LiftedR<H: Clone + 'static> = R;
+// ── SeedPipeline: user-facing wrapper ──────────────
 
-    fn lift_treeish(&self, t: Treeish<N>) -> Treeish<Either<Seed, N>> {
-        SeedLift::lift_treeish(self, t)
-    }
-
-    fn lift_fold<H: Clone + 'static>(&self, f: shared::fold::Fold<N, H, R>) -> shared::fold::Fold<Either<Seed, N>, SeedHeap<H, R>, R> {
-        SeedLift::lift_fold(self, f)
-    }
-
-    fn lift_root(&self, root: &N) -> Either<Seed, N> {
-        Either::Right(root.clone())
-    }
-}
-
-// ── SeedPipeline: user-facing wrapper ───────────────
-
-/// Bundles a SeedLift with a seed edge function, fold, top entry mapping,
-/// and heap initializer. Constructs the treeish internally from
-/// seeds_from_node + grow. Encapsulates Either<Seed, N> entirely — the
-/// user provides N, Seed, Top, H, R and an executor.
-pub struct SeedPipeline<N, Seed, Top, H, R> {
-    seed_lift: SeedLift<N, Seed>,
-    treeish: Treeish<N>,
-    seeds_from_top: Edgy<Top, Seed>,
+/// Stores grow, seeds_from_node, and fold decomposed. Fusion into
+/// the lifted graph happens at the point of use. Entry concerns are
+/// supplied at run time.
+pub struct SeedPipeline<N, Seed, H, R> {
+    grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+    seeds_from_node: Edgy<N, Seed>,
     fold: shared::fold::Fold<N, H, R>,
-    heap_of_top: Arc<dyn Fn(&Top) -> H + Send + Sync>,
 }
 
-impl<N, Seed, Top, H, R> Clone for SeedPipeline<N, Seed, Top, H, R> {
+impl<N, Seed, H, R> Clone for SeedPipeline<N, Seed, H, R> {
     fn clone(&self) -> Self {
         SeedPipeline {
-            seed_lift: self.seed_lift.clone(),
-            treeish: self.treeish.clone(),
-            seeds_from_top: self.seeds_from_top.clone(),
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.clone(),
             fold: self.fold.clone(),
-            heap_of_top: self.heap_of_top.clone(),
         }
     }
 }
 
-impl<N, Seed, Top, H, R> SeedPipeline<N, Seed, Top, H, R>
+impl<N, Seed, H, R> SeedPipeline<N, Seed, H, R>
 where
     N: Clone + Send + Sync + 'static,
     Seed: Clone + Send + Sync + 'static,
-    Top: 'static,
-    H: Clone + 'static,
+    H: Clone + Send + Sync + 'static,
     R: Clone + Send + 'static,
 {
     pub fn new(
         grow: impl Fn(&Seed) -> N + Send + Sync + 'static,
         seeds_from_node: Edgy<N, Seed>,
-        seeds_from_top: Edgy<Top, Seed>,
         fold: &shared::fold::Fold<N, H, R>,
-        heap_of_top: impl Fn(&Top) -> H + Send + Sync + 'static,
     ) -> Self {
-        let grow = Arc::new(grow);
-        // ANCHOR: treeish_from_seeds
-        let grow_edge = { let g = grow.clone(); move |seed: &Seed| g(seed) };
-        let treeish = seeds_from_node.map(grow_edge);
-        // ANCHOR_END: treeish_from_seeds
         SeedPipeline {
-            seed_lift: SeedLift { grow },
-            treeish,
-            seeds_from_top,
+            grow: Arc::new(grow),
+            seeds_from_node,
             fold: fold.clone(),
-            heap_of_top: Arc::new(heap_of_top),
         }
     }
 
-    /// Execute the pipeline over a Top entry point.
-    /// The executor operates on the internal Either<Seed, N> — inferred,
-    /// never named by the caller.
+    // ── Internal: late fusion ───────────────────────
+
+    // ANCHOR: treeish_from_seeds
+    fn compose_treeish(&self) -> Treeish<N> {
+        self.seeds_from_node.map({
+            let g = self.grow.clone();
+            move |seed: &Seed| g(seed)
+        })
+    }
+    // ANCHOR_END: treeish_from_seeds
+
+    fn make_seed_lift(&self) -> SeedLift<N, Seed> {
+        SeedLift { grow: self.grow.clone() }
+    }
+
+    // ── CPS: the single fusion point ────────────────
+
+    /// Compose all parts, lift into the LiftedNode graph, and pass
+    /// the fully-typed artifacts to a continuation. All run methods
+    /// delegate here.
+    pub fn with_lifted<T>(
+        &self,
+        entry_seeds: Edgy<(), Seed>,
+        entry_heap: H,
+        cont: impl FnOnce(
+            &shared::fold::Fold<LiftedNode<Seed, N>, LiftedHeap<H, R>, R>,
+            &Treeish<LiftedNode<Seed, N>>,
+        ) -> T,
+    ) -> T {
+        let treeish = self.compose_treeish();
+        let seed_lift = self.make_seed_lift();
+        let lifted_fold = seed_lift.lift_fold(self.fold.clone(), entry_heap);
+        let lifted_treeish = seed_lift.lift_treeish(treeish, entry_seeds);
+        cont(&lifted_fold, &lifted_treeish)
+    }
+
+    // ── Run methods (thin wrappers over with_lifted) ─
+
+    /// Enter with a streaming edge function that produces seeds.
     pub fn run(
         &self,
-        exec: &impl Executor<Either<Seed, N>, R, domain::Shared, Treeish<Either<Seed, N>>>,
-        top: &Top,
+        exec: &impl Executor<LiftedNode<Seed, N>, R, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
+        entry_seeds: Edgy<(), Seed>,
+        entry_heap: H,
     ) -> R {
-        let lifted_fold = self.seed_lift.lift_fold(self.fold.clone());
-        let lifted_treeish = self.seed_lift.lift_treeish(self.treeish.clone());
-
-        let mut heap = (self.heap_of_top)(top);
-        self.seeds_from_top.visit(top, &mut |seed: &Seed| {
-            let root = Either::Left(seed.clone());
-            let result = exec.run(&lifted_fold, &lifted_treeish, &root);
-            self.fold.accumulate(&mut heap, &result);
-        });
-        self.fold.finalize(&heap)
+        self.with_lifted(entry_seeds, entry_heap,
+            |fold, treeish| exec.run(fold, treeish, &LiftedNode::Entry))
     }
 
-    /// Execute on a single root node (no Top, no seeds_from_top).
-    /// Enters through Right(node) — the lift is transparent, the original
-    /// treeish drives traversal immediately.
+    /// Enter with a slice of seeds.
+    pub fn run_from_slice(
+        &self,
+        exec: &impl Executor<LiftedNode<Seed, N>, R, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
+        seeds: &[Seed],
+        entry_heap: H,
+    ) -> R {
+        let owned = seeds.to_vec();
+        let entry_seeds = graph::edgy_visit(move |_: &(), cb: &mut dyn FnMut(&Seed)| {
+            for s in &owned { cb(s); }
+        });
+        self.run(exec, entry_seeds, entry_heap)
+    }
+
+    /// Enter with a single seed.
+    pub fn run_seed(
+        &self,
+        exec: &impl Executor<LiftedNode<Seed, N>, R, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
+        seed: &Seed,
+        entry_heap: H,
+    ) -> R {
+        self.run_from_slice(exec, &[seed.clone()], entry_heap)
+    }
+
+    /// Enter with a resolved node. Same lift, same graph — the Node
+    /// variant delegates to the original treeish immediately.
     pub fn run_node(
         &self,
-        exec: &impl Executor<Either<Seed, N>, R, domain::Shared, Treeish<Either<Seed, N>>>,
+        exec: &impl Executor<LiftedNode<Seed, N>, R, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
         node: &N,
+        entry_heap: H,
     ) -> R {
-        let lifted_fold = self.seed_lift.lift_fold(self.fold.clone());
-        let lifted_treeish = self.seed_lift.lift_treeish(self.treeish.clone());
-        exec.run(&lifted_fold, &lifted_treeish, &Either::Right(node.clone()))
+        let entry_seeds = graph::edgy_visit(|_: &(), _: &mut dyn FnMut(&Seed)| {});
+        self.with_lifted(entry_seeds, entry_heap,
+            |fold, treeish| exec.run(fold, treeish, &LiftedNode::Node(node.clone())))
     }
 
-    /// Augment the result type: R → (R, Extra).
+    // ── Derived pipelines ───────────────────────────
+
     pub fn zipmap<Extra: 'static>(
         &self,
         mapper: impl Fn(&R) -> Extra + Send + Sync + 'static,
-    ) -> SeedPipeline<N, Seed, Top, H, (R, Extra)>
+    ) -> SeedPipeline<N, Seed, H, (R, Extra)>
     where R: Clone,
     {
         SeedPipeline {
-            seed_lift: self.seed_lift.clone(),
-            treeish: self.treeish.clone(),
-            seeds_from_top: self.seeds_from_top.clone(),
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.clone(),
             fold: self.fold.zipmap(mapper),
-            heap_of_top: self.heap_of_top.clone(),
         }
     }
 
-    /// Change the result type: R → RNew.
     pub fn map<RNew: Clone + Send + 'static>(
         &self,
         mapper: impl Fn(&R) -> RNew + Send + Sync + 'static,
         backmapper: impl Fn(&RNew) -> R + Send + Sync + 'static,
-    ) -> SeedPipeline<N, Seed, Top, H, RNew> {
+    ) -> SeedPipeline<N, Seed, H, RNew> {
         SeedPipeline {
-            seed_lift: self.seed_lift.clone(),
-            treeish: self.treeish.clone(),
-            seeds_from_top: self.seeds_from_top.clone(),
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.clone(),
             fold: self.fold.map(mapper, backmapper),
-            heap_of_top: self.heap_of_top.clone(),
+        }
+    }
+
+    // ── Constituent transforms (decomposed storage) ──
+
+    /// Wrap the grow function. Applies to both entry and recursive
+    /// seed resolution uniformly.
+    pub fn wrap_grow(
+        &self,
+        wrapper: impl Fn(&Seed, &dyn Fn(&Seed) -> N) -> N + Send + Sync + 'static,
+    ) -> Self {
+        let old = self.grow.clone();
+        SeedPipeline {
+            grow: Arc::new(move |s: &Seed| wrapper(s, &|s| old(s))),
+            seeds_from_node: self.seeds_from_node.clone(),
+            fold: self.fold.clone(),
+        }
+    }
+
+    /// Filter which seeds are followed during traversal.
+    pub fn filter_seeds(
+        &self,
+        pred: impl Fn(&Seed) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        SeedPipeline {
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.filter(pred),
+            fold: self.fold.clone(),
+        }
+    }
+
+    /// Wrap the fold's init phase.
+    pub fn wrap_init(
+        &self,
+        wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static,
+    ) -> Self {
+        SeedPipeline {
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.clone(),
+            fold: self.fold.wrap_init(wrapper),
+        }
+    }
+
+    /// Wrap the fold's accumulate phase.
+    pub fn wrap_accumulate(
+        &self,
+        wrapper: impl Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync + 'static,
+    ) -> Self {
+        SeedPipeline {
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.clone(),
+            fold: self.fold.wrap_accumulate(wrapper),
+        }
+    }
+
+    /// Wrap the fold's finalize phase.
+    pub fn wrap_finalize(
+        &self,
+        wrapper: impl Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync + 'static,
+    ) -> Self {
+        SeedPipeline {
+            grow: self.grow.clone(),
+            seeds_from_node: self.seeds_from_node.clone(),
+            fold: self.fold.wrap_finalize(wrapper),
         }
     }
 }
@@ -237,16 +339,12 @@ mod tests {
     use super::*;
     use crate::domain::shared::{self as dom, fold};
     use crate::graph;
-
-    // A simple model: Node = usize, Seed = usize.
-    // grow is identity (or a transformation).
-    // The tree is an adjacency list.
+    use std::sync::{Arc, Mutex};
 
     type N = usize;
     type S = usize;
 
     fn test_children() -> Vec<Vec<usize>> {
-        // 0 → [1, 2], 1 → [3], 2 → [], 3 → []
         vec![vec![1, 2], vec![3], vec![], vec![]]
     }
 
@@ -272,134 +370,143 @@ mod tests {
         )
     }
 
+    fn make_pipeline() -> SeedPipeline<N, S, u64, u64> {
+        SeedPipeline::new(|seed: &S| *seed, test_seeds_from_node(), &sum_fold())
+    }
+
     // ── Core lift mechanics ─────────────────────────
 
     #[test]
-    fn convergence_right_entry() {
-        // Entering through Right(node) produces the same result as
-        // running the original fold on the original treeish.
-        let treeish = test_treeish();
-        let f = sum_fold();
-        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
-
-        let original = dom::FUSED.run(&f, &treeish, &0);
-
-        let lt = lift.lift_treeish(treeish);
-        let lf = lift.lift_fold(f);
-        let lifted = dom::FUSED.run(&lf, &lt, &Either::Right(0));
-
-        assert_eq!(original, lifted);
+    fn convergence_node_entry() {
+        let pipeline = make_pipeline();
+        let original = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
+        let result = pipeline.run_node(&dom::FUSED, &0, 0u64);
+        assert_eq!(original, result);
     }
 
     #[test]
     fn seed_entry_grows_then_converges() {
-        // Left(seed) → grow → node. Result must match running from that node.
-        let treeish = test_treeish();
-        let f = sum_fold();
-        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
-
-        let direct = dom::FUSED.run(&f, &treeish, &1);
-
-        let lt = lift.lift_treeish(treeish);
-        let lf = lift.lift_fold(f);
-        let via_seed = dom::FUSED.run(&lf, &lt, &Either::Left(1));
-
-        assert_eq!(direct, via_seed);
+        let pipeline = make_pipeline();
+        let direct = dom::FUSED.run(&sum_fold(), &test_treeish(), &1);
+        let result = pipeline.run_seed(&dom::FUSED, &1, 0u64);
+        assert_eq!(direct, result);
     }
 
     #[test]
-    fn relay_passes_leaf_result() {
-        // A leaf entered via Left(seed): init returns the node value,
-        // no children, finalize returns it. Relay passes through unchanged.
-        let treeish = test_treeish();
-        let f = sum_fold();
-        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
-
-        let lt = lift.lift_treeish(treeish);
-        let lf = lift.lift_fold(f);
-        assert_eq!(dom::FUSED.run(&lf, &lt, &Either::Left(3)), 3);
+    fn entry_branches_into_seeds() {
+        let pipeline = make_pipeline();
+        let r1 = dom::FUSED.run(&sum_fold(), &test_treeish(), &1); // 4
+        let r2 = dom::FUSED.run(&sum_fold(), &test_treeish(), &2); // 2
+        let result = pipeline.run_from_slice(&dom::FUSED, &[1, 2], 0u64);
+        assert_eq!(result, r1 + r2);
     }
 
-    #[test]
-    fn grow_transforms_seed() {
-        // grow doubles the seed. Left(1) → node 2 (leaf) → result = 2.
-        let treeish = test_treeish();
-        let f = sum_fold();
-        let lift = SeedLift::<N, S>::new(|seed: &S| seed * 2);
-
-        let lt = lift.lift_treeish(treeish.clone());
-        let lf = lift.lift_fold(f.clone());
-
-        let result = dom::FUSED.run(&lf, &lt, &Either::Left(1));
-        let direct = dom::FUSED.run(&f, &treeish, &2);
-        assert_eq!(result, direct);
-    }
-
-    // ── SeedPipeline ────────────────────────────────
+    // ── Pipeline: convenience entry ─────────────────
 
     #[test]
-    fn pipeline_single_top_seed() {
-        type Top = Vec<S>;
-
-        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
-            |seed: &S| *seed,
-            test_seeds_from_node(),
-            graph::edgy(|top: &Top| top.clone()),
-            &sum_fold(),
-            |_top: &Top| 0u64,
-        );
-
-        let result = pipeline.run(&dom::FUSED, &vec![0usize]);
+    fn pipeline_from_slice() {
+        let pipeline = make_pipeline();
+        let result = pipeline.run_from_slice(&dom::FUSED, &[0], 0u64);
         let expected = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
         assert_eq!(result, expected);
     }
 
     #[test]
-    fn pipeline_multiple_top_seeds() {
-        type Top = Vec<S>;
+    fn pipeline_from_slice_multiple_seeds() {
+        let pipeline = make_pipeline();
+        let result = pipeline.run_from_slice(&dom::FUSED, &[1, 2], 0u64);
+        assert_eq!(result, 6); // subtree(1)=4, subtree(2)=2
+    }
 
-        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
-            |seed: &S| *seed,
-            test_seeds_from_node(),
-            graph::edgy(|top: &Top| top.clone()),
-            &sum_fold(),
-            |_top: &Top| 0u64,
-        );
+    // ── Pipeline: custom entry via Edgy ─────────────
 
-        // Seeds [1, 2]: subtree(1) = 1+3 = 4, subtree(2) = 2. Total = 6.
-        let result = pipeline.run(&dom::FUSED, &vec![1usize, 2]);
+    #[test]
+    fn pipeline_custom_entry() {
+        struct MyTop { roots: Vec<usize> }
+
+        let pipeline = make_pipeline();
+        let my_top = MyTop { roots: vec![1, 2] };
+        let entry_seeds = graph::edgy_visit({
+            let roots = my_top.roots.clone();
+            move |_: &(), cb: &mut dyn FnMut(&usize)| {
+                for r in &roots { cb(r); }
+            }
+        });
+
+        let result = pipeline.run(&dom::FUSED, entry_seeds, 0u64);
         assert_eq!(result, 6);
     }
 
+    // ── CPS: with_lifted ────────────────────────────
+
     #[test]
-    fn pipeline_run_node_matches_direct() {
-        type Top = Vec<S>;
+    fn with_lifted_multiple_runs() {
+        let pipeline = make_pipeline();
+        let entry = graph::edgy_visit(|_: &(), cb: &mut dyn FnMut(&S)| { cb(&0); });
 
-        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
-            |seed: &S| *seed,
-            test_seeds_from_node(),
-            graph::edgy(|top: &Top| top.clone()),
-            &sum_fold(),
-            |_top: &Top| 0u64,
-        );
-
-        let result = pipeline.run_node(&dom::FUSED, &0);
-        let expected = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
-        assert_eq!(result, expected);
+        pipeline.with_lifted(entry, 0u64, |fold, treeish| {
+            let r1 = dom::FUSED.run(fold, treeish, &LiftedNode::Entry);
+            let r2 = dom::FUSED.run(fold, treeish, &LiftedNode::Entry);
+            assert_eq!(r1, r2);
+            assert_eq!(r1, 6);
+        });
     }
 
-    // ── LiftOps trait interop ───────────────────────
+    #[test]
+    fn with_lifted_node_entry() {
+        let pipeline = make_pipeline();
+        let entry = graph::edgy_visit(|_: &(), _: &mut dyn FnMut(&S)| {});
+
+        pipeline.with_lifted(entry, 0u64, |fold, treeish| {
+            let r = dom::FUSED.run(fold, treeish, &LiftedNode::Node(0));
+            assert_eq!(r, 6);
+        });
+    }
+
+    // ── Constituent transforms ──────────────────────
 
     #[test]
-    fn liftops_via_run_lifted() {
-        // SeedLift implements LiftOps — verify through the free function.
-        let treeish = test_treeish();
-        let f = sum_fold();
-        let lift = SeedLift::<N, S>::new(|seed: &S| *seed);
+    fn wrap_grow_adds_logging() {
+        let pipeline = make_pipeline();
+        let log: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let original = dom::FUSED.run(&f, &treeish, &0);
-        let result = crate::cata::lift::run_lifted(&dom::FUSED, &lift, &f, &treeish, &0);
-        assert_eq!(original, result);
+        let transformed = pipeline.wrap_grow({
+            let log = log.clone();
+            move |seed: &S, original: &dyn Fn(&S) -> N| {
+                log.lock().unwrap().push(*seed);
+                original(seed)
+            }
+        });
+
+        transformed.run_from_slice(&dom::FUSED, &[0], 0u64);
+        let logged = log.lock().unwrap();
+        assert!(logged.contains(&0));
+        assert!(logged.contains(&1));
+        assert!(logged.contains(&2));
+        assert!(logged.contains(&3));
+    }
+
+    #[test]
+    fn filter_seeds_prunes_dependencies() {
+        let pipeline = make_pipeline();
+        let pruned = pipeline.filter_seeds(|seed: &S| *seed != 2);
+
+        // Tree: 0→[1,2], 1→[3], 2→[], 3→[]
+        // With seed 2 filtered: 0→[1], 1→[3]
+        // Sum: 0 + 1 + 3 = 4
+        let result = pruned.run_from_slice(&dom::FUSED, &[0], 0u64);
+        assert_eq!(result, 4);
+    }
+
+    #[test]
+    fn wrap_finalize_transforms_output() {
+        let pipeline = make_pipeline().wrap_finalize(
+            |h: &u64, original: &dyn Fn(&u64) -> u64| original(h) * 2
+        );
+        // Leaf 3: 3*2=6, Leaf 2: 2*2=4, Node 1: (1+6)*2=14, Node 0: (0+14+4)*2=36
+        // Entry: (0+36)*2=72  ← Entry is a proper graph member, finalize applies
+        let result = pipeline.run_from_slice(&dom::FUSED, &[0], 0u64);
+        assert_eq!(result, 72);
     }
 
     // ── Funnel executor ─────────────────────────────
@@ -408,94 +515,62 @@ mod tests {
     fn pipeline_with_funnel() {
         use crate::cata::exec::funnel;
 
-        type Top = Vec<S>;
-
-        let pipeline = SeedPipeline::<N, S, Top, u64, u64>::new(
-            |seed: &S| *seed,
-            test_seeds_from_node(),
-            graph::edgy(|top: &Top| top.clone()),
-            &sum_fold(),
-            |_top: &Top| 0u64,
-        );
-
+        let pipeline = make_pipeline();
         let expected = dom::FUSED.run(&sum_fold(), &test_treeish(), &0);
 
-        // One-shot funnel execution
-        let result = pipeline.run(
-            &dom::exec(funnel::Spec::default(2)),
-            &vec![0usize],
+        let result = pipeline.run_from_slice(
+            &dom::exec(funnel::Spec::default(2)), &[0], 0u64,
         );
         assert_eq!(result, expected, "funnel one-shot must match fused");
 
-        // Session-scoped funnel execution
         dom::exec(funnel::Spec::default(2)).session(|s| {
-            let result = pipeline.run(s.inner(), &vec![0usize]);
+            let result = pipeline.run_from_slice(s.inner(), &[0], 0u64);
             assert_eq!(result, expected, "funnel session must match fused");
         });
     }
 
-    // ── Error domain (Either<Err, Valid>) ───────────
+    // ── Error domain ────────────────────────────────
 
     #[test]
     fn error_nodes_are_leaves() {
-        // Models mb_resolver's Node = Either<Error, ValidModule>.
-        // Error nodes have no children (seeds_from_node yields nothing).
-        // The lift must handle this: grow produces an error node,
-        // the treeish yields no children, the fold inits and finalizes.
-
         #[derive(Clone, Debug, PartialEq)]
         enum ResNode {
-            Ok(u64, Vec<u64>),    // value + child indices
-            Err(String),           // error leaf
+            Ok(u64, Vec<u64>),
+            Err(String),
         }
-
         type Seed = u64;
 
         let nodes: Vec<ResNode> = vec![
-            ResNode::Ok(10, vec![1, 2]),  // 0: ok, children [1, 2]
-            ResNode::Ok(20, vec![3]),      // 1: ok, child [3]
-            ResNode::Err("bad".into()),    // 2: error leaf
-            ResNode::Ok(30, vec![]),       // 3: ok leaf
+            ResNode::Ok(10, vec![1, 2]),
+            ResNode::Ok(20, vec![3]),
+            ResNode::Err("bad".into()),
+            ResNode::Ok(30, vec![]),
         ];
 
-        let nodes_for_treeish = nodes.clone();
-        let treeish = graph::treeish_visit(move |n: &ResNode, cb: &mut dyn FnMut(&ResNode)| {
-            match n {
-                ResNode::Ok(_, children) => {
-                    for &idx in children {
-                        cb(&nodes_for_treeish[idx as usize]);
-                    }
-                }
-                ResNode::Err(_) => {} // error nodes have no children
+        let nodes_c = nodes.clone();
+        let seeds_from_node = graph::edgy_visit(move |n: &ResNode, cb: &mut dyn FnMut(&Seed)| {
+            if let ResNode::Ok(_, children) = n {
+                for &idx in children { cb(&idx); }
             }
         });
 
         let f = fold::fold(
-            |n: &ResNode| match n {
-                ResNode::Ok(v, _) => *v,
-                ResNode::Err(_) => 0,
-            },
+            |n: &ResNode| match n { ResNode::Ok(v, _) => *v, ResNode::Err(_) => 0 },
             |h: &mut u64, c: &u64| *h += c,
             |h: &u64| *h,
         );
 
         let nodes_for_grow = nodes.clone();
-        let lift = SeedLift::<ResNode, Seed>::new(move |seed: &Seed| {
-            nodes_for_grow[*seed as usize].clone()
-        });
+        let pipeline = SeedPipeline::new(
+            move |seed: &Seed| nodes_for_grow[*seed as usize].clone(),
+            seeds_from_node,
+            &f,
+        );
 
-        // Direct execution from node 0: 10 + (20 + 30) + 0 = 60
-        let direct = dom::FUSED.run(&f, &treeish, &nodes[0]);
-        assert_eq!(direct, 60);
+        let result = pipeline.run_from_slice(&dom::FUSED, &[0], 0u64);
+        assert_eq!(result, 60); // 10 + (20+30) + 0
 
-        // Via seed lift: Left(0) → grow → nodes[0], then same tree
-        let lt = lift.lift_treeish(treeish);
-        let lf = lift.lift_fold(f);
-        let via_seed = dom::FUSED.run(&lf, &lt, &Either::Left(0));
-        assert_eq!(via_seed, direct);
-
-        // Error node via seed: Left(2) → grow → Err("bad") → leaf → 0
-        let error_result = dom::FUSED.run(&lf, &lt, &Either::Left(2));
-        assert_eq!(error_result, 0, "error node must be a leaf with init value");
+        let error_result = pipeline.run_from_slice(&dom::FUSED, &[2], 0u64);
+        assert_eq!(error_result, 0);
     }
 }
