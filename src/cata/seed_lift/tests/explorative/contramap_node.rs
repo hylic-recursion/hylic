@@ -15,7 +15,7 @@ fn contramap_node_wraps_and_unwraps() {
     let pipeline = super::super::make_pipeline();
 
     // Transform: N = usize → Labeled
-    let transformed: SeedPipeline<Labeled, usize, u64, u64> = pipeline.contramap_node(
+    let transformed = pipeline.contramap_node(
         |n: &usize| Labeled { id: *n, label: format!("node_{}", n) },
         |l: &Labeled| l.id,
     );

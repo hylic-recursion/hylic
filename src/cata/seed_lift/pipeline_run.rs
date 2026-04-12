@@ -1,7 +1,9 @@
 //! Pipeline execution: with_lifted CPS and run methods.
 //!
 //! The execution chain:
-//!   constituents → compose_treeish → pre-lift L → SeedLift → executor
+//!   constituents → compose_treeish → pre-lift L → SeedLift<Nt, Seed> → executor
+//!
+//! Nt is the pre-lift's output node type. For IdentityLift, Nt = N.
 
 use std::sync::Arc;
 use crate::domain::{self, shared};
@@ -14,13 +16,14 @@ use super::pipeline::SeedPipeline;
 
 // ── Internal: late fusion ───────────────────────────
 
-impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L>
+impl<N, Seed, H, R, Nt, L> SeedPipeline<N, Seed, H, R, Nt, L>
 where
     N: Clone + 'static,
     Seed: Clone + 'static,
+    Nt: Clone + 'static,
     H: 'static,
     R: Clone + 'static,
-    L: LiftOps<N, R, N>,  // pre-lift (IdentityLift satisfies this)
+    L: LiftOps<N, R, Nt>,
 {
     // ANCHOR: treeish_from_seeds
     fn compose_treeish(&self) -> Treeish<N> {
@@ -30,53 +33,49 @@ where
         })
     }
     // ANCHOR_END: treeish_from_seeds
+
+    /// Compose grow through the pre-lift's lift_root: Seed → N → Nt
+    fn compose_pre_grow(&self) -> Arc<dyn Fn(&Seed) -> Nt + Send + Sync>
+    where L: Clone + Send + Sync + 'static,
+    {
+        let grow = self.grow.clone();
+        let lift = self.pre_lift.clone();
+        Arc::new(move |s: &Seed| lift.lift_root(&grow(s)))
+    }
 }
 
 // ── CPS: the single fusion point ────────────────────
-//
-// The pre-lift L transforms (Treeish<N>, Fold<N,H,R>) into
-// (Treeish<Nt>, Fold<Nt, Ht, Rt>). Then SeedLift wraps into
-// LiftedNode<Seed, Nt>.
-//
-// For IdentityLift: Nt=N, Ht=H, Rt=R (pass-through).
 
-impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L>
+impl<N, Seed, H, R, Nt, L> SeedPipeline<N, Seed, H, R, Nt, L>
 where
     N: Clone + Send + Sync + 'static,
     Seed: Clone + 'static,
+    Nt: Clone + 'static,
     H: Clone + 'static,
     R: Clone + 'static,
-    L: LiftOps<N, R, N>,
-    // The pre-lift's output node type. For IdentityLift, this is N.
-    // For a type-changing pre-lift, this would be Nt ≠ N.
-    // Currently constrained to N (same type) for simplicity.
-    // TODO: generalize to L: LiftOps<N, R, Nt> with separate Nt
+    L: LiftOps<N, R, Nt> + Clone + Send + Sync + 'static,
 {
     pub fn with_lifted<T>(
         &self,
         entry_seeds: Edgy<(), Seed>,
         entry_heap_fn: impl Fn() -> L::LiftedH<H> + Send + Sync + 'static,
         cont: impl FnOnce(
-            &shared::fold::Fold<LiftedNode<Seed, N>, LiftedHeap<L::LiftedH<H>, L::LiftedR<H>>, L::LiftedR<H>>,
-            &Treeish<LiftedNode<Seed, N>>,
+            &shared::fold::Fold<LiftedNode<Seed, Nt>, LiftedHeap<L::LiftedH<H>, L::LiftedR<H>>, L::LiftedR<H>>,
+            &Treeish<LiftedNode<Seed, Nt>>,
         ) -> T,
     ) -> T
     where
         L::LiftedH<H>: Clone,
         L::LiftedR<H>: Clone,
     {
+        // Compose treeish from decomposed parts
         let treeish = self.compose_treeish();
-        // Apply pre-lift
-        let pre_treeish = self.pre_lift.lift_treeish(treeish);
+        // Apply pre-lift to treeish and fold
+        let pre_treeish: Treeish<Nt> = self.pre_lift.lift_treeish(treeish);
         let pre_fold = self.pre_lift.lift_fold(self.fold.clone());
-        // Grow must also go through pre-lift
-        let pre_grow: Arc<dyn Fn(&Seed) -> N + Send + Sync> = {
-            let grow = self.grow.clone();
-            // For IdentityLift, lift_root is identity. For type-changing
-            // pre-lifts, this composes grow with the node transform.
-            // TODO: when Nt ≠ N, this needs Arc<dyn Fn(&Seed) -> Nt>
-            grow
-        };
+        // Compose grow through pre-lift: Seed → N → Nt
+        let pre_grow = self.compose_pre_grow();
+        // SeedLift operates on Nt (the pre-lift's output)
         let seed_lift = SeedLift { grow: pre_grow };
         let lifted_treeish = seed_lift.lift_treeish(pre_treeish, entry_seeds);
         let lifted_fold = seed_lift.lift_fold(pre_fold, entry_heap_fn);
@@ -86,19 +85,20 @@ where
 
 // ── Run methods ─────────────────────────────────────
 
-impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L>
+impl<N, Seed, H, R, Nt, L> SeedPipeline<N, Seed, H, R, Nt, L>
 where
     N: Clone + Send + Sync + 'static,
     Seed: Clone + 'static,
+    Nt: Clone + 'static,
     H: Clone + Send + Sync + 'static,
     R: Clone + 'static,
-    L: LiftOps<N, R, N>,
+    L: LiftOps<N, R, Nt> + Clone + Send + Sync + 'static,
     L::LiftedH<H>: Clone + Send + Sync,
     L::LiftedR<H>: Clone + Send,
 {
     pub fn run(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, N>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         entry_seeds: Edgy<(), Seed>,
         entry_heap: L::LiftedH<H>,
     ) -> L::LiftedR<H> {
@@ -108,7 +108,7 @@ where
 
     pub fn run_from_slice(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, N>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         seeds: &[Seed],
         entry_heap: L::LiftedH<H>,
     ) -> L::LiftedR<H>
@@ -123,7 +123,7 @@ where
 
     pub fn run_seed(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, N>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         seed: &Seed,
         entry_heap: L::LiftedH<H>,
     ) -> L::LiftedR<H>
@@ -134,8 +134,8 @@ where
 
     pub fn run_node(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, N>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, N>>>,
-        node: &N,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
+        node: &Nt,
         entry_heap: L::LiftedH<H>,
     ) -> L::LiftedR<H> {
         let entry_seeds = graph::edgy_visit(|_: &(), _: &mut dyn FnMut(&Seed)| {});
