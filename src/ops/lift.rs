@@ -12,8 +12,8 @@ use crate::graph;
 
 // ANCHOR: liftops_trait
 pub trait LiftOps<N: 'static, R: 'static, N2: 'static> {
-    type LiftedH<H: Clone + 'static>: 'static;
-    type LiftedR<H: Clone + 'static>: 'static;
+    type LiftedH<H: Clone + 'static>: Clone + 'static;
+    type LiftedR<H: Clone + 'static>: Clone + 'static;
 
     fn lift_treeish(&self, t: graph::Treeish<N>) -> graph::Treeish<N2>;
     fn lift_fold<H: Clone + 'static>(
