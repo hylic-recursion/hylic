@@ -1,4 +1,4 @@
-//! Type-changing constituent lifts: contramap_node, map_seed.
+//! Type-changing lifts: contramap_node, map_seed. Closures erased.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -8,33 +8,34 @@ use crate::ops::lift::Lift;
 
 // ── ContramapNodeLift: N → N2 bijection ─────────────
 
-pub struct ContramapNodeLift<N, N2, Co, Contra> {
-    co: Arc<Co>,
-    contra: Arc<Contra>,
+pub struct ContramapNodeLift<N, N2> {
+    co:     Arc<dyn Fn(&N) -> N2 + Send + Sync>,
+    contra: Arc<dyn Fn(&N2) -> N + Send + Sync>,
     _m: PhantomData<fn() -> (N, N2)>,
 }
 
-impl<N, N2, Co, Contra> Clone for ContramapNodeLift<N, N2, Co, Contra> {
+impl<N, N2> Clone for ContramapNodeLift<N, N2> {
     fn clone(&self) -> Self {
         ContramapNodeLift { co: self.co.clone(), contra: self.contra.clone(), _m: PhantomData }
     }
 }
 
 pub fn contramap_node_lift<N, N2, Co, Contra>(co: Co, contra: Contra)
-    -> ContramapNodeLift<N, N2, Co, Contra>
+    -> ContramapNodeLift<N, N2>
 where Co: Fn(&N) -> N2 + Send + Sync + 'static,
       Contra: Fn(&N2) -> N + Send + Sync + 'static,
 {
-    ContramapNodeLift { co: Arc::new(co), contra: Arc::new(contra), _m: PhantomData }
+    ContramapNodeLift {
+        co:     Arc::new(co),
+        contra: Arc::new(contra),
+        _m: PhantomData,
+    }
 }
 
-impl<N, Seed, H, R, N2, Co, Contra> Lift<N, Seed, H, R>
-    for ContramapNodeLift<N, N2, Co, Contra>
+impl<N, Seed, H, R, N2> Lift<N, Seed, H, R> for ContramapNodeLift<N, N2>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
       N2: Clone + 'static,
-      Co: Fn(&N) -> N2 + Send + Sync + 'static,
-      Contra: Fn(&N2) -> N + Send + Sync + 'static,
 {
     type N2 = N2;  type Seed2 = Seed;  type MapH = H;  type MapR = R;
 
@@ -53,22 +54,18 @@ where N: Clone + 'static, Seed: Clone + 'static,
     ) -> T {
         let co = self.co.clone();
         let contra = self.contra.clone();
-        // grow: Seed → N. new_grow: Seed → N2 via co.
         let new_grow: Arc<dyn Fn(&Seed) -> N2 + Send + Sync> = {
             let co = co.clone();
             Arc::new(move |s: &Seed| co(&grow(s)))
         };
-        // seeds: Edgy<N, Seed> → Edgy<N2, Seed> via contramap.
         let new_seeds = {
             let contra = contra.clone();
             seeds.contramap(move |n2: &N2| contra(n2))
         };
-        // treeish rebuilt from new_grow and new_seeds.
         let new_treeish: Treeish<N2> = {
             let g = new_grow.clone();
             new_seeds.clone().map(move |s: &Seed| g(s))
         };
-        // fold: contramap to see N via &N2.
         let new_fold = fold.contramap(move |n2: &N2| contra(n2));
         cont(new_grow, new_seeds, new_treeish, new_fold)
     }
@@ -78,33 +75,34 @@ where N: Clone + 'static, Seed: Clone + 'static,
 
 // ── MapSeedLift: Seed → Seed2 bijection ─────────────
 
-pub struct MapSeedLift<Seed, Seed2, ToNew, FromNew> {
-    to_new: Arc<ToNew>,
-    from_new: Arc<FromNew>,
+pub struct MapSeedLift<Seed, Seed2> {
+    to_new:   Arc<dyn Fn(&Seed) -> Seed2 + Send + Sync>,
+    from_new: Arc<dyn Fn(&Seed2) -> Seed + Send + Sync>,
     _m: PhantomData<fn() -> (Seed, Seed2)>,
 }
 
-impl<Seed, Seed2, ToNew, FromNew> Clone for MapSeedLift<Seed, Seed2, ToNew, FromNew> {
+impl<Seed, Seed2> Clone for MapSeedLift<Seed, Seed2> {
     fn clone(&self) -> Self {
         MapSeedLift { to_new: self.to_new.clone(), from_new: self.from_new.clone(), _m: PhantomData }
     }
 }
 
 pub fn map_seed_lift<Seed, Seed2, ToNew, FromNew>(to_new: ToNew, from_new: FromNew)
-    -> MapSeedLift<Seed, Seed2, ToNew, FromNew>
+    -> MapSeedLift<Seed, Seed2>
 where ToNew: Fn(&Seed) -> Seed2 + Send + Sync + 'static,
       FromNew: Fn(&Seed2) -> Seed + Send + Sync + 'static,
 {
-    MapSeedLift { to_new: Arc::new(to_new), from_new: Arc::new(from_new), _m: PhantomData }
+    MapSeedLift {
+        to_new:   Arc::new(to_new),
+        from_new: Arc::new(from_new),
+        _m: PhantomData,
+    }
 }
 
-impl<N, Seed, H, R, Seed2, ToNew, FromNew> Lift<N, Seed, H, R>
-    for MapSeedLift<Seed, Seed2, ToNew, FromNew>
+impl<N, Seed, H, R, Seed2> Lift<N, Seed, H, R> for MapSeedLift<Seed, Seed2>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
       Seed2: Clone + 'static,
-      ToNew: Fn(&Seed) -> Seed2 + Send + Sync + 'static,
-      FromNew: Fn(&Seed2) -> Seed + Send + Sync + 'static,
 {
     type N2 = N;  type Seed2 = Seed2;  type MapH = H;  type MapR = R;
 

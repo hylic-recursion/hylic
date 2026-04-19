@@ -1,4 +1,5 @@
-//! Fold-phase wrap lifts: wrap_init, wrap_accumulate, wrap_finalize.
+//! Fold-phase wrap lifts: wrap_init, wrap_accumulate, wrap_finalize,
+//! wrap_grow. Closures erased behind Arc<dyn Fn + Send + Sync>.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -8,22 +9,24 @@ use crate::ops::lift::Lift;
 
 // ── WrapInitLift ────────────────────────────────────
 
-pub struct WrapInitLift<N, H, W> { wrapper: Arc<W>, _m: PhantomData<fn() -> (N, H)> }
+pub struct WrapInitLift<N, H> {
+    wrapper: Arc<dyn Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync>,
+    _m: PhantomData<fn() -> (N, H)>,
+}
 
-impl<N, H, W> Clone for WrapInitLift<N, H, W> {
+impl<N, H> Clone for WrapInitLift<N, H> {
     fn clone(&self) -> Self { WrapInitLift { wrapper: self.wrapper.clone(), _m: PhantomData } }
 }
 
-pub fn wrap_init_lift<N, H, W>(wrapper: W) -> WrapInitLift<N, H, W>
+pub fn wrap_init_lift<N, H, W>(wrapper: W) -> WrapInitLift<N, H>
 where W: Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static,
 {
     WrapInitLift { wrapper: Arc::new(wrapper), _m: PhantomData }
 }
 
-impl<N, Seed, H, R, W> Lift<N, Seed, H, R> for WrapInitLift<N, H, W>
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for WrapInitLift<N, H>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
-      W: Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static,
 {
     type N2 = N;  type Seed2 = Seed;  type MapH = H;  type MapR = R;
 
@@ -50,22 +53,24 @@ where N: Clone + 'static, Seed: Clone + 'static,
 
 // ── WrapAccumulateLift ───────────────────────────────
 
-pub struct WrapAccumulateLift<H, R, W> { wrapper: Arc<W>, _m: PhantomData<fn() -> (H, R)> }
+pub struct WrapAccumulateLift<H, R> {
+    wrapper: Arc<dyn Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync>,
+    _m: PhantomData<fn() -> (H, R)>,
+}
 
-impl<H, R, W> Clone for WrapAccumulateLift<H, R, W> {
+impl<H, R> Clone for WrapAccumulateLift<H, R> {
     fn clone(&self) -> Self { WrapAccumulateLift { wrapper: self.wrapper.clone(), _m: PhantomData } }
 }
 
-pub fn wrap_accumulate_lift<H, R, W>(wrapper: W) -> WrapAccumulateLift<H, R, W>
+pub fn wrap_accumulate_lift<H, R, W>(wrapper: W) -> WrapAccumulateLift<H, R>
 where W: Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync + 'static,
 {
     WrapAccumulateLift { wrapper: Arc::new(wrapper), _m: PhantomData }
 }
 
-impl<N, Seed, H, R, W> Lift<N, Seed, H, R> for WrapAccumulateLift<H, R, W>
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for WrapAccumulateLift<H, R>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
-      W: Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync + 'static,
 {
     type N2 = N;  type Seed2 = Seed;  type MapH = H;  type MapR = R;
 
@@ -92,22 +97,24 @@ where N: Clone + 'static, Seed: Clone + 'static,
 
 // ── WrapFinalizeLift ─────────────────────────────────
 
-pub struct WrapFinalizeLift<H, R, W> { wrapper: Arc<W>, _m: PhantomData<fn() -> (H, R)> }
+pub struct WrapFinalizeLift<H, R> {
+    wrapper: Arc<dyn Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync>,
+    _m: PhantomData<fn() -> (H, R)>,
+}
 
-impl<H, R, W> Clone for WrapFinalizeLift<H, R, W> {
+impl<H, R> Clone for WrapFinalizeLift<H, R> {
     fn clone(&self) -> Self { WrapFinalizeLift { wrapper: self.wrapper.clone(), _m: PhantomData } }
 }
 
-pub fn wrap_finalize_lift<H, R, W>(wrapper: W) -> WrapFinalizeLift<H, R, W>
+pub fn wrap_finalize_lift<H, R, W>(wrapper: W) -> WrapFinalizeLift<H, R>
 where W: Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync + 'static,
 {
     WrapFinalizeLift { wrapper: Arc::new(wrapper), _m: PhantomData }
 }
 
-impl<N, Seed, H, R, W> Lift<N, Seed, H, R> for WrapFinalizeLift<H, R, W>
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for WrapFinalizeLift<H, R>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
-      W: Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync + 'static,
 {
     type N2 = N;  type Seed2 = Seed;  type MapH = H;  type MapR = R;
 
@@ -134,22 +141,24 @@ where N: Clone + 'static, Seed: Clone + 'static,
 
 // ── WrapGrowLift ─────────────────────────────────────
 
-pub struct WrapGrowLift<N, Seed, W> { wrapper: Arc<W>, _m: PhantomData<fn() -> (N, Seed)> }
+pub struct WrapGrowLift<N, Seed> {
+    wrapper: Arc<dyn Fn(&Seed, &dyn Fn(&Seed) -> N) -> N + Send + Sync>,
+    _m: PhantomData<fn() -> (N, Seed)>,
+}
 
-impl<N, Seed, W> Clone for WrapGrowLift<N, Seed, W> {
+impl<N, Seed> Clone for WrapGrowLift<N, Seed> {
     fn clone(&self) -> Self { WrapGrowLift { wrapper: self.wrapper.clone(), _m: PhantomData } }
 }
 
-pub fn wrap_grow_lift<N, Seed, W>(wrapper: W) -> WrapGrowLift<N, Seed, W>
+pub fn wrap_grow_lift<N, Seed, W>(wrapper: W) -> WrapGrowLift<N, Seed>
 where W: Fn(&Seed, &dyn Fn(&Seed) -> N) -> N + Send + Sync + 'static,
 {
     WrapGrowLift { wrapper: Arc::new(wrapper), _m: PhantomData }
 }
 
-impl<N, Seed, H, R, W> Lift<N, Seed, H, R> for WrapGrowLift<N, Seed, W>
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for WrapGrowLift<N, Seed>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
-      W: Fn(&Seed, &dyn Fn(&Seed) -> N) -> N + Send + Sync + 'static,
 {
     type N2 = N;  type Seed2 = Seed;  type MapH = H;  type MapR = R;
 
@@ -170,7 +179,6 @@ where N: Clone + 'static, Seed: Clone + 'static,
         let old_grow = grow.clone();
         let new_grow: Arc<dyn Fn(&Seed) -> N + Send + Sync> =
             Arc::new(move |s: &Seed| w(s, &|s| old_grow(s)));
-        // Rebuild treeish from new grow.
         let new_treeish: Treeish<N> = {
             let g = new_grow.clone();
             seeds.clone().map(move |s: &Seed| g(s))

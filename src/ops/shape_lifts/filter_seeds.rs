@@ -1,4 +1,5 @@
 //! FilterSeedsLift — filters seeds at the Edgy (pre-grow) level.
+//! Closure erased behind `Arc<dyn Fn + Send + Sync>`; fully nameable type.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -6,25 +7,24 @@ use crate::graph::{Edgy, Treeish};
 use crate::domain::shared::fold::Fold;
 use crate::ops::lift::Lift;
 
-pub struct FilterSeedsLift<Seed, P> {
-    pred: Arc<P>,
+pub struct FilterSeedsLift<Seed> {
+    pred: Arc<dyn Fn(&Seed) -> bool + Send + Sync>,
     _s: PhantomData<fn() -> Seed>,
 }
 
-impl<Seed, P> Clone for FilterSeedsLift<Seed, P> {
+impl<Seed> Clone for FilterSeedsLift<Seed> {
     fn clone(&self) -> Self { FilterSeedsLift { pred: self.pred.clone(), _s: PhantomData } }
 }
 
-pub fn filter_seeds_lift<Seed, P>(pred: P) -> FilterSeedsLift<Seed, P>
+pub fn filter_seeds_lift<Seed, P>(pred: P) -> FilterSeedsLift<Seed>
 where P: Fn(&Seed) -> bool + Send + Sync + 'static,
 {
     FilterSeedsLift { pred: Arc::new(pred), _s: PhantomData }
 }
 
-impl<N, Seed, H, R, P> Lift<N, Seed, H, R> for FilterSeedsLift<Seed, P>
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for FilterSeedsLift<Seed>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
-      P: Fn(&Seed) -> bool + Send + Sync + 'static,
 {
     type N2 = N;
     type Seed2 = Seed;
@@ -46,8 +46,6 @@ where N: Clone + 'static, Seed: Clone + 'static,
     ) -> T {
         let pred = self.pred.clone();
         let filtered = seeds.filter(move |s: &Seed| pred(s));
-        // Rebuild the treeish from filtered seeds so pre-grow filtering
-        // is reflected at the treeish level.
         let new_treeish: Treeish<N> = {
             let g = grow.clone();
             filtered.clone().map(move |s: &Seed| g(s))
