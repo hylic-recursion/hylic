@@ -1,40 +1,26 @@
-//! Pipeline transforms. map_constituents is the general mechanism.
-//! All specific transforms derive from it.
+//! SeedPipeline transforms — every one is a one-line by-value wrapper
+//! over `map_constituents`. Taking `self` consumes the pipeline; the
+//! fluent chain reads identically at the call site but never clones
+//! the pre-lift implicitly.
+//!
+//! Categories:
+//!   - Type-preserving phase wrapping: wrap_grow, filter_seeds,
+//!     wrap_init, wrap_accumulate, wrap_finalize
+//!   - R-type transforms: map, zipmap
+//!   - Type-changing constituent transforms: contramap_node, map_seed
+//!   - Lift composition: apply_pre_lift
 
 use std::sync::Arc;
-use std::marker::PhantomData;
-use crate::domain::shared;
-use crate::graph::Edgy;
-use crate::ops::{Lift, ComposedLift};
-use super::pipeline::SeedPipeline;
-
-// ── The general constituent transform ───────────────
-
-impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L> SeedPipeline<N, Seed, H, R, Nt, L> {
-    pub fn map_constituents<N2: 'static, Seed2: 'static, H2: 'static, R2: 'static, Nt2: 'static, L2>(
-        &self,
-        map_grow: impl FnOnce(Arc<dyn Fn(&Seed) -> N + Send + Sync>) -> Arc<dyn Fn(&Seed2) -> N2 + Send + Sync>,
-        map_seeds: impl FnOnce(Edgy<N, Seed>) -> Edgy<N2, Seed2>,
-        map_fold: impl FnOnce(shared::fold::Fold<N, H, R>) -> shared::fold::Fold<N2, H2, R2>,
-        map_pre_lift: impl FnOnce(L) -> L2,
-    ) -> SeedPipeline<N2, Seed2, H2, R2, Nt2, L2>
-    where L: Clone,
-    {
-        SeedPipeline {
-            grow: map_grow(self.grow.clone()),
-            seeds_from_node: map_seeds(self.seeds_from_node.clone()),
-            fold: map_fold(self.fold.clone()),
-            pre_lift: map_pre_lift(self.pre_lift.clone()),
-            _nt: PhantomData,
-        }
-    }
-}
+use crate::ops::{ComposedLift, Lift};
+use super::core::SeedPipeline;
 
 // ── Type-changing constituent transforms ────────────
 
-impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> SeedPipeline<N, Seed, H, R, Nt, L> {
+impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L>
+    SeedPipeline<N, Seed, H, R, Nt, L>
+{
     pub fn contramap_node<N2: 'static>(
-        &self,
+        self,
         co: impl Fn(&N) -> N2 + Send + Sync + 'static,
         contra: impl Fn(&N2) -> N + Send + Sync + 'static,
     ) -> SeedPipeline<N2, Seed, H, R, N2, L> {
@@ -49,7 +35,7 @@ impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> S
     }
 
     pub fn map_seed<Seed2: 'static>(
-        &self,
+        self,
         to_new: impl Fn(&Seed) -> Seed2 + Send + Sync + 'static,
         from_new: impl Fn(&Seed2) -> Seed + Send + Sync + 'static,
     ) -> SeedPipeline<N, Seed2, H, R, Nt, L> {
@@ -65,9 +51,11 @@ impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> S
 
 // ── R-type transforms ───────────────────────────────
 
-impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> SeedPipeline<N, Seed, H, R, Nt, L> {
+impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L>
+    SeedPipeline<N, Seed, H, R, Nt, L>
+{
     pub fn zipmap<Extra: 'static>(
-        &self,
+        self,
         mapper: impl Fn(&R) -> Extra + Send + Sync + 'static,
     ) -> SeedPipeline<N, Seed, H, (R, Extra), Nt, L>
     where R: Clone,
@@ -76,7 +64,7 @@ impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> S
     }
 
     pub fn map<RNew: 'static>(
-        &self,
+        self,
         mapper: impl Fn(&R) -> RNew + Send + Sync + 'static,
         backmapper: impl Fn(&RNew) -> R + Send + Sync + 'static,
     ) -> SeedPipeline<N, Seed, H, RNew, Nt, L> {
@@ -84,11 +72,13 @@ impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> S
     }
 }
 
-// ── Phase wrapping ──────────────────────────────────
+// ── Type-preserving phase wrapping ──────────────────
 
-impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> SeedPipeline<N, Seed, H, R, Nt, L> {
+impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L>
+    SeedPipeline<N, Seed, H, R, Nt, L>
+{
     pub fn wrap_grow(
-        &self,
+        self,
         wrapper: impl Fn(&Seed, &dyn Fn(&Seed) -> N) -> N + Send + Sync + 'static,
     ) -> Self {
         let old = self.grow.clone();
@@ -99,60 +89,49 @@ impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L: Clone> S
     }
 
     pub fn filter_seeds(
-        &self,
+        self,
         pred: impl Fn(&Seed) -> bool + Send + Sync + 'static,
     ) -> Self {
         self.map_constituents(|g| g, move |e| e.filter(pred), |f| f, |l| l)
     }
 
     pub fn wrap_init(
-        &self,
+        self,
         wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static,
     ) -> Self {
         self.map_constituents(|g| g, |e| e, |f| f.wrap_init(wrapper), |l| l)
     }
 
     pub fn wrap_accumulate(
-        &self,
+        self,
         wrapper: impl Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync + 'static,
     ) -> Self {
         self.map_constituents(|g| g, |e| e, |f| f.wrap_accumulate(wrapper), |l| l)
     }
 
     pub fn wrap_finalize(
-        &self,
+        self,
         wrapper: impl Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync + 'static,
     ) -> Self {
         self.map_constituents(|g| g, |e| e, |f| f.wrap_finalize(wrapper), |l| l)
     }
 }
 
-// ── Pre-lift composition ────────────────────────────
+// ── Lift composition ────────────────────────────────
 
-impl<N, Seed, H, R, Nt, L> SeedPipeline<N, Seed, H, R, Nt, L>
-where
-    N: Clone + 'static,
-    Seed: 'static,
-    H: 'static,
-    R: Clone + 'static,
-    Nt: Clone + 'static,
-    L: Lift<N, Nt> + Clone,
+impl<N: 'static, Seed: 'static, H: 'static, R: 'static, Nt: 'static, L>
+    SeedPipeline<N, Seed, H, R, Nt, L>
 {
-    /// Compose an outer lift onto the pre-lift chain.
-    /// Changes Nt to Nt2 — the outer lift's output node type.
+    /// Compose an outer lift onto the pre-lift chain. `Nt` becomes `Nt2`
+    /// — the outer lift's output node type. Inference: `L: Lift<Nt, Nt2>`
+    /// picks `Nt2` from the outer lift's impl.
     pub fn apply_pre_lift<L2, Nt2: 'static>(
-        &self,
+        self,
         outer: L2,
     ) -> SeedPipeline<N, Seed, H, R, Nt2, ComposedLift<L, L2, Nt>>
     where
         L2: Lift<Nt, Nt2>,
     {
-        SeedPipeline {
-            grow: self.grow.clone(),
-            seeds_from_node: self.seeds_from_node.clone(),
-            fold: self.fold.clone(),
-            pre_lift: ComposedLift::compose(self.pre_lift.clone(), outer),
-            _nt: PhantomData,
-        }
+        self.map_constituents(|g| g, |e| e, |f| f, move |l| ComposedLift::compose(l, outer))
     }
 }

@@ -33,11 +33,11 @@ fn pipeline_custom_entry() {
 }
 
 #[test]
-fn with_lifted_multiple_runs() {
+fn drive_multiple_runs() {
     let pipeline = make_pipeline();
     let entry = graph::edgy_visit(|_: &(), cb: &mut dyn FnMut(&S)| { cb(&0); });
 
-    pipeline.with_lifted(entry, || 0u64, |fold, treeish| {
+    pipeline.drive(entry, || 0u64, |fold, treeish| {
         let r1 = dom::FUSED.run(fold, treeish, &LiftedNode::Entry);
         let r2 = dom::FUSED.run(fold, treeish, &LiftedNode::Entry);
         assert_eq!(r1, r2);
@@ -46,11 +46,11 @@ fn with_lifted_multiple_runs() {
 }
 
 #[test]
-fn with_lifted_node_entry() {
+fn drive_node_entry() {
     let pipeline = make_pipeline();
     let entry = graph::edgy_visit(|_: &(), _: &mut dyn FnMut(&S)| {});
 
-    pipeline.with_lifted(entry, || 0u64, |fold, treeish| {
+    pipeline.drive(entry, || 0u64, |fold, treeish| {
         let r = dom::FUSED.run(fold, treeish, &LiftedNode::Node(0));
         assert_eq!(r, 6);
     });

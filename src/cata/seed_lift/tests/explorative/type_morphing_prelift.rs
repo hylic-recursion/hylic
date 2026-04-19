@@ -6,7 +6,7 @@
 use crate::domain::shared::{self as dom, fold};
 use crate::graph;
 use crate::ops::Lift;
-use crate::cata::seed_lift::pipeline::SeedPipeline;
+use crate::cata::seed_lift::{SeedPipeline, SeedPipelineExec};
 
 struct TagPreLift(&'static str);
 

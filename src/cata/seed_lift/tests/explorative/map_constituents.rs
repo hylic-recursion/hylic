@@ -3,14 +3,16 @@
 
 use std::sync::Arc;
 use crate::domain::shared as dom;
+use crate::cata::seed_lift::SeedPipelineExec;
 
 #[test]
 fn map_constituents_identity() {
     // Identity transform: all three mappers are identity.
     // Result must be the same as the original pipeline.
+    // Explicit clone to fork — by-value transforms consume.
     let pipeline = super::super::make_pipeline();
 
-    let transformed = pipeline.map_constituents(
+    let transformed = pipeline.clone().map_constituents(
         |g| g,    // grow: identity
         |e| e,    // seeds: identity
         |f| f,    // fold: identity

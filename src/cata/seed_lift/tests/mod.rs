@@ -6,7 +6,7 @@ pub mod explorative;
 use crate::domain::shared::{self as dom, fold};
 use crate::graph;
 use super::types::LiftedNode;
-use super::pipeline::SeedPipeline;
+use super::pipeline::{SeedPipeline, SeedPipelineExec};
 
 type N = usize;
 type S = usize;
