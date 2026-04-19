@@ -178,7 +178,7 @@ struct TraceHeap<H: Clone, R: Clone> {
 #[derive(Clone)]
 struct TraceResult<H: Clone, R: Clone> {
     orig: R,
-    heap_snapshot: H,
+    _heap_snapshot: H,
     n_children: usize,
 }
 
@@ -202,7 +202,7 @@ impl<N: Clone + 'static> Lift<N, N> for TraceLift {
             },
             move |heap: &TraceHeap<H, R>| TraceResult {
                 orig: (f3.fin)(&heap.working),
-                heap_snapshot: heap.working.clone(),
+                _heap_snapshot: heap.working.clone(),
                 n_children: heap.steps.len(),
             },
         )

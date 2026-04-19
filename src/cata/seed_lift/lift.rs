@@ -1,5 +1,5 @@
 //! SeedLift: the FP core. Transforms treeish and fold into the
-//! LiftedNode domain.
+//! LiftedNode domain. Implements the bifunctor Lift trait.
 
 use std::sync::Arc;
 use crate::domain::shared;
@@ -46,7 +46,7 @@ impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
     }
     // ANCHOR_END: lift_treeish
 
-    pub fn lift_fold<H: 'static, R: Clone + 'static>(
+    pub fn lift_fold<H: Clone + 'static, R: Clone + 'static>(
         &self,
         f: shared::fold::Fold<N, H, R>,
         entry_heap_fn: impl Fn() -> H + Send + Sync + 'static,

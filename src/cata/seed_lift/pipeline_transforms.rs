@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::marker::PhantomData;
 use crate::domain::shared;
 use crate::graph::Edgy;
-use crate::ops::{LiftOps, ComposedLift, OuterLift};
+use crate::ops::{Lift, ComposedLift};
 use super::pipeline::SeedPipeline;
 
 // ── The general constituent transform ───────────────
@@ -136,7 +136,7 @@ where
     H: 'static,
     R: Clone + 'static,
     Nt: Clone + 'static,
-    L: LiftOps<N, R, Nt> + Clone,
+    L: Lift<N, Nt> + Clone,
 {
     /// Compose an outer lift onto the pre-lift chain.
     /// Changes Nt to Nt2 — the outer lift's output node type.
@@ -145,7 +145,7 @@ where
         outer: L2,
     ) -> SeedPipeline<N, Seed, H, R, Nt2, ComposedLift<L, L2, Nt>>
     where
-        L2: OuterLift<L, N, R, Nt, Nt2>,
+        L2: Lift<Nt, Nt2>,
     {
         SeedPipeline {
             grow: self.grow.clone(),

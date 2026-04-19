@@ -3,13 +3,15 @@
 //! The execution chain:
 //!   constituents → compose_treeish → pre-lift L → SeedLift<Nt, Seed> → executor
 //!
-//! Nt is the pre-lift's output node type. For IdentityLift, Nt = N.
+//! Pre-lift L: Lift<N, Nt>. Transforms (H, R) → (MapH<H,R>, MapR<H,R>).
+//! SeedLift wraps into LiftedNode<Seed, Nt> / LiftedHeap<MapH, MapR>.
+//! The executor's result type is MapR<H, R> (the pre-lift's output R).
 
 use std::sync::Arc;
 use crate::domain::{self, shared};
 use crate::graph::{self, Edgy, Treeish};
 use crate::cata::exec::Executor;
-use crate::ops::LiftOps;
+use crate::ops::Lift;
 use super::types::{LiftedNode, LiftedHeap};
 use super::lift::SeedLift;
 use super::pipeline::SeedPipeline;
@@ -21,9 +23,9 @@ where
     N: Clone + 'static,
     Seed: Clone + 'static,
     Nt: Clone + 'static,
-    H: 'static,
+    H: Clone + 'static,
     R: Clone + 'static,
-    L: LiftOps<N, R, Nt>,
+    L: Lift<N, Nt> + Clone + Send + Sync + 'static,
 {
     // ANCHOR: treeish_from_seeds
     fn compose_treeish(&self) -> Treeish<N> {
@@ -34,10 +36,7 @@ where
     }
     // ANCHOR_END: treeish_from_seeds
 
-    /// Compose grow through the pre-lift's lift_root: Seed → N → Nt
-    fn compose_pre_grow(&self) -> Arc<dyn Fn(&Seed) -> Nt + Send + Sync>
-    where L: Clone + Send + Sync + 'static,
-    {
+    fn compose_pre_grow(&self) -> Arc<dyn Fn(&Seed) -> Nt + Send + Sync> {
         let grow = self.grow.clone();
         let lift = self.pre_lift.clone();
         Arc::new(move |s: &Seed| lift.lift_root(&grow(s)))
@@ -53,29 +52,23 @@ where
     Nt: Clone + 'static,
     H: Clone + 'static,
     R: Clone + 'static,
-    L: LiftOps<N, R, Nt> + Clone + Send + Sync + 'static,
+    L: Lift<N, Nt> + Clone + Send + Sync + 'static,
+    L::MapH<H, R>: Clone,
+    L::MapR<H, R>: Clone,
 {
     pub fn with_lifted<T>(
         &self,
         entry_seeds: Edgy<(), Seed>,
-        entry_heap_fn: impl Fn() -> L::LiftedH<H> + Send + Sync + 'static,
+        entry_heap_fn: impl Fn() -> L::MapH<H, R> + Send + Sync + 'static,
         cont: impl FnOnce(
-            &shared::fold::Fold<LiftedNode<Seed, Nt>, LiftedHeap<L::LiftedH<H>, L::LiftedR<H>>, L::LiftedR<H>>,
+            &shared::fold::Fold<LiftedNode<Seed, Nt>, LiftedHeap<L::MapH<H, R>, L::MapR<H, R>>, L::MapR<H, R>>,
             &Treeish<LiftedNode<Seed, Nt>>,
         ) -> T,
-    ) -> T
-    where
-        L::LiftedH<H>: Clone,
-        L::LiftedR<H>: Clone,
-    {
-        // Compose treeish from decomposed parts
+    ) -> T {
         let treeish = self.compose_treeish();
-        // Apply pre-lift to treeish and fold
-        let pre_treeish: Treeish<Nt> = self.pre_lift.lift_treeish(treeish);
+        let pre_treeish = self.pre_lift.lift_treeish(treeish);
         let pre_fold = self.pre_lift.lift_fold(self.fold.clone());
-        // Compose grow through pre-lift: Seed → N → Nt
         let pre_grow = self.compose_pre_grow();
-        // SeedLift operates on Nt (the pre-lift's output)
         let seed_lift = SeedLift { grow: pre_grow };
         let lifted_treeish = seed_lift.lift_treeish(pre_treeish, entry_seeds);
         let lifted_fold = seed_lift.lift_fold(pre_fold, entry_heap_fn);
@@ -92,26 +85,26 @@ where
     Nt: Clone + 'static,
     H: Clone + Send + Sync + 'static,
     R: Clone + 'static,
-    L: LiftOps<N, R, Nt> + Clone + Send + Sync + 'static,
-    L::LiftedH<H>: Clone + Send + Sync,
-    L::LiftedR<H>: Clone + Send,
+    L: Lift<N, Nt> + Clone + Send + Sync + 'static,
+    L::MapH<H, R>: Clone + Send + Sync,
+    L::MapR<H, R>: Clone + Send,
 {
     pub fn run(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::MapR<H, R>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         entry_seeds: Edgy<(), Seed>,
-        entry_heap: L::LiftedH<H>,
-    ) -> L::LiftedR<H> {
+        entry_heap: L::MapH<H, R>,
+    ) -> L::MapR<H, R> {
         self.with_lifted(entry_seeds, move || entry_heap.clone(),
             |fold, treeish| exec.run(fold, treeish, &LiftedNode::Entry))
     }
 
     pub fn run_from_slice(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::MapR<H, R>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         seeds: &[Seed],
-        entry_heap: L::LiftedH<H>,
-    ) -> L::LiftedR<H>
+        entry_heap: L::MapH<H, R>,
+    ) -> L::MapR<H, R>
     where Seed: Send + Sync,
     {
         let owned = seeds.to_vec();
@@ -123,10 +116,10 @@ where
 
     pub fn run_seed(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::MapR<H, R>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         seed: &Seed,
-        entry_heap: L::LiftedH<H>,
-    ) -> L::LiftedR<H>
+        entry_heap: L::MapH<H, R>,
+    ) -> L::MapR<H, R>
     where Seed: Send + Sync,
     {
         self.run_from_slice(exec, &[seed.clone()], entry_heap)
@@ -134,10 +127,10 @@ where
 
     pub fn run_node(
         &self,
-        exec: &impl Executor<LiftedNode<Seed, Nt>, L::LiftedR<H>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
+        exec: &impl Executor<LiftedNode<Seed, Nt>, L::MapR<H, R>, domain::Shared, Treeish<LiftedNode<Seed, Nt>>>,
         node: &Nt,
-        entry_heap: L::LiftedH<H>,
-    ) -> L::LiftedR<H> {
+        entry_heap: L::MapH<H, R>,
+    ) -> L::MapR<H, R> {
         let entry_seeds = graph::edgy_visit(|_: &(), _: &mut dyn FnMut(&Seed)| {});
         self.with_lifted(entry_seeds, move || entry_heap.clone(),
             |fold, treeish| exec.run(fold, treeish, &LiftedNode::Node(node.clone())))

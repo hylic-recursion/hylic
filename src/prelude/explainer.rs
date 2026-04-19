@@ -3,14 +3,10 @@
 //! Wraps a fold to record the full computation trace at every node —
 //! initial heap, each child result accumulated, and the final result.
 //! This is a histomorphism: each node sees its subtree's full history.
-//!
-//! Usage:
-//!   lift::run_lifted(&dom::FUSED, &Explainer, &fold, &graph, &root)
-//!   lift::run_lifted_zipped(&dom::FUSED, &Explainer, &fold, &graph, &root)
 
 use crate::graph::{treeish, Treeish};
 use crate::domain::shared::fold::Fold;
-use crate::ops::LiftOps;
+use crate::ops::Lift;
 
 // ── Trace data types ───────────────────────────────────────
 
@@ -33,7 +29,7 @@ where N: Clone, H: Clone, R: Clone,
 }
 
 impl<N: Clone, H: Clone, R: Clone> ExplainerHeap<N, H, R> {
-    fn new(node: N, heap: H) -> Self {
+    pub fn new(node: N, heap: H) -> Self {
         ExplainerHeap {
             initial_heap: heap.clone(),
             node,
@@ -54,18 +50,23 @@ where N: Clone, H: Clone, R: Clone,
 type EH<N, H, R> = ExplainerHeap<N, H, R>;
 type ER<N, H, R> = ExplainerResult<N, H, R>;
 
-// ── Explainer: implements LiftOps directly ─────────────────
+// ── Explainer: implements bifunctor Lift ──────────────────
 
-/// Computation tracing. Implements LiftOps<N, R, N> for all Clone types.
+/// Computation tracing. Implements Lift<N, N> for all Clone types.
+/// MapH<H, R> = ExplainerHeap<N, H, R> — wraps H with trace data.
+/// MapR<H, R> = ExplainerResult<N, H, R> — wraps R with trace + original result.
+#[derive(Clone)]
 pub struct Explainer;
 
-impl<N: Clone + 'static, R: Clone + 'static> LiftOps<N, R, N> for Explainer {
-    type LiftedH<H: Clone + 'static> = EH<N, H, R>;
-    type LiftedR<H: Clone + 'static> = ER<N, H, R>;
+impl<N: Clone + 'static> Lift<N, N> for Explainer {
+    type MapH<H: Clone + 'static, R: Clone + 'static> = EH<N, H, R>;
+    type MapR<H: Clone + 'static, R: Clone + 'static> = ER<N, H, R>;
 
     fn lift_treeish(&self, t: Treeish<N>) -> Treeish<N> { t }
 
-    fn lift_fold<H: Clone + 'static>(&self, original: Fold<N, H, R>) -> Fold<N, EH<N, H, R>, ER<N, H, R>> {
+    fn lift_fold<H: Clone + 'static, R: Clone + 'static>(
+        &self, original: Fold<N, H, R>,
+    ) -> Fold<N, EH<N, H, R>, ER<N, H, R>> {
         let f1 = original.clone();
         let f2 = original.clone();
         let f3 = original;

@@ -40,14 +40,13 @@ fn error_nodes_are_leaves() {
         ResNode::Ok(30, vec![]),
     ];
 
-    let seeds_from_node = graph::edgy_visit({
-        let nodes = nodes.clone();
+    let seeds_from_node = graph::edgy_visit(
         move |n: &ResNode, cb: &mut dyn FnMut(&Seed)| {
             if let ResNode::Ok(_, children) = n {
                 for &idx in children { cb(&idx); }
             }
         }
-    });
+    );
 
     let f = fold::fold(
         |n: &ResNode| match n { ResNode::Ok(v, _) => *v, ResNode::Err(_) => 0 },

@@ -2,9 +2,7 @@
 //! Tests that all three constituents can be mapped independently.
 
 use std::sync::Arc;
-use crate::domain::shared::{self as dom, fold};
-use crate::graph;
-use crate::cata::seed_lift::pipeline::SeedPipeline;
+use crate::domain::shared as dom;
 
 #[test]
 fn map_constituents_identity() {
