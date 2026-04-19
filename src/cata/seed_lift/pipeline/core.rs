@@ -1,8 +1,7 @@
-//! SeedPipeline core — struct + `drive` (sole CPS execution primitive).
+//! SeedPipeline — base (grow, seeds, fold) + pre-lift chain.
 //!
-//! The pipeline lives in the Shared domain; bound discipline is
-//! bundled into `SharedDomainLift`. All transformations (every sugar
-//! method) go through `apply_pre_lift` in `transforms.rs`.
+//! `drive` is the sole CPS execution primitive. Bounds bundled via
+//! `SharedDomainLift<N, Seed, H, R>`.
 
 use std::sync::Arc;
 use crate::domain::shared::fold::Fold;
@@ -10,8 +9,6 @@ use crate::graph::{Edgy, Treeish};
 use crate::ops::{IdentityLift, Lift as _, SharedDomainLift};
 use super::super::types::{LiftedHeap, LiftedNode};
 use super::super::lift::SeedLift;
-
-// ── Struct ──────────────────────────────────────────
 
 pub struct SeedPipeline<N, Seed, H, R, L = IdentityLift> {
     pub(crate) grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
@@ -31,8 +28,6 @@ impl<N, Seed, H, R, L: Clone> Clone for SeedPipeline<N, Seed, H, R, L> {
     }
 }
 
-// ── Constructor ─────────────────────────────────────
-
 impl<N: 'static, Seed: 'static, H: 'static, R: 'static>
     SeedPipeline<N, Seed, H, R, IdentityLift>
 {
@@ -50,37 +45,30 @@ impl<N: 'static, Seed: 'static, H: 'static, R: 'static>
     }
 }
 
-// ── drive: CPS execution primitive ──────────────────
-
 impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L>
 where L: SharedDomainLift<N, Seed, H, R>,
       N: Clone + Send + Sync + 'static,
       Seed: Clone + Send + Sync + 'static,
       H: Clone + Send + Sync + 'static,
       R: Clone + Send + Sync + 'static,
-      L::N2<N>: Clone + Send + Sync + 'static,
-      L::Seed2<Seed>: Clone + Send + Sync + 'static,
-      L::MapH<N, H, R>: Clone + Send + Sync + 'static,
-      L::MapR<N, H, R>: Clone + Send + Sync + 'static,
+      L::N2: Clone + Send + Sync + 'static,
+      L::Seed2: Clone + Send + Sync + 'static,
+      L::MapH: Clone + Send + Sync + 'static,
+      L::MapR: Clone + Send + Sync + 'static,
 {
     pub fn drive<T>(
         &self,
-        entry_seeds: Edgy<(), L::Seed2<Seed>>,
-        entry_heap_fn: impl Fn() -> L::MapH<N, H, R> + Send + Sync + 'static,
+        entry_seeds: Edgy<(), L::Seed2>,
+        entry_heap_fn: impl Fn() -> L::MapH + Send + Sync + 'static,
         cont: impl FnOnce(
-            &Fold<
-                LiftedNode<L::Seed2<Seed>, L::N2<N>>,
-                LiftedHeap<L::MapH<N, H, R>, L::MapR<N, H, R>>,
-                L::MapR<N, H, R>,
-            >,
-            &Treeish<LiftedNode<L::Seed2<Seed>, L::N2<N>>>,
+            &Fold<LiftedNode<L::Seed2, L::N2>, LiftedHeap<L::MapH, L::MapR>, L::MapR>,
+            &Treeish<LiftedNode<L::Seed2, L::N2>>,
         ) -> T,
     ) -> T {
         let base_treeish: Treeish<N> = {
             let g = self.grow.clone();
             self.seeds_from_node.clone().map(move |s: &Seed| g(s))
         };
-
         self.pre_lift.apply(
             self.grow.clone(),
             self.seeds_from_node.clone(),

@@ -1,5 +1,4 @@
-//! IdentityLift — the unit element of Lift composition. Passes all
-//! four components through unchanged.
+//! IdentityLift — unit of Lift composition. Polymorphic via impl<…>.
 
 use std::sync::Arc;
 use crate::graph::{Edgy, Treeish};
@@ -9,13 +8,16 @@ use super::lift::Lift;
 #[derive(Clone, Copy)]
 pub struct IdentityLift;
 
-impl Lift for IdentityLift {
-    type N2<N: Clone + 'static> = N;
-    type Seed2<Seed: Clone + 'static> = Seed;
-    type MapH<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static> = H;
-    type MapR<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static> = R;
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for IdentityLift
+where N: Clone + 'static, Seed: Clone + 'static,
+      H: Clone + 'static, R: Clone + 'static,
+{
+    type N2 = N;
+    type Seed2 = Seed;
+    type MapH = H;
+    type MapR = R;
 
-    fn apply<N, Seed, H, R, T>(
+    fn apply<T>(
         &self,
         grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
         seeds:   Edgy<N, Seed>,
@@ -27,11 +29,9 @@ impl Lift for IdentityLift {
             Treeish<N>,
             Fold<N, H, R>,
         ) -> T,
-    ) -> T
-    where N: Clone + 'static, Seed: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
-    {
+    ) -> T {
         cont(grow, seeds, treeish, fold)
     }
 
-    fn lift_root<N: Clone + 'static>(&self, root: &N) -> N { root.clone() }
+    fn lift_root(&self, root: &N) -> N { root.clone() }
 }

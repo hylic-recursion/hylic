@@ -1,7 +1,4 @@
-//! Explainer — computation tracing as a CPS Lift.
-//!
-//! Wraps a fold to record trace data at every node. MapH wraps H,
-//! MapR wraps R; grow, seeds, treeish pass through unchanged.
+//! Explainer — computation tracing as a Lift. Polymorphic in (N, Seed, H, R).
 
 use std::sync::Arc;
 use crate::graph::{treeish, Treeish, Edgy};
@@ -48,15 +45,16 @@ where N: Clone, H: Clone, R: Clone,
 #[derive(Clone, Copy)]
 pub struct Explainer;
 
-impl Lift for Explainer {
-    type N2<N: Clone + 'static> = N;
-    type Seed2<Seed: Clone + 'static> = Seed;
-    type MapH<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>
-        = ExplainerHeap<N, H, R>;
-    type MapR<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>
-        = ExplainerResult<N, H, R>;
+impl<N, Seed, H, R> Lift<N, Seed, H, R> for Explainer
+where N: Clone + 'static, Seed: Clone + 'static,
+      H: Clone + 'static, R: Clone + 'static,
+{
+    type N2 = N;
+    type Seed2 = Seed;
+    type MapH = ExplainerHeap<N, H, R>;
+    type MapR = ExplainerResult<N, H, R>;
 
-    fn apply<N, Seed, H, R, T>(
+    fn apply<T>(
         &self,
         grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
         seeds: Edgy<N, Seed>,
@@ -68,9 +66,7 @@ impl Lift for Explainer {
             Treeish<N>,
             Fold<N, ExplainerHeap<N, H, R>, ExplainerResult<N, H, R>>,
         ) -> T,
-    ) -> T
-    where N: Clone + 'static, Seed: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
-    {
+    ) -> T {
         let f1 = fold.clone();
         let f2 = fold.clone();
         let f3 = fold;
@@ -91,10 +87,9 @@ impl Lift for Explainer {
         cont(grow, seeds, treeish_in, wrapped)
     }
 
-    fn lift_root<N: Clone + 'static>(&self, root: &N) -> N { root.clone() }
+    fn lift_root(&self, root: &N) -> N { root.clone() }
 }
 
-/// Treeish over ExplainerResult — each result's transitions are its children.
 pub fn treeish_for_explres<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>(
 ) -> Treeish<ExplainerResult<N, H, R>> {
     treeish(|x: &ExplainerResult<N, H, R>| {

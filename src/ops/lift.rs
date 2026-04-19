@@ -1,39 +1,52 @@
-//! Lift — CPS algebra transform, domain-neutral.
+//! Lift — the algebra transformation type class.
 //!
-//! A Lift receives the four components of a pipeline's algebra +
-//! coalgebra (grow, seeds, treeish, fold) assembled on one side and
-//! yields their lifted versions to a user-supplied continuation.
-//! One method: `apply`. Composition is CPS nesting (ComposedLift).
+//! `Lift<N, Seed, H, R>` is the trait. An implementor is a concrete
+//! or polymorphic transformation of a pipeline's (grow, seeds, treeish,
+//! fold) tuple over the specified input types. The output types are
+//! plain associated types: `N2`, `Seed2`, `MapH`, `MapR`.
 //!
-//! This trait carries NO Send/Sync bounds — those live at the domain
-//! layer (see `SharedDomainLift` for the Shared-domain bundle).
+//! One method: `apply`, in continuation-passing style. Given the four
+//! components and a continuation, the lift produces the transformed
+//! four and hands them to the continuation.
+//!
+//! Polymorphic lifts (Identity, Explainer, ParLazy): `impl<N, Seed, H,
+//! R> Lift<N, Seed, H, R> for …`. A single value serves every type
+//! quadruple.
+//!
+//! Concrete lifts (FilterSeeds, WrapInit, Zipmap, …): the impl binds
+//! specific types where the lift's stored closures demand it.
+//!
+//! No Send/Sync bounds here — those live in `SharedDomainLift` at the
+//! domain edge.
 
 use std::sync::Arc;
 use crate::graph::{Edgy, Treeish};
 use crate::domain::shared::fold::Fold;
 
 // ANCHOR: lift_trait
-pub trait Lift {
-    type N2<N: Clone + 'static>: Clone + 'static;
-    type Seed2<Seed: Clone + 'static>: Clone + 'static;
-    type MapH<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>: Clone + 'static;
-    type MapR<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>: Clone + 'static;
+pub trait Lift<N, Seed, H, R>
+where N: Clone + 'static, Seed: Clone + 'static,
+      H: Clone + 'static, R: Clone + 'static,
+{
+    type N2: Clone + 'static;
+    type Seed2: Clone + 'static;
+    type MapH: Clone + 'static;
+    type MapR: Clone + 'static;
 
-    fn apply<N, Seed, H, R, T>(
+    fn apply<T>(
         &self,
         grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
         seeds:   Edgy<N, Seed>,
         treeish: Treeish<N>,
         fold:    Fold<N, H, R>,
         cont: impl FnOnce(
-            Arc<dyn Fn(&Self::Seed2<Seed>) -> Self::N2<N> + Send + Sync>,
-            Edgy<Self::N2<N>, Self::Seed2<Seed>>,
-            Treeish<Self::N2<N>>,
-            Fold<Self::N2<N>, Self::MapH<N, H, R>, Self::MapR<N, H, R>>,
+            Arc<dyn Fn(&Self::Seed2) -> Self::N2 + Send + Sync>,
+            Edgy<Self::N2, Self::Seed2>,
+            Treeish<Self::N2>,
+            Fold<Self::N2, Self::MapH, Self::MapR>,
         ) -> T,
-    ) -> T
-    where N: Clone + 'static, Seed: Clone + 'static, H: Clone + 'static, R: Clone + 'static;
+    ) -> T;
 
-    fn lift_root<N: Clone + 'static>(&self, root: &N) -> Self::N2<N>;
+    fn lift_root(&self, root: &N) -> Self::N2;
 }
 // ANCHOR_END: lift_trait
