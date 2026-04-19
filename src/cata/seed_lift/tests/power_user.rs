@@ -59,6 +59,54 @@ fn fluent_chain_with_explainer() {
 }
 
 #[test]
+fn custom_lift_via_apply_pre_lift() {
+    // Shows users can write their own Lift impl and plug it in via
+    // apply_pre_lift. Here: a simple identity-style custom lift.
+    use crate::ops::Lift;
+
+    #[derive(Clone, Copy)]
+    struct NoOpLift;
+
+    impl<N, Seed, H, R> Lift<N, Seed, H, R> for NoOpLift
+    where N: Clone + 'static, Seed: Clone + 'static,
+          H: Clone + 'static, R: Clone + 'static,
+    {
+        type N2 = N; type Seed2 = Seed; type MapH = H; type MapR = R;
+
+        fn apply<T>(
+            &self,
+            grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+            seeds: crate::graph::Edgy<N, Seed>,
+            treeish: crate::graph::Treeish<N>,
+            fold: crate::domain::shared::fold::Fold<N, H, R>,
+            cont: impl FnOnce(
+                Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+                crate::graph::Edgy<N, Seed>,
+                crate::graph::Treeish<N>,
+                crate::domain::shared::fold::Fold<N, H, R>,
+            ) -> T,
+        ) -> T { cont(grow, seeds, treeish, fold) }
+
+        fn lift_root(&self, root: &N) -> N { root.clone() }
+    }
+
+    let children: Arc<Vec<Vec<u64>>> = Arc::new(vec![vec![1], vec![2], vec![]]);
+    let ch = children.clone();
+    let base_fold = fold(|n: &u64| *n, |h: &mut u64, c: &u64| *h += c, |h: &u64| *h);
+    let seeds_fn = edgy_visit(move |n: &u64, cb: &mut dyn FnMut(&u64)| {
+        if let Some(kids) = ch.get(*n as usize) { for k in kids { cb(k); } }
+    });
+
+    let result: u64 = SeedPipeline::new(|s: &u64| *s, seeds_fn, &base_fold)
+        .apply_pre_lift(NoOpLift)
+        .apply_pre_lift(NoOpLift)
+        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+
+    // 0 + 1 + 2 = 3.
+    assert_eq!(result, 3);
+}
+
+#[test]
 fn fluent_chain_parallel_funnel() {
     use crate::cata::exec::funnel;
 

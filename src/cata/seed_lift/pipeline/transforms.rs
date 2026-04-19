@@ -5,14 +5,20 @@
 use crate::ops::{
     ComposedLift, Lift,
     filter_seeds_lift, FilterSeedsLift,
+    wrap_grow_lift, WrapGrowLift,
     wrap_init_lift, WrapInitLift,
+    wrap_accumulate_lift, WrapAccumulateLift,
+    wrap_finalize_lift, WrapFinalizeLift,
     zipmap_lift, ZipmapLift,
+    map_r_lift, MapRLift,
+    contramap_node_lift, ContramapNodeLift,
+    map_seed_lift, MapSeedLift,
 };
 use super::core::SeedPipeline;
 
+// ── apply_pre_lift — the sole primitive ─────────────
+
 impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L> {
-    /// Compose an outer lift onto the pre-lift chain. No trait bounds
-    /// — bounds surface only when `drive` is called.
     pub fn apply_pre_lift<L2>(
         self,
         outer: L2,
@@ -32,54 +38,85 @@ impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L> {
     }
 }
 
-// ── Named sugars: each is apply_pre_lift(shape_lift(...)) ──
+// ── Sugar methods — each is apply_pre_lift(shape_lift_ctor(...)) ──
 
 impl<N, Seed, H, R, L> SeedPipeline<N, Seed, H, R, L>
 where
     N: Clone + 'static, Seed: Clone + 'static,
     H: Clone + 'static, R: Clone + 'static,
     L: Lift<N, Seed, H, R>,
+    L::N2: Clone + 'static,
+    L::Seed2: Clone + 'static,
+    L::MapH: Clone + 'static,
+    L::MapR: Clone + 'static,
 {
-    /// Filter seeds at the Edgy level (pre-grow).
-    pub fn filter_seeds<P>(
-        self,
-        pred: P,
-    ) -> SeedPipeline<N, Seed, H, R, ComposedLift<L, FilterSeedsLift<L::Seed2, P>>>
+    pub fn filter_seeds<P>(self, pred: P)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, FilterSeedsLift<L::Seed2, P>>>
     where P: Fn(&L::Seed2) -> bool + Send + Sync + 'static,
-          L::Seed2: Clone + 'static,
-          L::N2: Clone + 'static,
-          L::MapH: Clone + 'static,
-          L::MapR: Clone + 'static,
     {
         self.apply_pre_lift(filter_seeds_lift(pred))
     }
 
-    /// Wrap the fold's `init` closure.
-    pub fn wrap_init<W>(
-        self,
-        wrapper: W,
-    ) -> SeedPipeline<N, Seed, H, R, ComposedLift<L, WrapInitLift<L::N2, L::MapH, W>>>
+    pub fn wrap_grow<W>(self, wrapper: W)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, WrapGrowLift<L::N2, L::Seed2, W>>>
+    where W: Fn(&L::Seed2, &dyn Fn(&L::Seed2) -> L::N2) -> L::N2 + Send + Sync + 'static,
+    {
+        self.apply_pre_lift(wrap_grow_lift(wrapper))
+    }
+
+    pub fn wrap_init<W>(self, wrapper: W)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, WrapInitLift<L::N2, L::MapH, W>>>
     where W: Fn(&L::N2, &dyn Fn(&L::N2) -> L::MapH) -> L::MapH + Send + Sync + 'static,
-          L::N2: Clone + 'static,
-          L::Seed2: Clone + 'static,
-          L::MapH: Clone + 'static,
-          L::MapR: Clone + 'static,
     {
         self.apply_pre_lift(wrap_init_lift(wrapper))
     }
 
-    /// Augment R with a derived value: R → (R, Extra).
-    pub fn zipmap<Extra, M>(
-        self,
-        mapper: M,
-    ) -> SeedPipeline<N, Seed, H, R, ComposedLift<L, ZipmapLift<L::MapR, Extra, M>>>
+    pub fn wrap_accumulate<W>(self, wrapper: W)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, WrapAccumulateLift<L::MapH, L::MapR, W>>>
+    where W: Fn(&mut L::MapH, &L::MapR, &dyn Fn(&mut L::MapH, &L::MapR)) + Send + Sync + 'static,
+    {
+        self.apply_pre_lift(wrap_accumulate_lift(wrapper))
+    }
+
+    pub fn wrap_finalize<W>(self, wrapper: W)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, WrapFinalizeLift<L::MapH, L::MapR, W>>>
+    where W: Fn(&L::MapH, &dyn Fn(&L::MapH) -> L::MapR) -> L::MapR + Send + Sync + 'static,
+    {
+        self.apply_pre_lift(wrap_finalize_lift(wrapper))
+    }
+
+    pub fn zipmap<Extra, M>(self, mapper: M)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, ZipmapLift<L::MapR, Extra, M>>>
     where Extra: Clone + 'static,
           M: Fn(&L::MapR) -> Extra + Send + Sync + 'static,
-          L::N2: Clone + 'static,
-          L::Seed2: Clone + 'static,
-          L::MapH: Clone + 'static,
-          L::MapR: Clone + 'static,
     {
         self.apply_pre_lift(zipmap_lift(mapper))
+    }
+
+    pub fn map<RNew, Fwd, Bwd>(self, forward: Fwd, backward: Bwd)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, MapRLift<L::MapR, RNew, Fwd, Bwd>>>
+    where RNew: Clone + 'static,
+          Fwd: Fn(&L::MapR) -> RNew + Send + Sync + 'static,
+          Bwd: Fn(&RNew) -> L::MapR + Send + Sync + 'static,
+    {
+        self.apply_pre_lift(map_r_lift(forward, backward))
+    }
+
+    pub fn contramap_node<N2, Co, Contra>(self, co: Co, contra: Contra)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, ContramapNodeLift<L::N2, N2, Co, Contra>>>
+    where N2: Clone + 'static,
+          Co: Fn(&L::N2) -> N2 + Send + Sync + 'static,
+          Contra: Fn(&N2) -> L::N2 + Send + Sync + 'static,
+    {
+        self.apply_pre_lift(contramap_node_lift(co, contra))
+    }
+
+    pub fn map_seed<Seed2, ToNew, FromNew>(self, to_new: ToNew, from_new: FromNew)
+        -> SeedPipeline<N, Seed, H, R, ComposedLift<L, MapSeedLift<L::Seed2, Seed2, ToNew, FromNew>>>
+    where Seed2: Clone + 'static,
+          ToNew: Fn(&L::Seed2) -> Seed2 + Send + Sync + 'static,
+          FromNew: Fn(&Seed2) -> L::Seed2 + Send + Sync + 'static,
+    {
+        self.apply_pre_lift(map_seed_lift(to_new, from_new))
     }
 }

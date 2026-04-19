@@ -14,7 +14,13 @@ pub use identity_lift::IdentityLift;
 pub use shared_domain_lift::SharedDomainLift;
 pub use shape_lifts::{
     FilterSeedsLift, filter_seeds_lift,
+    WrapGrowLift, wrap_grow_lift,
     WrapInitLift, wrap_init_lift,
+    WrapAccumulateLift, wrap_accumulate_lift,
+    WrapFinalizeLift, wrap_finalize_lift,
     ZipmapLift, zipmap_lift,
+    MapRLift, map_r_lift,
+    ContramapNodeLift, contramap_node_lift,
+    MapSeedLift, map_seed_lift,
 };
 
