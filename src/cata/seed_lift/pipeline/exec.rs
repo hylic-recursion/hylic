@@ -3,7 +3,7 @@
 use crate::domain;
 use crate::graph::{self, Edgy, Treeish};
 use crate::cata::exec::Executor;
-use crate::ops::{Lift as _, SharedDomainLift};
+use crate::ops::SharedDomainLift;
 use super::super::types::LiftedNode;
 use super::core::SeedPipeline;
 

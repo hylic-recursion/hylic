@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use crate::domain::shared::fold::Fold;
 use crate::graph::{Edgy, Treeish};
-use crate::ops::{IdentityLift, Lift as _, SharedDomainLift};
+use crate::ops::{IdentityLift, SharedDomainLift};
 use super::super::types::{LiftedHeap, LiftedNode};
 use super::super::lift::SeedLift;
 

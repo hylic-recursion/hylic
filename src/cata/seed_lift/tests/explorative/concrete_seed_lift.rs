@@ -1,6 +1,7 @@
 //! Explorative — Lift with all four parameters at trait level, plain
 //! associated types. Proves universal and concrete lifts and their
 //! compositions compile with no unsafe.
+#![allow(dead_code)]
 
 use std::sync::Arc;
 use std::marker::PhantomData;
