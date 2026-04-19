@@ -10,3 +10,4 @@
 // mod entry;
 
 pub mod explorative;
+mod power_user;
