@@ -1,10 +1,14 @@
-//! SeedLift: the FP core. Transforms treeish and fold into the
-//! LiftedNode domain. Implements the bifunctor Lift trait.
+//! SeedLift — internal Entry/Seed/Node dispatch. Not a Lift trait
+//! impl; lives at the executor boundary inside PipelineExec::run as
+//! a post-composition between pipeline's with_constructed yield and
+//! the executor invocation.
+//!
+//! Users never construct a SeedLift directly.
 
 use std::sync::Arc;
 use crate::domain::shared;
 use crate::graph::{self, Edgy, Treeish};
-use super::types::{LiftedNode, LiftedHeap};
+use super::lifted_types::{LiftedNode, LiftedHeap};
 
 pub struct SeedLift<N, Seed> {
     pub(crate) grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
@@ -15,11 +19,6 @@ impl<N, Seed> Clone for SeedLift<N, Seed> {
 }
 
 impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
-    pub fn new(grow: impl Fn(&Seed) -> N + Send + Sync + 'static) -> Self {
-        SeedLift { grow: Arc::new(grow) }
-    }
-
-    // ANCHOR: lift_treeish
     pub fn lift_treeish(
         &self,
         t: Treeish<N>,
@@ -44,7 +43,6 @@ impl<N: Clone + 'static, Seed: Clone + 'static> SeedLift<N, Seed> {
             }
         })
     }
-    // ANCHOR_END: lift_treeish
 
     pub fn lift_fold<H: Clone + 'static, R: Clone + 'static>(
         &self,

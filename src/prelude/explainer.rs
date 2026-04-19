@@ -1,7 +1,8 @@
-//! Explainer — computation tracing as a Lift. Polymorphic in (N, Seed, H, R).
+//! Explainer — computation tracing as a Lift. Polymorphic in (N, H, R).
+//! Seed is method-level.
 
 use std::sync::Arc;
-use crate::graph::{treeish, Treeish, Edgy};
+use crate::graph::{treeish, Treeish};
 use crate::domain::shared::fold::{self as sfold, Fold};
 use crate::ops::Lift;
 
@@ -45,28 +46,26 @@ where N: Clone, H: Clone, R: Clone,
 #[derive(Clone, Copy)]
 pub struct Explainer;
 
-impl<N, Seed, H, R> Lift<N, Seed, H, R> for Explainer
-where N: Clone + 'static, Seed: Clone + 'static,
-      H: Clone + 'static, R: Clone + 'static,
+impl<N, H, R> Lift<N, H, R> for Explainer
+where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
-    type N2 = N;
-    type Seed2 = Seed;
+    type N2   = N;
     type MapH = ExplainerHeap<N, H, R>;
     type MapR = ExplainerResult<N, H, R>;
 
-    fn apply<T>(
+    fn apply<Seed, T>(
         &self,
-        grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-        seeds: Edgy<N, Seed>,
-        treeish_in: Treeish<N>,
-        fold: Fold<N, H, R>,
+        grow:        Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+        treeish_in:  Treeish<N>,
+        fold:        Fold<N, H, R>,
         cont: impl FnOnce(
             Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            Edgy<N, Seed>,
             Treeish<N>,
             Fold<N, ExplainerHeap<N, H, R>, ExplainerResult<N, H, R>>,
         ) -> T,
-    ) -> T {
+    ) -> T
+    where Seed: Clone + 'static,
+    {
         let f1 = fold.clone();
         let f2 = fold.clone();
         let f3 = fold;
@@ -84,10 +83,8 @@ where N: Clone + 'static, Seed: Clone + 'static,
                 heap: heap.clone(),
             },
         );
-        cont(grow, seeds, treeish_in, wrapped)
+        cont(grow, treeish_in, wrapped)
     }
-
-    fn lift_root(&self, root: &N) -> N { root.clone() }
 }
 
 pub fn treeish_for_explres<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>(

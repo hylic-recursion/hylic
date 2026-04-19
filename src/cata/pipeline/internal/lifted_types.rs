@@ -1,4 +1,6 @@
-//! LiftedNode and LiftedHeap — the type-level structure of the seed lift.
+//! LiftedNode and LiftedHeap — the type-level structure of the seed
+//! lift. pub(crate) visibility — these types are internal to the
+//! pipeline module; users never construct them directly.
 
 /// Node in the lifted tree.
 /// - Entry: root branching point, children from a captured Edgy<(), Seed>
@@ -11,7 +13,6 @@ pub enum LiftedNode<Seed, N> {
     Node(N),
 }
 
-// ANCHOR: seed_heap
 /// Heap in the lifted world.
 /// - Active: carries the original fold's heap (for Entry and Node)
 /// - Relay: pass-through slot for a single child's result (for Seed)
@@ -19,7 +20,6 @@ pub enum LiftedHeap<H, R> {
     Active(H),
     Relay(Option<R>),
 }
-// ANCHOR_END: seed_heap
 
 impl<H: Clone, R: Clone> Clone for LiftedHeap<H, R> {
     fn clone(&self) -> Self {

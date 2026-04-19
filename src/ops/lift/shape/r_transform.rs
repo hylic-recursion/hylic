@@ -1,11 +1,10 @@
-//! R-transform lifts: zipmap, map_r. Closures erased behind
-//! Arc<dyn Fn + Send + Sync>.
+//! R-transform lifts: ZipmapLift (R → (R, Extra)), MapRLift (R ↔ RNew).
 
 use std::marker::PhantomData;
 use std::sync::Arc;
-use crate::graph::{Edgy, Treeish};
+use crate::graph::Treeish;
 use crate::domain::shared::fold::Fold;
-use crate::ops::lift::Lift;
+use crate::ops::lift::core::Lift;
 
 // ── ZipmapLift: R → (R, Extra) ──────────────────────
 
@@ -24,35 +23,32 @@ where M: Fn(&R) -> Extra + Send + Sync + 'static,
     ZipmapLift { mapper: Arc::new(mapper), _m: PhantomData }
 }
 
-impl<N, Seed, H, R, Extra> Lift<N, Seed, H, R> for ZipmapLift<R, Extra>
-where N: Clone + 'static, Seed: Clone + 'static,
-      H: Clone + 'static, R: Clone + 'static,
+impl<N, H, R, Extra> Lift<N, H, R> for ZipmapLift<R, Extra>
+where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
       Extra: Clone + 'static,
 {
-    type N2 = N;  type Seed2 = Seed;  type MapH = H;  type MapR = (R, Extra);
+    type N2 = N;  type MapH = H;  type MapR = (R, Extra);
 
-    fn apply<T>(
+    fn apply<Seed, T>(
         &self,
         grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-        seeds:   Edgy<N, Seed>,
         treeish: Treeish<N>,
         fold:    Fold<N, H, R>,
         cont: impl FnOnce(
             Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            Edgy<N, Seed>,
             Treeish<N>,
             Fold<N, H, (R, Extra)>,
         ) -> T,
-    ) -> T {
+    ) -> T
+    where Seed: Clone + 'static,
+    {
         let m = self.mapper.clone();
         let zipped = fold.zipmap(move |r: &R| m(r));
-        cont(grow, seeds, treeish, zipped)
+        cont(grow, treeish, zipped)
     }
-
-    fn lift_root(&self, root: &N) -> N { root.clone() }
 }
 
-// ── MapRLift: R → RNew (bijection) ──────────────────
+// ── MapRLift: R ↔ RNew (bijection) ──────────────────
 
 pub struct MapRLift<R, RNew> {
     forward:  Arc<dyn Fn(&R) -> RNew + Send + Sync>,
@@ -77,31 +73,28 @@ where Fwd: Fn(&R) -> RNew + Send + Sync + 'static,
     }
 }
 
-impl<N, Seed, H, R, RNew> Lift<N, Seed, H, R> for MapRLift<R, RNew>
-where N: Clone + 'static, Seed: Clone + 'static,
-      H: Clone + 'static, R: Clone + 'static,
+impl<N, H, R, RNew> Lift<N, H, R> for MapRLift<R, RNew>
+where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
       RNew: Clone + 'static,
 {
-    type N2 = N;  type Seed2 = Seed;  type MapH = H;  type MapR = RNew;
+    type N2 = N;  type MapH = H;  type MapR = RNew;
 
-    fn apply<T>(
+    fn apply<Seed, T>(
         &self,
         grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-        seeds:   Edgy<N, Seed>,
         treeish: Treeish<N>,
         fold:    Fold<N, H, R>,
         cont: impl FnOnce(
             Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            Edgy<N, Seed>,
             Treeish<N>,
             Fold<N, H, RNew>,
         ) -> T,
-    ) -> T {
+    ) -> T
+    where Seed: Clone + 'static,
+    {
         let fwd = self.forward.clone();
         let bwd = self.backward.clone();
         let mapped = fold.map(move |r: &R| fwd(r), move |r: &RNew| bwd(r));
-        cont(grow, seeds, treeish, mapped)
+        cont(grow, treeish, mapped)
     }
-
-    fn lift_root(&self, root: &N) -> N { root.clone() }
 }
