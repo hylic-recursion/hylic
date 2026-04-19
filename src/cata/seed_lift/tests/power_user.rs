@@ -57,3 +57,40 @@ fn fluent_chain_with_explainer() {
     assert_eq!(result.orig_result, (7, true));
     assert!(!result.heap.transitions.is_empty(), "trace populated");
 }
+
+#[test]
+fn fluent_chain_parallel_funnel() {
+    use crate::cata::exec::funnel;
+
+    let children: Arc<Vec<Vec<u64>>> = Arc::new(vec![
+        vec![1, 2], vec![3], vec![], vec![],
+    ]);
+    let ch_for_seeds = children.clone();
+    let base_fold = fold(
+        |n: &u64| *n,
+        |h: &mut u64, c: &u64| *h += c,
+        |h: &u64| *h,
+    );
+    let seeds_fn = edgy_visit(move |n: &u64, cb: &mut dyn FnMut(&u64)| {
+        if let Some(kids) = ch_for_seeds.get(*n as usize) {
+            for k in kids { cb(k); }
+        }
+    });
+
+    let pipeline = SeedPipeline::new(|s: &u64| *s, seeds_fn, &base_fold)
+        .filter_seeds(|s: &u64| *s != 2)
+        .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)
+        .zipmap(|r: &u64| *r > 5)
+        .apply_pre_lift(Explainer);
+
+    let entry_heap: ExplainerHeap<u64, u64, (u64, bool)> =
+        ExplainerHeap::new(0u64, 0u64);
+    let result: ExplainerResult<u64, u64, (u64, bool)> = pipeline.run_from_slice(
+        &dom::exec(funnel::Spec::default(4)),
+        &[0u64],
+        entry_heap,
+    );
+
+    assert_eq!(result.orig_result, (7, true));
+    assert!(!result.heap.transitions.is_empty());
+}
