@@ -1,17 +1,37 @@
-//! IdentityLift: passes everything through.
+//! IdentityLift — the unit element of Lift composition. Passes all
+//! four components through unchanged.
 
-use crate::graph::Treeish;
+use std::sync::Arc;
+use crate::graph::{Edgy, Treeish};
 use crate::domain::shared::fold::Fold;
 use super::lift::Lift;
 
 #[derive(Clone, Copy)]
 pub struct IdentityLift;
 
-impl<N: Clone + 'static> Lift<N, N> for IdentityLift {
-    type MapH<H: Clone + 'static, R: Clone + 'static> = H;
-    type MapR<H: Clone + 'static, R: Clone + 'static> = R;
+impl Lift for IdentityLift {
+    type N2<N: Clone + 'static> = N;
+    type Seed2<Seed: Clone + 'static> = Seed;
+    type MapH<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static> = H;
+    type MapR<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static> = R;
 
-    fn lift_treeish(&self, t: Treeish<N>) -> Treeish<N> { t }
-    fn lift_fold<H: Clone + 'static, R: Clone + 'static>(&self, f: Fold<N, H, R>) -> Fold<N, H, R> { f }
-    fn lift_root(&self, root: &N) -> N { root.clone() }
+    fn apply<N, Seed, H, R, T>(
+        &self,
+        grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+        seeds:   Edgy<N, Seed>,
+        treeish: Treeish<N>,
+        fold:    Fold<N, H, R>,
+        cont: impl FnOnce(
+            Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+            Edgy<N, Seed>,
+            Treeish<N>,
+            Fold<N, H, R>,
+        ) -> T,
+    ) -> T
+    where N: Clone + 'static, Seed: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+    {
+        cont(grow, seeds, treeish, fold)
+    }
+
+    fn lift_root<N: Clone + 'static>(&self, root: &N) -> N { root.clone() }
 }

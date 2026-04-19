@@ -1,22 +1,39 @@
-//! Lift — bifunctor transformation of Fold and Treeish.
+//! Lift — CPS algebra transform, domain-neutral.
 //!
-//! A Lift<N, N2> transforms a fold algebra from the N domain to the
-//! N2 domain. Both heap (H) and result (R) are method-level — the
-//! lift is a bifunctor on the (H, R) pair. This enables blanket
-//! composition via ComposedLift without OuterLift boilerplate.
+//! A Lift receives the four components of a pipeline's algebra +
+//! coalgebra (grow, seeds, treeish, fold) assembled on one side and
+//! yields their lifted versions to a user-supplied continuation.
+//! One method: `apply`. Composition is CPS nesting (ComposedLift).
+//!
+//! This trait carries NO Send/Sync bounds — those live at the domain
+//! layer (see `SharedDomainLift` for the Shared-domain bundle).
 
-use crate::domain::shared;
-use crate::graph;
+use std::sync::Arc;
+use crate::graph::{Edgy, Treeish};
+use crate::domain::shared::fold::Fold;
 
 // ANCHOR: lift_trait
-pub trait Lift<N: 'static, N2: 'static> {
-    type MapH<H: Clone + 'static, R: Clone + 'static>: Clone + 'static;
-    type MapR<H: Clone + 'static, R: Clone + 'static>: Clone + 'static;
+pub trait Lift {
+    type N2<N: Clone + 'static>: Clone + 'static;
+    type Seed2<Seed: Clone + 'static>: Clone + 'static;
+    type MapH<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>: Clone + 'static;
+    type MapR<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>: Clone + 'static;
 
-    fn lift_treeish(&self, t: graph::Treeish<N>) -> graph::Treeish<N2>;
-    fn lift_fold<H: Clone + 'static, R: Clone + 'static>(
-        &self, f: shared::fold::Fold<N, H, R>,
-    ) -> shared::fold::Fold<N2, Self::MapH<H, R>, Self::MapR<H, R>>;
-    fn lift_root(&self, root: &N) -> N2;
+    fn apply<N, Seed, H, R, T>(
+        &self,
+        grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
+        seeds:   Edgy<N, Seed>,
+        treeish: Treeish<N>,
+        fold:    Fold<N, H, R>,
+        cont: impl FnOnce(
+            Arc<dyn Fn(&Self::Seed2<Seed>) -> Self::N2<N> + Send + Sync>,
+            Edgy<Self::N2<N>, Self::Seed2<Seed>>,
+            Treeish<Self::N2<N>>,
+            Fold<Self::N2<N>, Self::MapH<N, H, R>, Self::MapR<N, H, R>>,
+        ) -> T,
+    ) -> T
+    where N: Clone + 'static, Seed: Clone + 'static, H: Clone + 'static, R: Clone + 'static;
+
+    fn lift_root<N: Clone + 'static>(&self, root: &N) -> Self::N2<N>;
 }
 // ANCHOR_END: lift_trait
