@@ -18,5 +18,6 @@ pub use fallible::seeds_for_fallible;
 pub use crate::cata::exec::Exec;
 pub use crate::cata::pipeline::{
     SeedPipeline, LiftedPipeline, TreeishPipeline,
-    PipelineSource, PipelineExec,
+    TreeishSource, SeedSource,
+    PipelineExec, PipelineExecSeed,
 };

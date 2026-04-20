@@ -1,7 +1,7 @@
 //! Stage-2 apply_pre_lift + the five algebra sugars.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, PipelineExec};
+use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
 

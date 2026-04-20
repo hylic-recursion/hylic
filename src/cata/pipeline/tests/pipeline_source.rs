@@ -1,7 +1,10 @@
-//! PipelineSource.with_constructed + the blanket PipelineExec.
+//! TreeishSource.with_treeish + SeedSource.with_seeded + blanket
+//! PipelineExec / PipelineExecSeed.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, PipelineSource, PipelineExec};
+use crate::cata::pipeline::{
+    SeedPipeline, TreeishSource, SeedSource, PipelineExec, PipelineExecSeed,
+};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
 
@@ -17,13 +20,11 @@ fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
 }
 
 #[test]
-fn with_constructed_yields_triple() {
-    // The CPS yield. Inspect the triple without running.
+fn with_seeded_yields_triple() {
+    // SeedSource's 3-slot yield. Inspect grow, treeish, fold.
     let (inspected_n_val, children_visited) = basic_pipeline()
-        .with_constructed(|grow, treeish, _fold| {
-            // grow turns seed into node; here identity.
+        .with_seeded(|grow, treeish, _fold| {
             let n = grow(&0u64);
-            // treeish walks N → Vec<N>.
             let mut kids = Vec::new();
             treeish.visit(&n, &mut |c: &u64| kids.push(*c));
             (n, kids)
@@ -33,14 +34,23 @@ fn with_constructed_yields_triple() {
 }
 
 #[test]
-fn with_constructed_delegates_through_lift() {
-    // LiftedPipeline's impl delegates to base and threads the lift.
+fn with_treeish_yields_pair() {
+    // TreeishSource's 2-slot yield. Seed-agnostic; grow is not exposed.
+    let r: u64 = basic_pipeline()
+        .with_treeish(|treeish, fold| {
+            dom::FUSED.run(&fold, &treeish, &0u64)
+        });
+    assert_eq!(r, 6);
+}
+
+#[test]
+fn with_treeish_delegates_through_lift() {
+    // LiftedPipeline's TreeishSource impl synthesises a panic-grow
+    // to feed the lift chain, then discards it. Seed-agnostic path.
     let r: (u64, bool) = basic_pipeline()
         .lift()
         .zipmap(|r: &u64| *r > 5)
-        .with_constructed(|_grow, treeish, fold| {
-            // Run the lifted (treeish, fold) directly — skips SeedLift,
-            // equivalent to run_from_node.
+        .with_treeish(|treeish, fold| {
             dom::FUSED.run(&fold, &treeish, &0u64)
         });
     assert_eq!(r, (6u64, true));
@@ -48,8 +58,7 @@ fn with_constructed_delegates_through_lift() {
 
 #[test]
 fn run_from_node_skips_entry() {
-    // The run_from_node variant uses with_constructed but bypasses
-    // SeedLift, passing the treeish directly to the executor.
+    // PipelineExec (blanket on TreeishSource) bypasses SeedLift.
     let r = basic_pipeline()
         .lift()
         .run_from_node(&dom::FUSED, &0u64);
@@ -57,9 +66,8 @@ fn run_from_node_skips_entry() {
 }
 
 #[test]
-fn blanket_run_covers_both_stages() {
-    // SeedPipeline's run comes from the same PipelineExec blanket impl
-    // as LiftedPipeline's — they are uniform entry points.
+fn run_from_slice_covers_both_stages() {
+    // PipelineExecSeed (blanket on SeedSource) handles Entry dispatch.
     let stage1_result = basic_pipeline().run_from_slice(&dom::FUSED, &[0u64], 0u64);
     let stage2_result = basic_pipeline().lift().run_from_slice(&dom::FUSED, &[0u64], 0u64);
     assert_eq!(stage1_result, stage2_result);

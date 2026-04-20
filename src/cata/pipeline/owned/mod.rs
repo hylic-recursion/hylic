@@ -1,9 +1,9 @@
-//! OwnedPipeline — one-shot pipeline over the Owned domain.
+//! OwnedPipeline — one-shot, seedless, by-value pipeline over the
+//! Owned domain.
 //!
-//! Not Clone; `run_from_node` consumes self. The fold and edgy
-//! are `Box`-stored (zero refcount). Does NOT compose shape-lifts
-//! (Owned is not `ShapeCapable`); users supply a complete fold at
-//! construction and run once.
+//! Not Clone; run_from_node_once consumes self. Not ShapeCapable —
+//! doesn't compose shape-lifts. Impls `PipelineSourceOnce` (by-value
+//! analogue of TreeishSource).
 
 use crate::domain::{Domain, Owned};
 use crate::domain::owned::Fold;
@@ -29,7 +29,6 @@ impl<N, H, R> PipelineSourceOnce for OwnedPipeline<N, H, R>
 where N: 'static, H: 'static, R: 'static,
 {
     type Domain = Owned;
-    type Seed = ();
     type N    = N;
     type H    = H;
     type R    = R;
@@ -37,15 +36,10 @@ where N: 'static, H: 'static, R: 'static,
     fn with_constructed_once<T>(
         self,
         cont: impl FnOnce(
-            <Owned as Domain<N>>::Grow<(), N>,
             <Owned as Domain<N>>::Graph<N>,
             <Owned as Domain<N>>::Fold<H, R>,
         ) -> T,
     ) -> T {
-        let grow = <Owned as Domain<N>>::make_grow(|_: &()| {
-            unreachable!("OwnedPipeline has no Seed→N step; \
-                          use run_from_node_once")
-        });
-        cont(grow, self.treeish, self.fold)
+        cont(self.treeish, self.fold)
     }
 }

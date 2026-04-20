@@ -1,17 +1,19 @@
-//! Stage-2 algebra sugars — Local domain. Mirror of
-//! transforms_shared; constructors call `Local::*_lift` and thus
-//! accept non-Send wrappers and mappers.
+//! Stage-2 algebra sugars on Local-bound LiftedPipelines. Requires
+//! only `TreeishSource` on Base.
 
 use crate::domain::{Domain, Local};
 use crate::ops::{ComposedLift, Lift, ShapeLift};
 use super::LiftedPipeline;
-use super::super::source::PipelineSource;
+use super::super::source::TreeishSource;
 
 impl<Base, L> LiftedPipeline<Base, L>
 where
-    Base: PipelineSource<Domain = Local>,
+    Base: TreeishSource<Domain = Local>,
     Local: Domain<L::N2>,
-    L: Lift<Local, Base::N, Base::H, Base::R>,
+    L: Lift<Local,
+            <Base as TreeishSource>::N,
+            <Base as TreeishSource>::H,
+            <Base as TreeishSource>::R>,
     L::N2:   Clone + 'static,
     L::MapH: Clone + 'static,
     L::MapR: Clone + 'static,

@@ -3,7 +3,7 @@
 //! user-written lifts; a custom lift that changes both N and R.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, PipelineExec};
+use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::Domain;
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;

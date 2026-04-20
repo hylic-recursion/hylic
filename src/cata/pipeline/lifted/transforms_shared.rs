@@ -1,17 +1,19 @@
-//! Stage-2 algebra sugars — one-liners over `apply_pre_lift` with a
-//! Shared-domain shape-lift constructor. Pinned to Shared; per-D
-//! sugars via domain-specific extension traits is a Phase-5+ task.
+//! Stage-2 algebra sugars on Shared-bound LiftedPipelines. Requires
+//! only `TreeishSource` on Base — Seed-agnostic.
 
 use crate::domain::{Domain, Shared};
 use crate::ops::{ComposedLift, Lift, ShapeLift};
 use super::LiftedPipeline;
-use super::super::source::PipelineSource;
+use super::super::source::TreeishSource;
 
 impl<Base, L> LiftedPipeline<Base, L>
 where
-    Base: PipelineSource<Domain = Shared>,
+    Base: TreeishSource<Domain = Shared>,
     Shared: Domain<L::N2>,
-    L: Lift<Shared, Base::N, Base::H, Base::R>,
+    L: Lift<Shared,
+            <Base as TreeishSource>::N,
+            <Base as TreeishSource>::H,
+            <Base as TreeishSource>::R>,
     L::N2:   Clone + 'static,
     L::MapH: Clone + 'static,
     L::MapR: Clone + 'static,

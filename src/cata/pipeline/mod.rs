@@ -25,7 +25,11 @@ pub(crate) mod internal;
 #[cfg(test)]
 mod tests;
 
-pub use source::{PipelineSource, PipelineSourceOnce, PipelineExec, PipelineExecOnce};
+pub use source::{
+    TreeishSource, SeedSource,
+    PipelineSourceOnce,
+    PipelineExec, PipelineExecSeed, PipelineExecOnce,
+};
 pub use seed::SeedPipeline;
 pub use treeish::TreeishPipeline;
 pub use lifted::LiftedPipeline;

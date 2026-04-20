@@ -1,7 +1,7 @@
 //! The .lift() transition from Stage 1 to Stage 2.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, LiftedPipeline, PipelineExec};
+use crate::cata::pipeline::{SeedPipeline, LiftedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
 use crate::ops::IdentityLift;

@@ -4,7 +4,7 @@
 //! for each node's finalize.
 
 use std::sync::{Arc, Mutex};
-use crate::cata::pipeline::{SeedPipeline, PipelineExec};
+use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::domain::Shared;
 use crate::graph::edgy_visit;
