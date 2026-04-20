@@ -41,8 +41,6 @@ where D: ShapeCapable<N> + Domain<N2>,
       N:  Clone + 'static, H:  Clone + 'static, R:  Clone + 'static,
       N2: Clone + 'static, H2: Clone + 'static, R2: Clone + 'static,
 {
-    /// Low-level constructor. Library shape-lift constructors
-    /// (`Shared::wrap_init_lift` etc.) wrap this.
     pub fn new(
         grow_xform:    D::GrowXform<N2>,
         treeish_xform: D::TreeishXform<N2>,
@@ -64,12 +62,12 @@ where D: ShapeCapable<N> + Domain<N2>,
 
     fn apply<Seed, T>(
         &self,
-        grow:    D::Grow<Seed, N>,
-        treeish: D::Graph<N, N>,
-        fold:    D::Fold<H, R>,
+        grow:    <D as Domain<N>>::Grow<Seed, N>,
+        treeish: <D as Domain<N>>::Graph<N>,
+        fold:    <D as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
             <D as Domain<N2>>::Grow<Seed, N2>,
-            <D as Domain<N2>>::Graph<N2, N2>,
+            <D as Domain<N2>>::Graph<N2>,
             <D as Domain<N2>>::Fold<H2, R2>,
         ) -> T,
     ) -> T

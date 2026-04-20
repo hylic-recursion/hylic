@@ -20,19 +20,6 @@ use super::core::Lift;
 // ── ShapeCapable ─────────────────────────────────────────
 
 /// A domain that supports `ShapeLift` composition.
-///
-/// Declares:
-/// - `GrowXform<N2>`: stored `&N → N2` closure (for grow composition).
-/// - `TreeishXform<N2>`: stored full `&Graph<N,N> → Graph<N2,N2>`
-///   closure (full builder, supporting context-dependent lifts).
-/// - `FoldXform<H, R, N2, H2, R2>`: stored
-///   `Fold<N,H,R> → Fold<N2,H2,R2>` closure crossing `Domain<N>`
-///   and `Domain<N2>` projections.
-///
-/// Three applicator methods evaluate the stored closures inside
-/// `Lift::apply`. Three identity constructors let shape-lift
-/// constructor functions fill unused axes without per-shape
-/// hand-rolling identity closures.
 pub trait ShapeCapable<N: 'static>: Domain<N> {
     type GrowXform<N2: 'static>: Clone + 'static;
     type TreeishXform<N2: 'static>: Clone + 'static;
@@ -41,19 +28,19 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
 
     fn apply_grow_xform<Seed: 'static, N2: 'static>(
         t: &Self::GrowXform<N2>,
-        g: Self::Grow<Seed, N>,
+        g: <Self as Domain<N>>::Grow<Seed, N>,
     ) -> <Self as Domain<N2>>::Grow<Seed, N2>
     where Self: Domain<N2>;
 
     fn apply_treeish_xform<N2: 'static>(
         t: &Self::TreeishXform<N2>,
-        g: Self::Graph<N, N>,
-    ) -> <Self as Domain<N2>>::Graph<N2, N2>
+        g: <Self as Domain<N>>::Graph<N>,
+    ) -> <Self as Domain<N2>>::Graph<N2>
     where Self: Domain<N2>;
 
     fn apply_fold_xform<H, R, N2, H2, R2>(
         t: &Self::FoldXform<H, R, N2, H2, R2>,
-        f: Self::Fold<H, R>,
+        f: <Self as Domain<N>>::Fold<H, R>,
     ) -> <Self as Domain<N2>>::Fold<H2, R2>
     where Self: Domain<N2>,
           H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static;
@@ -69,14 +56,10 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
 
 // ── PureLift — sequential executor capability ────────────
 
-/// Blanket marker: any Lift carrying `Clone + 'static` on the
-/// struct and its three associated types, given the same on the
-/// three input types. Sufficient for running under a sequential
-/// executor (Fused) in any `ShapeCapable` domain.
 pub trait PureLift<D, N, H, R>:
     Lift<D, N, H, R> + Clone + 'static
 where
-    D: Domain<N>,
+    D: Domain<N> + Domain<Self::N2>,
     N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
     Self::N2:   Clone + 'static,
     Self::MapH: Clone + 'static,
@@ -86,7 +69,7 @@ where
 impl<L, D, N, H, R> PureLift<D, N, H, R> for L
 where
     L: Lift<D, N, H, R> + Clone + 'static,
-    D: Domain<N>,
+    D: Domain<N> + Domain<L::N2>,
     N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
     L::N2:   Clone + 'static,
     L::MapH: Clone + 'static,
@@ -95,13 +78,10 @@ where
 
 // ── ShareableLift — parallel executor capability ─────────
 
-/// Blanket marker: adds Send+Sync on the struct and all six types.
-/// Required by parallel executors (Funnel). Practically satisfied
-/// only when `D = Shared` (Shared's closure storage carries Send+Sync).
 pub trait ShareableLift<D, N, H, R>:
     PureLift<D, N, H, R> + Send + Sync
 where
-    D: Domain<N>,
+    D: Domain<N> + Domain<Self::N2>,
     N: Clone + Send + Sync + 'static,
     H: Clone + Send + Sync + 'static,
     R: Clone + Send + Sync + 'static,
@@ -113,7 +93,7 @@ where
 impl<L, D, N, H, R> ShareableLift<D, N, H, R> for L
 where
     L: PureLift<D, N, H, R> + Send + Sync,
-    D: Domain<N>,
+    D: Domain<N> + Domain<L::N2>,
     N: Clone + Send + Sync + 'static,
     H: Clone + Send + Sync + 'static,
     R: Clone + Send + Sync + 'static,

@@ -1,5 +1,5 @@
 //! IdentityLift — unit of Lift composition. Polymorphic over any
-//! domain D and any (N, H, R).
+//! domain D and any (N, H, R). N-preserving, trivially.
 
 use crate::domain::Domain;
 use super::core::Lift;
@@ -17,13 +17,13 @@ where D: Domain<N>,
 
     fn apply<Seed, T>(
         &self,
-        grow:    D::Grow<Seed, N>,
-        treeish: D::Graph<N, N>,
-        fold:    D::Fold<H, R>,
+        grow:    <D as Domain<N>>::Grow<Seed, N>,
+        treeish: <D as Domain<N>>::Graph<N>,
+        fold:    <D as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            D::Grow<Seed, N>,
-            D::Graph<N, N>,
-            D::Fold<H, R>,
+            <D as Domain<N>>::Grow<Seed, N>,
+            <D as Domain<N>>::Graph<N>,
+            <D as Domain<N>>::Fold<H, R>,
         ) -> T,
     ) -> T
     where Seed: Clone + 'static,

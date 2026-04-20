@@ -4,18 +4,17 @@
 //! (result). Three associated types (N2, MapH, MapR). One CPS method
 //! `apply`. `Seed` is method-level.
 //!
-//! Under (a-uniform), the closure bounds at grow-construction sites
-//! are uniform `Fn + Send + Sync + 'static` across all domains.
-//! Per-domain per-closure-type bounds are handled by
-//! `FoldTransformsByRef` / `GraphTransformsByRef` (which this trait
-//! doesn't bind here — lift bodies import them ad-hoc when wrapping
-//! fold or graph closures).
+//! The trait bounds declare `D: Domain<Self::N2>` at trait level —
+//! via a `where` clause on the trait head — so every Lift impl can
+//! assume it without having to restate. Any N-changing impl also
+//! satisfies this (it must, to reference `<D as Domain<Self::N2>>`
+//! types in its body).
 
 use crate::domain::Domain;
 
 // ANCHOR: lift_trait
 pub trait Lift<D, N, H, R>
-where D: Domain<N>,
+where D: Domain<N> + Domain<Self::N2>,
       N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
     type N2:   Clone + 'static;
@@ -24,13 +23,13 @@ where D: Domain<N>,
 
     fn apply<Seed, T>(
         &self,
-        grow:    D::Grow<Seed, N>,
-        treeish: D::Graph<N, N>,
-        fold:    D::Fold<H, R>,
+        grow:    <D as Domain<N>>::Grow<Seed, N>,
+        treeish: <D as Domain<N>>::Graph<N>,
+        fold:    <D as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            D::Grow<Seed, Self::N2>,
-            D::Graph<Self::N2, Self::N2>,
-            D::Fold<Self::MapH, Self::MapR>,
+            <D as Domain<Self::N2>>::Grow<Seed, Self::N2>,
+            <D as Domain<Self::N2>>::Graph<Self::N2>,
+            <D as Domain<Self::N2>>::Fold<Self::MapH, Self::MapR>,
         ) -> T,
     ) -> T
     where Seed: Clone + 'static;

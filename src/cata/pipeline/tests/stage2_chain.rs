@@ -64,27 +64,27 @@ fn fluent_chain_stacks_lifts() {
 #[test]
 fn apply_pre_lift_accepts_user_lift() {
     // Prove users can write their own Lift impl and plug it in.
+    use crate::domain::Domain;
     use crate::ops::Lift;
-    use crate::graph::Treeish;
-    use crate::domain::shared::fold::Fold;
 
     #[derive(Clone, Copy)]
     struct NoOp;
 
-    impl<N, H, R> Lift<N, H, R> for NoOp
-    where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+    impl<D, N, H, R> Lift<D, N, H, R> for NoOp
+    where D: Domain<N>,
+          N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
     {
         type N2 = N; type MapH = H; type MapR = R;
 
         fn apply<Seed, T>(
             &self,
-            grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            treeish: Treeish<N>,
-            fold:    Fold<N, H, R>,
+            grow:    <D as Domain<N>>::Grow<Seed, N>,
+            treeish: <D as Domain<N>>::Graph<N>,
+            fold:    <D as Domain<N>>::Fold<H, R>,
             cont: impl FnOnce(
-                Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-                Treeish<N>,
-                Fold<N, H, R>,
+                <D as Domain<N>>::Grow<Seed, N>,
+                <D as Domain<N>>::Graph<N>,
+                <D as Domain<N>>::Fold<H, R>,
             ) -> T,
         ) -> T
         where Seed: Clone + 'static,

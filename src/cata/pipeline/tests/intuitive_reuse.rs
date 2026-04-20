@@ -4,8 +4,9 @@
 
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExec};
-use crate::domain::shared::{self as dom, fold::{fold, Fold}};
-use crate::graph::{edgy_visit, Treeish};
+use crate::domain::Domain;
+use crate::domain::shared::{self as dom, fold::fold};
+use crate::graph::edgy_visit;
 use crate::ops::Lift;
 
 fn basic() -> SeedPipeline<u64, u64, u64, u64> {
@@ -51,19 +52,20 @@ fn two_user_lifts_in_series() {
     #[derive(Clone, Copy)]
     struct AddToR(u64);   // Adds its constant to every R accumulate.
 
-    impl<N, H, R> Lift<N, H, R> for AddToR
+    use crate::domain::Shared;
+    impl<N, H, R> Lift<Shared, N, H, R> for AddToR
     where N: Clone + 'static, H: Clone + 'static, R: Clone + Into<u64> + From<u64> + 'static,
     {
         type N2 = N; type MapH = H; type MapR = R;
         fn apply<Seed, T>(
             &self,
-            grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            treeish: Treeish<N>,
-            fold_in: Fold<N, H, R>,
+            grow:    <Shared as Domain<N>>::Grow<Seed, N>,
+            treeish: <Shared as Domain<N>>::Graph<N>,
+            fold_in: <Shared as Domain<N>>::Fold<H, R>,
             cont: impl FnOnce(
-                Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-                Treeish<N>,
-                Fold<N, H, R>,
+                <Shared as Domain<N>>::Grow<Seed, N>,
+                <Shared as Domain<N>>::Graph<N>,
+                <Shared as Domain<N>>::Fold<H, R>,
             ) -> T,
         ) -> T
         where Seed: Clone + 'static,
@@ -81,19 +83,19 @@ fn two_user_lifts_in_series() {
     #[derive(Clone, Copy)]
     struct MulByTwo;
 
-    impl<N, H, R> Lift<N, H, R> for MulByTwo
+    impl<N, H, R> Lift<Shared, N, H, R> for MulByTwo
     where N: Clone + 'static, H: Clone + 'static, R: Clone + Into<u64> + From<u64> + 'static,
     {
         type N2 = N; type MapH = H; type MapR = R;
         fn apply<Seed, T>(
             &self,
-            grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            treeish: Treeish<N>,
-            fold_in: Fold<N, H, R>,
+            grow:    <Shared as Domain<N>>::Grow<Seed, N>,
+            treeish: <Shared as Domain<N>>::Graph<N>,
+            fold_in: <Shared as Domain<N>>::Fold<H, R>,
             cont: impl FnOnce(
-                Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-                Treeish<N>,
-                Fold<N, H, R>,
+                <Shared as Domain<N>>::Grow<Seed, N>,
+                <Shared as Domain<N>>::Graph<N>,
+                <Shared as Domain<N>>::Fold<H, R>,
             ) -> T,
         ) -> T
         where Seed: Clone + 'static,

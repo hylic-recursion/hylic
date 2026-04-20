@@ -68,14 +68,17 @@ pub trait Domain<N: 'static>: 'static {
 
 /// Arc-based storage. Clone, Send+Sync. Required for parallel
 /// executors (Funnel) and pipeline composition.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Shared;
 
 /// Rc-based storage. Clone, not Send+Sync. Lighter refcount than
 /// Shared. Works with Fused only.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Local;
 
 /// Box-based storage. Not Clone. Lightest — no refcount. Works
 /// with Fused only. Single-use semantics under Phase-5 pipelines.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Owned;
 
 // ── Shared impl ────────────────────────────────────
