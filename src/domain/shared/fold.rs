@@ -1,4 +1,13 @@
 //! Shared-domain Fold — Arc-based closure storage, Clone, Send+Sync.
+//!
+//! One primitive: `map_phases(map_init, map_acc, map_fin)`. Every
+//! phase-wrapping / type-changing sugar (`wrap_init`,
+//! `wrap_accumulate`, `wrap_finalize`, `map`, `zipmap`, `contramap`)
+//! is a one-line wrapper over `map_phases` plus a slot-level combinator
+//! from `crate::fold::combinators`.
+//!
+//! `product` is the single exception: it is binary (takes another
+//! `Fold`) and cannot be expressed as a single-fold `map_phases`.
 
 use std::sync::Arc;
 use crate::ops::FoldOps;
@@ -48,50 +57,77 @@ where N: 'static, H: 'static, R: 'static,
     pub fn accumulate(&self, heap: &mut H, result: &R) { (self.impl_accumulate)(heap, result) }
     pub fn finalize(&self, heap: &H) -> R { (self.impl_finalize)(heap) }
 
-    // ── Phase-wrapping ─────────────────────────────
+    // ── map_phases — sole slot-level primitive ──────
 
-    pub fn wrap_init(&self, wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static) -> Self {
-        let inner = self.impl_init.clone();
+    /// Rewrite all three phase-closures at once, independently.
+    /// Each sugar below is a one-line wrapper over this.
+    pub fn map_phases<N2, H2, R2, MI, MA, MF>(
+        &self,
+        map_init: MI,
+        map_acc:  MA,
+        map_fin:  MF,
+    ) -> Fold<N2, H2, R2>
+    where
+        N2: 'static, H2: 'static, R2: 'static,
+        MI: FnOnce(Arc<dyn Fn(&N) -> H + Send + Sync>)
+                   -> Arc<dyn Fn(&N2) -> H2 + Send + Sync>,
+        MA: FnOnce(Arc<dyn Fn(&mut H, &R) + Send + Sync>)
+                   -> Arc<dyn Fn(&mut H2, &R2) + Send + Sync>,
+        MF: FnOnce(Arc<dyn Fn(&H) -> R + Send + Sync>)
+                   -> Arc<dyn Fn(&H2) -> R2 + Send + Sync>,
+    {
         Fold {
-            impl_init: Arc::new(combinators::wrap_init(move |n: &N| inner(n), wrapper)),
-            impl_accumulate: self.impl_accumulate.clone(),
-            impl_finalize: self.impl_finalize.clone(),
+            impl_init:       map_init(self.impl_init.clone()),
+            impl_accumulate: map_acc(self.impl_accumulate.clone()),
+            impl_finalize:   map_fin(self.impl_finalize.clone()),
         }
     }
 
-    pub fn wrap_accumulate(&self, wrapper: impl Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync + 'static) -> Self {
-        let inner = self.impl_accumulate.clone();
-        Fold {
-            impl_init: self.impl_init.clone(),
-            impl_accumulate: Arc::new(combinators::wrap_accumulate(move |h: &mut H, r: &R| inner(h, r), wrapper)),
-            impl_finalize: self.impl_finalize.clone(),
-        }
+    // ── Phase wrappers — one-liners over map_phases ──
+
+    pub fn wrap_init<W>(&self, wrapper: W) -> Self
+    where W: Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static,
+    {
+        self.map_phases(
+            |init| Arc::new(combinators::wrap_init(move |n: &N| init(n), wrapper)),
+            |acc| acc,
+            |fin| fin,
+        )
     }
 
-    pub fn wrap_finalize(&self, wrapper: impl Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync + 'static) -> Self {
-        let inner = self.impl_finalize.clone();
-        Fold {
-            impl_init: self.impl_init.clone(),
-            impl_accumulate: self.impl_accumulate.clone(),
-            impl_finalize: Arc::new(combinators::wrap_finalize(move |h: &H| inner(h), wrapper)),
-        }
+    pub fn wrap_accumulate<W>(&self, wrapper: W) -> Self
+    where W: Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + Send + Sync + 'static,
+    {
+        self.map_phases(
+            |init| init,
+            |acc| Arc::new(combinators::wrap_accumulate(move |h: &mut H, r: &R| acc(h, r), wrapper)),
+            |fin| fin,
+        )
     }
 
-    // ── Type-changing combinators ───────────────────
+    pub fn wrap_finalize<W>(&self, wrapper: W) -> Self
+    where W: Fn(&H, &dyn Fn(&H) -> R) -> R + Send + Sync + 'static,
+    {
+        self.map_phases(
+            |init| init,
+            |acc| acc,
+            |fin| Arc::new(combinators::wrap_finalize(move |h: &H| fin(h), wrapper)),
+        )
+    }
+
+    // ── Type-changing combinators — one-liners over map_phases ──
 
     pub fn map<RNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> Fold<N, H, RNew>
     where
         RNew: 'static,
-        MapF: Fn(&R) -> RNew + Send + Sync + 'static,
+        MapF:  Fn(&R) -> RNew + Send + Sync + 'static,
         BackF: Fn(&RNew) -> R + Send + Sync + 'static,
     {
-        let (i, a, f) = combinators::map_fold(
-            { let v = self.impl_init.clone(); move |n: &N| v(n) },
-            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
-            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
-            mapper, backmapper,
-        );
-        Fold::new(i, a, f)
+        self.map_phases(
+            |init| init,
+            |acc|  Arc::new(move |h: &mut H, r: &RNew| acc(h, &backmapper(r))),
+            |fin|  Arc::new(move |h: &H| mapper(&fin(h))),
+        )
     }
 
     pub fn zipmap<RZip, MapF>(&self, mapper: MapF) -> Fold<N, H, (R, RZip)>
@@ -104,14 +140,18 @@ where N: 'static, H: 'static, R: 'static,
     }
 
     pub fn contramap<NewN: 'static>(&self, f: impl Fn(&NewN) -> N + Send + Sync + 'static) -> Fold<NewN, H, R> {
-        let (i, a, fin) = combinators::contramap_fold(
-            { let v = self.impl_init.clone(); move |n: &N| v(n) },
-            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
-            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
-            f,
-        );
-        Fold::new(i, a, fin)
+        let f = Arc::new(f);
+        self.map_phases(
+            {
+                let f = f.clone();
+                |init| Arc::new(move |new_n: &NewN| init(&f(new_n)))
+            },
+            |acc| acc,
+            |fin| fin,
+        )
     }
+
+    // ── product — binary; not sugar over map_phases ──
 
     pub fn product<H2: 'static, R2: 'static>(&self, other: &Fold<N, H2, R2>) -> Fold<N, (H, H2), (R, R2)> {
         let (i, a, f) = combinators::product_fold(
