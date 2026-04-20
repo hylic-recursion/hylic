@@ -12,3 +12,5 @@ mod non_send_r;
 mod inline_lift;
 mod nameability;
 mod shape_shifting;
+mod explainer_depth;
+mod intuitive_reuse;
