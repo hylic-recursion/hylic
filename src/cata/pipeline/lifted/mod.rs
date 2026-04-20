@@ -8,7 +8,8 @@
 use crate::ops::IdentityLift;
 
 pub mod apply_pre_lift;
-pub mod transforms;
+pub mod transforms_shared;
+pub mod transforms_local;
 pub mod source_impl;
 
 pub struct LiftedPipeline<Base, L = IdentityLift> {

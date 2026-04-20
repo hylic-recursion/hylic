@@ -53,3 +53,38 @@ where N: Clone + Debug + Send + Sync + 'static,
         |h: &String| h.clone(),
     )
 }
+
+pub fn trace_fold_brief<N, H, R>() -> Fold<ExplainerHeap<N, H, R>, String, String>
+where N: Clone + Debug + Send + Sync + 'static,
+      H: Clone + Debug + Send + Sync + 'static,
+      R: Clone + Debug + Send + Sync + 'static,
+{
+    sfold::fold(
+        |heap: &ExplainerHeap<N, H, R>| format!("{:?} => {:?}", heap.node, heap.working_heap),
+        |_h: &mut String, _c: &String| {},
+        |h: &String| h.clone(),
+    )
+}
+
+pub fn trace_fold_indented<N, H, R>(depth: usize) -> Fold<ExplainerHeap<N, H, R>, String, String>
+where N: Clone + Debug + Send + Sync + 'static,
+      H: Clone + Debug + Send + Sync + 'static,
+      R: Clone + Debug + Send + Sync + 'static,
+{
+    let pad = "  ".repeat(depth);
+    sfold::fold(
+        move |heap: &ExplainerHeap<N, H, R>| {
+            let mut s = format!("{pad}{:?}\n", heap.node);
+            for (i, step) in heap.transitions.iter().enumerate() {
+                s.push_str(&format!(
+                    "{pad}  [{i}] in={:?}, after={:?}\n",
+                    step.incoming_result, step.resulting_heap,
+                ));
+            }
+            s.push_str(&format!("{pad}→ {:?}", heap.working_heap));
+            s
+        },
+        |_h: &mut String, _c: &String| {},
+        |h: &String| h.clone(),
+    )
+}
