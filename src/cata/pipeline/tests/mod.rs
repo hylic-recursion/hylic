@@ -18,3 +18,4 @@ mod domain_fold_claims;
 mod domain_constructors;
 mod local_owned;
 mod explainer_describe;
+mod local_shape_lifts;
