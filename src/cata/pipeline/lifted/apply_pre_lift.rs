@@ -1,22 +1,23 @@
 //! apply_pre_lift — the sole Stage-2 primitive. Composes a new Lift
 //! onto the pre_lift chain via ComposedLift. Generic over any base
-//! `PipelineSource`. Pinned to `Shared` until Phase 5/5 lifts the
-//! pipeline typestates' domain pinning.
+//! `PipelineSource`; L takes the base's domain.
 
-use crate::domain::Shared;
+use crate::domain::Domain;
 use crate::ops::{ComposedLift, Lift};
 use super::LiftedPipeline;
 use super::super::source::PipelineSource;
 
 impl<Base, L> LiftedPipeline<Base, L>
 where Base: PipelineSource,
-      L: Lift<Shared, Base::N, Base::H, Base::R>,
+      Base::Domain: Domain<L::N2>,
+      L: Lift<Base::Domain, Base::N, Base::H, Base::R>,
 {
     pub fn apply_pre_lift<L2>(
         self,
         outer: L2,
     ) -> LiftedPipeline<Base, ComposedLift<L, L2>>
-    where L2: Lift<Shared, L::N2, L::MapH, L::MapR>,
+    where Base::Domain: Domain<L2::N2>,
+          L2: Lift<Base::Domain, L::N2, L::MapH, L::MapR>,
     {
         LiftedPipeline {
             base:     self.base,

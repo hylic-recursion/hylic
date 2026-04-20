@@ -10,7 +10,7 @@ use crate::domain::Shared;
 use crate::prelude::{ExplainerHeap, ExplainerResult};
 
 /// Flat adjacency: 0 → {1, 2}; 1 → {3}; 2, 3 leaves.
-fn basic_pipeline() -> SeedPipeline<u64, u64, u64, u64> {
+fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
     let ch: Arc<Vec<Vec<u64>>> = Arc::new(vec![
         vec![1, 2], vec![3], vec![], vec![],
     ]);

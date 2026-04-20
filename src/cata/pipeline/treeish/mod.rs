@@ -3,19 +3,26 @@
 //! slots: `treeish` and `fold`. `Self::Seed = ()` — no Seed
 //! dispatch at the executor boundary; use `run_from_node`.
 
-use crate::domain::shared::fold::Fold;
-use crate::graph::Treeish;
+use crate::domain::Domain;
 
 pub mod reshape;
 pub mod transforms;
 pub mod source_impl;
 
-pub struct TreeishPipeline<N, H, R> {
-    pub(crate) treeish: Treeish<N>,
-    pub(crate) fold:    Fold<N, H, R>,
+pub struct TreeishPipeline<D, N, H, R>
+where D: Domain<N>,
+      N: 'static, H: 'static, R: 'static,
+{
+    pub(crate) treeish: <D as Domain<N>>::Graph<N>,
+    pub(crate) fold:    <D as Domain<N>>::Fold<H, R>,
 }
 
-impl<N, H, R> Clone for TreeishPipeline<N, H, R> {
+impl<D, N, H, R> Clone for TreeishPipeline<D, N, H, R>
+where D: Domain<N>,
+      N: 'static, H: 'static, R: 'static,
+      <D as Domain<N>>::Graph<N>:   Clone,
+      <D as Domain<N>>::Fold<H, R>: Clone,
+{
     fn clone(&self) -> Self {
         TreeishPipeline {
             treeish: self.treeish.clone(),
@@ -24,10 +31,29 @@ impl<N, H, R> Clone for TreeishPipeline<N, H, R> {
     }
 }
 
-impl<N, H, R> TreeishPipeline<N, H, R>
+impl<D, N, H, R> TreeishPipeline<D, N, H, R>
+where D: Domain<N>,
+      N: 'static, H: 'static, R: 'static,
+{
+    pub fn new_domain(
+        treeish: <D as Domain<N>>::Graph<N>,
+        fold:    <D as Domain<N>>::Fold<H, R>,
+    ) -> Self {
+        TreeishPipeline { treeish, fold }
+    }
+}
+
+// ── Shared convenience constructor ─────────────────────
+
+impl<N, H, R> TreeishPipeline<crate::domain::Shared, N, H, R>
 where N: 'static, H: 'static, R: 'static,
 {
-    pub fn new(treeish: Treeish<N>, fold: &Fold<N, H, R>) -> Self {
+    /// Shared-specific constructor that takes a `Treeish<N>` and
+    /// borrows a `Fold<N, H, R>`. Mirrors the pre-5/5 API.
+    pub fn new(
+        treeish: crate::graph::Treeish<N>,
+        fold:    &crate::domain::shared::fold::Fold<N, H, R>,
+    ) -> Self {
         TreeishPipeline { treeish, fold: fold.clone() }
     }
 }

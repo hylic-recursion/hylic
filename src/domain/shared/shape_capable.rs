@@ -94,4 +94,14 @@ impl<N: 'static> ShapeCapable<N> for Shared {
     fn identity_fold_xform<H: 'static, R: 'static>() -> Self::FoldXform<H, R, N, H, R> {
         Arc::new(|f: Fold<N, H, R>| f)
     }
+
+    fn fuse_grow_with_seeds<Seed: 'static>(
+        grow:  <Self as Domain<N>>::Grow<Seed, N>,
+        seeds: <Self as Domain<N>>::Graph<Seed>,
+    ) -> <Self as Domain<N>>::Graph<N>
+    where Seed: Clone,
+    {
+        let fused: Edgy<N, N> = seeds.map(move |s: &Seed| grow(s));
+        shared_graph::<N>(fused)
+    }
 }

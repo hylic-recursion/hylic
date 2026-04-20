@@ -5,10 +5,10 @@ use crate::cata::pipeline::{SeedPipeline, LiftedPipeline};
 use crate::domain::Shared;
 use crate::ops::{ComposedLift, IdentityLift, ShapeLift};
 
-type MyBasePipeline = SeedPipeline<u64, u64, u64, u64>;
+type MyBasePipeline = SeedPipeline<crate::domain::Shared, u64, u64, u64, u64>;
 
 type MyTransformedPipeline = LiftedPipeline<
-    SeedPipeline<u64, u64, u64, u64>,
+    SeedPipeline<crate::domain::Shared, u64, u64, u64, u64>,
     ComposedLift<IdentityLift, ShapeLift<Shared, u64, u64, u64, u64, u64, (u64, bool)>>,
 >;
 

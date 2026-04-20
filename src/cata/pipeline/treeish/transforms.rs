@@ -1,22 +1,19 @@
-//! TreeishPipeline sugars — one-liners over reshape.
-//!
-//! Only `contramap_node` makes sense here: no Seed side to filter or
-//! wrap_grow. N-changing via bijection cleanly reshapes both
-//! treeish and fold.
+//! TreeishPipeline sugars — Shared-domain only for now (Phase 5/5).
 
 use std::sync::Arc;
+use crate::domain::Shared;
 use crate::domain::shared::fold::Fold;
 use crate::graph::Treeish;
 use super::TreeishPipeline;
 
-impl<N, H, R> TreeishPipeline<N, H, R>
+impl<N, H, R> TreeishPipeline<Shared, N, H, R>
 where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
     pub fn contramap_node<N2, Co, Contra>(
         self,
         co: Co,
         contra: Contra,
-    ) -> TreeishPipeline<N2, H, R>
+    ) -> TreeishPipeline<Shared, N2, H, R>
     where N2: Clone + 'static,
           Co:     Fn(&N) -> N2 + Send + Sync + 'static,
           Contra: Fn(&N2) -> N + Send + Sync + 'static,

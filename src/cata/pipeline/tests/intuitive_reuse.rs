@@ -9,7 +9,7 @@ use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
 use crate::ops::Lift;
 
-fn basic() -> SeedPipeline<u64, u64, u64, u64> {
+fn basic() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
     let ch: Arc<Vec<Vec<u64>>> = Arc::new(vec![
         vec![1, 2], vec![3], vec![], vec![],
         vec![1],    // node 4: one child (1)

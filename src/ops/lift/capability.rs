@@ -52,6 +52,16 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
     where N: Clone;
 
     fn identity_fold_xform<H: 'static, R: 'static>() -> Self::FoldXform<H, R, N, H, R>;
+
+    /// Compose a `grow: Seed → N` with a `seeds: Graph<Seed>` to
+    /// produce the fused `Graph<N>` (treeish). Needed by
+    /// `SeedPipeline::with_constructed` which yields a treeish over
+    /// N to the executor.
+    fn fuse_grow_with_seeds<Seed: 'static>(
+        grow:  <Self as Domain<N>>::Grow<Seed, N>,
+        seeds: <Self as Domain<N>>::Graph<Seed>,
+    ) -> <Self as Domain<N>>::Graph<N>
+    where Seed: Clone;
 }
 
 // ── PureLift — sequential executor capability ────────────

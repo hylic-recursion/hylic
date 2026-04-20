@@ -5,7 +5,7 @@ use crate::cata::pipeline::{SeedPipeline, PipelineExec};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
 
-fn basic_pipeline() -> SeedPipeline<u64, u64, u64, u64> {
+fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
     let ch: Arc<Vec<Vec<u64>>> = Arc::new(vec![vec![1, 2], vec![3], vec![], vec![]]);
     let base_fold = fold(|n: &u64| *n, |h: &mut u64, c: &u64| *h += c, |h: &u64| *h);
     let seeds = edgy_visit(move |n: &u64, cb: &mut dyn FnMut(&u64)| {

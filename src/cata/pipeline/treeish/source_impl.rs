@@ -1,23 +1,23 @@
 //! impl PipelineSource for TreeishPipeline + .lift() transition.
 //!
 //! `Self::Seed = ()` — no Seed-to-Node resolution step. The
-//! Arc<Fn(&()) -> N> supplied to `with_constructed` is a panic
-//! closure; it's unreachable under every legitimate code path
-//! (`run_from_node` ignores grow; `run` / `run_from_slice` cannot
-//! bind Seed=() in a way that a user would pass meaningful entry
-//! seeds through).
+//! `Grow<(), N>` supplied to `with_constructed` is an unreachable
+//! closure; `run_from_node` ignores it and `run` / `run_from_slice`
+//! cannot meaningfully be called on a `Self::Seed = ()` pipeline.
 
-use std::sync::Arc;
-use crate::domain::shared::fold::Fold;
-use crate::graph::Treeish;
+use crate::domain::Domain;
 use crate::ops::IdentityLift;
 use super::TreeishPipeline;
 use super::super::source::PipelineSource;
 use super::super::lifted::LiftedPipeline;
 
-impl<N, H, R> PipelineSource for TreeishPipeline<N, H, R>
-where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+impl<D, N, H, R> PipelineSource for TreeishPipeline<D, N, H, R>
+where D: Domain<N>,
+      N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+      <D as Domain<N>>::Graph<N>:   Clone,
+      <D as Domain<N>>::Fold<H, R>: Clone,
 {
+    type Domain = D;
     type Seed = ();
     type N    = N;
     type H    = H;
@@ -26,12 +26,12 @@ where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
     fn with_constructed<T>(
         &self,
         cont: impl FnOnce(
-            Arc<dyn Fn(&Self::Seed) -> Self::N + Send + Sync>,
-            Treeish<Self::N>,
-            Fold<Self::N, Self::H, Self::R>,
+            <D as Domain<N>>::Grow<(), N>,
+            <D as Domain<N>>::Graph<N>,
+            <D as Domain<N>>::Fold<H, R>,
         ) -> T,
     ) -> T {
-        let grow: Arc<dyn Fn(&()) -> N + Send + Sync> = Arc::new(|_: &()| {
+        let grow = D::make_grow::<(), N>(|_: &()| {
             unreachable!("TreeishPipeline has no Seed→N step; \
                           use run_from_node, not run or run_from_slice")
         });
@@ -39,7 +39,10 @@ where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
     }
 }
 
-impl<N, H, R> TreeishPipeline<N, H, R> {
+impl<D, N, H, R> TreeishPipeline<D, N, H, R>
+where D: Domain<N>,
+      N: 'static, H: 'static, R: 'static,
+{
     /// Transition to Stage 2 with an IdentityLift.
     pub fn lift(self) -> LiftedPipeline<Self, IdentityLift> {
         LiftedPipeline::new(self, IdentityLift)

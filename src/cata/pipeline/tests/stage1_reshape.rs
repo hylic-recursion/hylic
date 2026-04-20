@@ -7,7 +7,7 @@ use crate::graph::edgy_visit;
 
 fn flat_children(flat: Vec<Vec<u64>>) -> Arc<Vec<Vec<u64>>> { Arc::new(flat) }
 
-fn basic_pipeline() -> SeedPipeline<u64, u64, u64, u64> {
+fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
     let ch = flat_children(vec![vec![1, 2], vec![3], vec![], vec![]]);
     let ch_for_seeds = ch.clone();
     let base_fold = fold(|n: &u64| *n, |h: &mut u64, c: &u64| *h += c, |h: &u64| *h);
