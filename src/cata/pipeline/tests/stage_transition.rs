@@ -19,7 +19,7 @@ fn basic_pipeline() -> SeedPipeline<u64, u64, u64, u64> {
 
 #[test]
 fn lift_produces_identity_lifted_pipeline() {
-    let p: LiftedPipeline<u64, u64, u64, u64, IdentityLift> = basic_pipeline().lift();
+    let p: LiftedPipeline<SeedPipeline<u64, u64, u64, u64>, IdentityLift> = basic_pipeline().lift();
     let r = p.run_from_slice(&dom::FUSED, &[0u64], 0u64);
     assert_eq!(r, 6);
 }

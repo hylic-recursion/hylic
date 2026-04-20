@@ -17,6 +17,7 @@
 
 pub mod source;
 pub mod seed;
+pub mod treeish;
 pub mod lifted;
 pub(crate) mod internal;
 
@@ -25,5 +26,6 @@ mod tests;
 
 pub use source::{PipelineSource, PipelineExec};
 pub use seed::SeedPipeline;
+pub use treeish::TreeishPipeline;
 pub use lifted::LiftedPipeline;
 pub use internal::lifted_types::{LiftedNode, LiftedHeap};

@@ -15,5 +15,6 @@ pub use common_folds::{count_fold, depth_fold, pretty_print};
 pub use fallible::seeds_for_fallible;
 pub use crate::cata::exec::Exec;
 pub use crate::cata::pipeline::{
-    SeedPipeline, LiftedPipeline, PipelineSource, PipelineExec,
+    SeedPipeline, LiftedPipeline, TreeishPipeline,
+    PipelineSource, PipelineExec,
 };

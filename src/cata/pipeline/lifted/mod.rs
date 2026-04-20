@@ -1,26 +1,28 @@
-//! LiftedPipeline — Stage 2 of the Phase-3 typestate. Holds its
-//! Stage-1 ancestor as `base` plus a lift chain `pre_lift: L`.
-//! Sole primitive: apply_pre_lift.
+//! LiftedPipeline — Stage 2 of the pipeline typestate.
+//!
+//! Parametric over its source: `LiftedPipeline<Base, L>` wraps any
+//! `Base: PipelineSource` (SeedPipeline, TreeishPipeline, or any
+//! future source) with a lift chain `L`. Sole Stage-2 primitive:
+//! `apply_pre_lift`.
 
 use crate::ops::IdentityLift;
-use super::seed::SeedPipeline;
 
 pub mod apply_pre_lift;
 pub mod transforms;
 pub mod source_impl;
 
-pub struct LiftedPipeline<N, Seed, H, R, L = IdentityLift> {
-    pub(crate) base:     SeedPipeline<N, Seed, H, R>,
+pub struct LiftedPipeline<Base, L = IdentityLift> {
+    pub(crate) base:     Base,
     pub(crate) pre_lift: L,
 }
 
-impl<N, Seed, H, R, L> LiftedPipeline<N, Seed, H, R, L> {
-    pub(crate) fn new(base: SeedPipeline<N, Seed, H, R>, pre_lift: L) -> Self {
+impl<Base, L> LiftedPipeline<Base, L> {
+    pub(crate) fn new(base: Base, pre_lift: L) -> Self {
         LiftedPipeline { base, pre_lift }
     }
 }
 
-impl<N, Seed, H, R, L: Clone> Clone for LiftedPipeline<N, Seed, H, R, L> {
+impl<Base: Clone, L: Clone> Clone for LiftedPipeline<Base, L> {
     fn clone(&self) -> Self {
         LiftedPipeline {
             base:     self.base.clone(),

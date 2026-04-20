@@ -36,7 +36,7 @@ where N: Clone + 'static, Seed: Clone + 'static,
 impl<N, Seed, H, R> SeedPipeline<N, Seed, H, R> {
     /// Transition to Stage 2 with an IdentityLift. The pipeline's
     /// base slots move into the LiftedPipeline's `base` field.
-    pub fn lift(self) -> LiftedPipeline<N, Seed, H, R, IdentityLift> {
+    pub fn lift(self) -> LiftedPipeline<Self, IdentityLift> {
         LiftedPipeline::new(self, IdentityLift)
     }
 }
