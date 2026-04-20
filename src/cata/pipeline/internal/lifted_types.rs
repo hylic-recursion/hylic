@@ -1,31 +1,20 @@
-//! LiftedNode and LiftedHeap — the type-level structure of the seed
-//! lift. pub(crate) visibility — these types are internal to the
-//! pipeline module; users never construct them directly.
+//! LiftedNode — type-level structure of SeedLift's output treeish.
+//!
+//! Two variants:
+//!   - `Entry`: root branching point. Visiting Entry fans out to the
+//!     user-supplied entry seeds, each grown to a Node via SeedLift's
+//!     grow closure.
+//!   - `Node(N)`: a resolved node. Visiting Node delegates to the
+//!     base treeish; init/accumulate/finalize flow through the base
+//!     fold.
+//!
+//! There is no intermediate "Seed" variant and no "Relay" heap. An
+//! earlier design modelled a deferred-grow state (Seed child that
+//! later resolves to a Node); the current design grows inline at
+//! Entry-visit time, so such states are never observed.
 
-/// Node in the lifted tree.
-/// - Entry: root branching point, children from a captured Edgy<(), Seed>
-/// - Seed: single-child relay, grows into Node via grow
-/// - Node: real node, original fold and treeish operate
 #[derive(Clone)]
-pub enum LiftedNode<Seed, N> {
+pub enum LiftedNode<N> {
     Entry,
-    Seed(Seed),
     Node(N),
-}
-
-/// Heap in the lifted world.
-/// - Active: carries the original fold's heap (for Entry and Node)
-/// - Relay: pass-through slot for a single child's result (for Seed)
-pub enum LiftedHeap<H, R> {
-    Active(H),
-    Relay(Option<R>),
-}
-
-impl<H: Clone, R: Clone> Clone for LiftedHeap<H, R> {
-    fn clone(&self) -> Self {
-        match self {
-            LiftedHeap::Active(h) => LiftedHeap::Active(h.clone()),
-            LiftedHeap::Relay(r) => LiftedHeap::Relay(r.clone()),
-        }
-    }
 }

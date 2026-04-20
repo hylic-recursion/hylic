@@ -1,26 +1,27 @@
 //! SeedLift — the finishing Lift that retires the Seed axis.
 //!
 //! `SeedLift<N, Seed, H>` is a `Lift<Shared, N, H, R>` with
-//! `N2 = LiftedNode<Seed, N>`, `MapH = LiftedHeap<H, R>`, `MapR = R`.
-//! It carries Entry-dispatch state as struct fields:
+//! `N2 = LiftedNode<N>`, `MapH = H`, `MapR = R`. It carries
+//! Entry-dispatch state as struct fields:
 //!
-//!   - `grow`: the pipeline's Seed→N resolver (shared via Arc clone
-//!     with the pipeline's own grow).
-//!   - `entry_seeds`: `Edgy<(), Seed>` — the canonical
-//!     callback-iterator form; convenience wrappers lower `&[Seed]`
-//!     into this shape at the user surface.
+//!   - `grow`: the pipeline's Seed→N resolver.
+//!   - `entry_seeds`: `Edgy<(), Seed>` — canonical callback-iterator.
+//!     Convenience wrappers lower `&[Seed]` into this shape.
 //!   - `entry_heap_fn`: produces the root heap at Entry.
 //!
-//! Usage:
-//!   - Library-internal: `PipelineExec::run` constructs a SeedLift
-//!     from the pipeline's grow + user's entry_seeds/entry_heap and
-//!     invokes `sl.apply(...)` on the yielded triple.
-//!   - User-explicit: compose directly via `apply_pre_lift(SeedLift::new(...))`.
-//!     The chain consumes `.run_from_node(&exec, &LiftedNode::Entry)`.
+//! Traversal:
+//!   - `LiftedNode::Entry.visit` → fans out to
+//!     `LiftedNode::Node(grow(seed))` for each entry seed.
+//!   - `LiftedNode::Node(n).visit` → delegates to the base treeish;
+//!     emits children wrapped as `LiftedNode::Node(child)`.
 //!
-//! Shared-pinned: the apply body constructs a `shared::fold::Fold`
-//! directly. Local / Owned finishing-lift equivalents are separate
-//! types; only one domain is covered here by design.
+//! The fold is wrapped identically for both variants — Node uses
+//! the base fold's init/accumulate/finalize; Entry uses
+//! `entry_heap_fn()` for init and the base fold's accumulate +
+//! finalize otherwise.
+//!
+//! Shared-pinned: the apply body constructs a
+//! `shared::fold::Fold` directly.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use std::sync::Arc;
 use crate::domain::{Domain, Shared};
 use crate::domain::shared::fold::{self as sfold, Fold};
 use crate::graph::{self, Edgy, Treeish};
-use crate::cata::pipeline::{LiftedNode, LiftedHeap};
+use crate::cata::pipeline::LiftedNode;
 use super::core::Lift;
 
 pub struct SeedLift<N, Seed, H>
@@ -96,8 +97,8 @@ impl<N, Seed, H, R> Lift<Shared, N, H, R> for SeedLift<N, Seed, H>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
 {
-    type N2   = LiftedNode<Seed, N>;
-    type MapH = LiftedHeap<H, R>;
+    type N2   = LiftedNode<N>;
+    type MapH = H;
     type MapR = R;
 
     fn apply<Seed_, T>(
@@ -106,59 +107,41 @@ where N: Clone + 'static, Seed: Clone + 'static,
         treeish:        <Shared as Domain<N>>::Graph<N>,
         fold:           <Shared as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <Shared as Domain<LiftedNode<Seed, N>>>::Grow<Seed_, LiftedNode<Seed, N>>,
-            <Shared as Domain<LiftedNode<Seed, N>>>::Graph<LiftedNode<Seed, N>>,
-            <Shared as Domain<LiftedNode<Seed, N>>>::Fold<LiftedHeap<H, R>, R>,
+            <Shared as Domain<LiftedNode<N>>>::Grow<Seed_, LiftedNode<N>>,
+            <Shared as Domain<LiftedNode<N>>>::Graph<LiftedNode<N>>,
+            <Shared as Domain<LiftedNode<N>>>::Fold<H, R>,
         ) -> T,
     ) -> T
     where Seed_: Clone + 'static,
     {
         // ── lifted treeish ─────────────────────────────────
-        let sl_grow      = self.grow.clone();
-        let entry_seeds  = self.entry_seeds.clone();
-        let base_treeish = treeish;
-        let lifted_treeish: Treeish<LiftedNode<Seed, N>> = graph::treeish_visit(
-            move |n: &LiftedNode<Seed, N>, cb: &mut dyn FnMut(&LiftedNode<Seed, N>)| {
-                match n {
-                    LiftedNode::Node(node) => {
-                        base_treeish.visit(node,
-                            &mut |c: &N| cb(&LiftedNode::Node(c.clone())));
-                    }
-                    LiftedNode::Seed(s) => cb(&LiftedNode::Node(sl_grow(s))),
-                    LiftedNode::Entry   => entry_seeds.visit(&(),
-                        &mut |s: &Seed| cb(&LiftedNode::Node(sl_grow(s)))),
+        let sl_grow     = self.grow.clone();
+        let entry_seeds = self.entry_seeds.clone();
+        let base        = treeish;
+        let lifted_treeish: Treeish<LiftedNode<N>> = graph::treeish_visit(
+            move |n: &LiftedNode<N>, cb: &mut dyn FnMut(&LiftedNode<N>)| match n {
+                LiftedNode::Node(node) => {
+                    base.visit(node, &mut |c: &N| cb(&LiftedNode::Node(c.clone())));
                 }
+                LiftedNode::Entry => entry_seeds.visit(&(),
+                    &mut |s: &Seed| cb(&LiftedNode::Node(sl_grow(s)))),
             },
         );
 
         // ── lifted fold ────────────────────────────────────
         let heap_fn = self.entry_heap_fn.clone();
         let f1 = fold.clone(); let f2 = fold.clone(); let f3 = fold;
-        let lifted_fold: Fold<LiftedNode<Seed, N>, LiftedHeap<H, R>, R> = sfold::fold(
-            move |n: &LiftedNode<Seed, N>| -> LiftedHeap<H, R> {
-                match n {
-                    LiftedNode::Node(node) => LiftedHeap::Active(f1.init(node)),
-                    LiftedNode::Seed(_)    => LiftedHeap::Relay(None),
-                    LiftedNode::Entry      => LiftedHeap::Active(heap_fn()),
-                }
+        let lifted_fold: Fold<LiftedNode<N>, H, R> = sfold::fold(
+            move |n: &LiftedNode<N>| match n {
+                LiftedNode::Node(node) => f1.init(node),
+                LiftedNode::Entry      => heap_fn(),
             },
-            move |heap: &mut LiftedHeap<H, R>, result: &R| {
-                match heap {
-                    LiftedHeap::Active(h)   => f2.accumulate(h, result),
-                    LiftedHeap::Relay(slot) => *slot = Some(result.clone()),
-                }
-            },
-            move |heap: &LiftedHeap<H, R>| -> R {
-                match heap {
-                    LiftedHeap::Active(h)      => f3.finalize(h),
-                    LiftedHeap::Relay(Some(r)) => r.clone(),
-                    LiftedHeap::Relay(None)    => panic!("relay finalized without child result"),
-                }
-            },
+            move |heap: &mut H, result: &R| f2.accumulate(heap, result),
+            move |heap: &H| f3.finalize(heap),
         );
 
         // ── unreachable upstream grow ──────────────────────
-        let unreachable_grow: Arc<dyn Fn(&Seed_) -> LiftedNode<Seed, N> + Send + Sync> =
+        let unreachable_grow: Arc<dyn Fn(&Seed_) -> LiftedNode<N> + Send + Sync> =
             Arc::new(|_: &Seed_| unreachable!(
                 "SeedLift is a finishing lift; its output grow is unreachable — \
                  exec.run runs with &LiftedNode::Entry as root"));

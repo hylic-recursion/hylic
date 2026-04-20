@@ -34,4 +34,4 @@ pub use seed::SeedPipeline;
 pub use treeish::TreeishPipeline;
 pub use lifted::LiftedPipeline;
 pub use owned::OwnedPipeline;
-pub use internal::lifted_types::{LiftedNode, LiftedHeap};
+pub use internal::lifted_types::LiftedNode;

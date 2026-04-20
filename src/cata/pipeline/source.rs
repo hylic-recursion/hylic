@@ -124,8 +124,8 @@ pub trait PipelineExecSeed: SeedSource {
     ) -> Self::R
     where Self: SeedSource<Domain = Shared>,
           E: Executor<
-            LiftedNode<Self::Seed, Self::N>, Self::R,
-            Shared, Treeish<LiftedNode<Self::Seed, Self::N>>>,
+            LiftedNode<Self::N>, Self::R,
+            Shared, Treeish<LiftedNode<Self::N>>>,
           Self::Seed: Send + Sync,
           Self::N:    Send + Sync,
           Self::H:    Send + Sync,
@@ -153,8 +153,8 @@ pub trait PipelineExecSeed: SeedSource {
     ) -> Self::R
     where Self: SeedSource<Domain = Shared>,
           E: Executor<
-            LiftedNode<Self::Seed, Self::N>, Self::R,
-            Shared, Treeish<LiftedNode<Self::Seed, Self::N>>>,
+            LiftedNode<Self::N>, Self::R,
+            Shared, Treeish<LiftedNode<Self::N>>>,
           Self::Seed: Send + Sync,
           Self::N:    Send + Sync,
           Self::H:    Send + Sync,
