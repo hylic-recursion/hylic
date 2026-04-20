@@ -122,17 +122,6 @@ where N: 'static, H: 'static, R: 'static,
         Fold::new(i, a, fin)
     }
 
-    pub fn product<H2: 'static, R2: 'static>(&self, other: &Fold<N, H2, R2>) -> Fold<N, (H, H2), (R, R2)> {
-        let (i, a, f) = crate::fold::combinators::product_fold(
-            { let v = self.impl_init.clone(); move |n: &N| v(n) },
-            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
-            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
-            { let v = other.impl_init.clone(); move |n: &N| v(n) },
-            { let v = other.impl_accumulate.clone(); move |h: &mut H2, r: &R2| v(h, r) },
-            { let v = other.impl_finalize.clone(); move |h: &H2| v(h) },
-        );
-        Fold::new(i, a, f)
-    }
 }
 
 // ── Constructors ──────────────────────────────────

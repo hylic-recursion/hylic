@@ -87,13 +87,6 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
         Fold::new(i, a, fin)
     }
 
-    pub fn product<H2: 'static, R2: 'static>(self, other: Fold<N, H2, R2>) -> Fold<N, (H, H2), (R, R2)> {
-        let (i, a, f) = crate::fold::combinators::product_fold(
-            self.impl_init, self.impl_accumulate, self.impl_finalize,
-            other.impl_init, other.impl_accumulate, other.impl_finalize,
-        );
-        Fold::new(i, a, f)
-    }
 }
 
 impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {

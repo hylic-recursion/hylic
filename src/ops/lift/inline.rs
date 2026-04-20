@@ -16,6 +16,18 @@
 //! - `fold_contra`:   `&N2 → N` — backward bijection used to
 //!                    contramap the fold to the new node type.
 //!
+//! ## Invertibility constraint
+//!
+//! `fold_contra: &N2 → N` must **round-trip to the original
+//! representation**. The fold operates over `N` internally; every
+//! `N2` value reached during traversal is mapped back to `N` via
+//! `fold_contra` before the inner fold sees it. If the `N → N2`
+//! transformation loses information (e.g. projecting N onto a
+//! summary), no closure pack can reconstitute the missing data and
+//! `inline_lift` is the wrong tool — write a full
+//! `impl Lift<N, H, R>` struct instead, whose `apply` body
+//! constructs a fold over `N2` directly without round-tripping.
+//!
 //! For context-dependent lifts whose `MapH` or `MapR` wraps H/R
 //! non-trivially (e.g. annotate each node's visit count into the
 //! heap), closures cannot carry the required associated-type

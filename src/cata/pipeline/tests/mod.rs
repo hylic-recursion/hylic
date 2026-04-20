@@ -8,4 +8,7 @@ mod power_user;
 mod fold_map_phases;
 mod edgy_map_endpoints;
 mod treeish_pipeline;
-mod exec_sequential;
+mod non_send_r;
+mod inline_lift;
+mod nameability;
+mod shape_shifting;
