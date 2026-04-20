@@ -9,6 +9,7 @@ pub use lift::{
     IdentityLift,
     ComposedLift,
     SharedDomainLift,
+    InlineLift, inline_lift,
     WrapInitLift, wrap_init_lift,
     WrapAccumulateLift, wrap_accumulate_lift,
     WrapFinalizeLift, wrap_finalize_lift,
