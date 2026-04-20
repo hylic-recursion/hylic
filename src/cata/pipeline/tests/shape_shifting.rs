@@ -6,7 +6,8 @@ use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExec};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
-use crate::prelude::{Explainer, ExplainerHeap, ExplainerResult};
+use crate::domain::Shared;
+use crate::prelude::{ExplainerHeap, ExplainerResult};
 
 /// Flat adjacency: 0 → {1, 2}; 1 → {3}; 2, 3 leaves.
 fn basic_pipeline() -> SeedPipeline<u64, u64, u64, u64> {
@@ -79,7 +80,7 @@ fn t2_full_coalgebra_and_algebra_shape_shift() {
                 (v, flag)
             },
         )
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<BoxedU64, u64, i128>())
         .run_from_slice(
             &dom::FUSED,
             &[0u64],

@@ -4,7 +4,8 @@ use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExec};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
-use crate::prelude::{Explainer, ExplainerHeap, ExplainerResult};
+use crate::domain::Shared;
+use crate::prelude::{ExplainerHeap, ExplainerResult};
 
 fn tree_pipeline() -> SeedPipeline<u64, u64, u64, u64> {
     let ch: Arc<Vec<Vec<u64>>> = Arc::new(vec![vec![1, 2], vec![3], vec![], vec![]]);
@@ -24,7 +25,7 @@ fn full_chain_with_explainer_fused() {
         .lift()                                                             // ─ transition
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)      // Stage 2
         .zipmap(|r: &u64| *r > 5)
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, bool)>())
         .run_from_slice(
             &dom::FUSED,
             &[0u64],
@@ -47,7 +48,7 @@ fn full_chain_with_explainer_funnel() {
         .lift()
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)
         .zipmap(|r: &u64| *r > 5)
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, bool)>())
         .run_from_slice(
             &dom::exec(funnel::Spec::default(4)),
             &[0u64],

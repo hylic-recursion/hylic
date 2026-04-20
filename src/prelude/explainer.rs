@@ -1,94 +1,64 @@
-//! Explainer — computation tracing as a Lift. Polymorphic in (N, H, R).
-//! Seed is method-level.
+//! Explainer data types: `ExplainerStep`, `ExplainerHeap`,
+//! `ExplainerResult`, and the `treeish_for_explres` navigator.
+//!
+//! The `Explainer` *lift* is a constructor on the capable domain:
+//! call `Shared::explainer_lift()` or `Local::explainer_lift()`,
+//! which produces a `ShapeLift<…>` with the trace-building
+//! fold-xform. See `technical-insights/09-unified-shape-lift.md`.
+//!
+//! Types are parametric over `ChildR` to accommodate both the
+//! whole-tree `Explainer` (ChildR = ExplainerResult) and
+//! `ExplainerDescribe` (ChildR = R, streaming emit).
 
-use std::sync::Arc;
 use crate::graph::{treeish, Treeish};
-use crate::domain::shared::fold::{self as sfold, Fold};
-use crate::ops::Lift;
 
 #[derive(Clone)]
-pub struct ExplainerStep<N, H, R>
-where N: Clone, H: Clone, R: Clone,
+pub struct ExplainerStep<H, ChildR>
+where H: Clone, ChildR: Clone,
 {
-    pub incoming_result: ExplainerResult<N, H, R>,
-    pub resulting_heap: H,
+    pub incoming_result: ChildR,
+    pub resulting_heap:  H,
 }
 
 #[derive(Clone)]
-pub struct ExplainerHeap<N, H, R>
-where N: Clone, H: Clone, R: Clone,
+pub struct ExplainerHeap<N, H, ChildR>
+where N: Clone, H: Clone, ChildR: Clone,
 {
     pub initial_heap: H,
-    pub node: N,
-    pub transitions: Vec<ExplainerStep<N, H, R>>,
+    pub node:         N,
+    pub transitions:  Vec<ExplainerStep<H, ChildR>>,
     pub working_heap: H,
 }
 
-impl<N: Clone, H: Clone, R: Clone> ExplainerHeap<N, H, R> {
+impl<N: Clone, H: Clone, ChildR: Clone> ExplainerHeap<N, H, ChildR> {
     pub fn new(node: N, heap: H) -> Self {
         ExplainerHeap {
             initial_heap: heap.clone(),
             node,
-            transitions: Vec::new(),
+            transitions:  Vec::new(),
             working_heap: heap,
         }
     }
 }
 
+/// Whole-tree trace result. Child traces nest recursively via
+/// `heap.transitions[i].incoming_result`.
 #[derive(Clone)]
 pub struct ExplainerResult<N, H, R>
 where N: Clone, H: Clone, R: Clone,
 {
     pub orig_result: R,
-    pub heap: ExplainerHeap<N, H, R>,
+    pub heap:        ExplainerHeap<N, H, ExplainerResult<N, H, R>>,
 }
 
-#[derive(Clone, Copy)]
-pub struct Explainer;
-
-impl<N, H, R> Lift<N, H, R> for Explainer
-where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+/// Treeish over `ExplainerResult<N, H, R>` — children are the
+/// recursive `incoming_result` of each transition. Useful for
+/// running a downstream fold over the captured trace.
+pub fn treeish_for_explres<N, H, R>() -> Treeish<ExplainerResult<N, H, R>>
+where N: Clone + Send + Sync + 'static,
+      H: Clone + Send + Sync + 'static,
+      R: Clone + Send + Sync + 'static,
 {
-    type N2   = N;
-    type MapH = ExplainerHeap<N, H, R>;
-    type MapR = ExplainerResult<N, H, R>;
-
-    fn apply<Seed, T>(
-        &self,
-        grow:        Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-        treeish_in:  Treeish<N>,
-        fold:        Fold<N, H, R>,
-        cont: impl FnOnce(
-            Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-            Treeish<N>,
-            Fold<N, ExplainerHeap<N, H, R>, ExplainerResult<N, H, R>>,
-        ) -> T,
-    ) -> T
-    where Seed: Clone + 'static,
-    {
-        let f1 = fold.clone();
-        let f2 = fold.clone();
-        let f3 = fold;
-        let wrapped = sfold::fold(
-            move |n: &N| ExplainerHeap::new(n.clone(), f1.init(n)),
-            move |heap: &mut ExplainerHeap<N, H, R>, result: &ExplainerResult<N, H, R>| {
-                f2.accumulate(&mut heap.working_heap, &result.orig_result);
-                heap.transitions.push(ExplainerStep {
-                    incoming_result: result.clone(),
-                    resulting_heap: heap.working_heap.clone(),
-                });
-            },
-            move |heap: &ExplainerHeap<N, H, R>| ExplainerResult {
-                orig_result: f3.finalize(&heap.working_heap),
-                heap: heap.clone(),
-            },
-        );
-        cont(grow, treeish_in, wrapped)
-    }
-}
-
-pub fn treeish_for_explres<N: Clone + 'static, H: Clone + 'static, R: Clone + 'static>(
-) -> Treeish<ExplainerResult<N, H, R>> {
     treeish(|x: &ExplainerResult<N, H, R>| {
         x.heap.transitions.iter().map(|step| step.incoming_result.clone()).collect()
     })

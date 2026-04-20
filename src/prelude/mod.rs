@@ -7,7 +7,7 @@ pub mod memoize;
 pub mod common_folds;
 pub mod fallible;
 pub use vec_fold::{vec_fold, VecFold, VecHeap};
-pub use explainer::{Explainer, ExplainerHeap, ExplainerResult, ExplainerStep};
+pub use explainer::{ExplainerHeap, ExplainerResult, ExplainerStep};
 pub use format::TreeFormatCfg;
 pub use traced::{Traced, traced_treeish};
 pub use memoize::{memoize_treeish, memoize_treeish_by};

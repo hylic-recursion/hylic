@@ -1,9 +1,10 @@
 //! impl PipelineSource for LiftedPipeline<Base, L> — delegates to
 //! the base's PipelineSource impl, then runs the lift chain's
-//! apply on the yielded triple.
+//! apply on the yielded triple. Pinned to Shared pending 5/5.
 
 use std::sync::Arc;
 use crate::domain::shared::fold::Fold;
+use crate::domain::Shared;
 use crate::graph::Treeish;
 use crate::ops::Lift;
 use super::LiftedPipeline;
@@ -11,7 +12,7 @@ use super::super::source::PipelineSource;
 
 impl<Base, L> PipelineSource for LiftedPipeline<Base, L>
 where Base: PipelineSource,
-      L: Lift<Base::N, Base::H, Base::R>,
+      L: Lift<Shared, Base::N, Base::H, Base::R>,
       L::N2:   Clone + 'static,
       L::MapH: Clone + 'static,
       L::MapR: Clone + 'static,

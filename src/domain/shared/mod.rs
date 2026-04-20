@@ -11,6 +11,8 @@
 //! ```
 
 pub mod fold;
+pub mod shape_capable;
+pub mod shape_lifts;
 
 use crate::cata::exec::{Exec, fused};
 

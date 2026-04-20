@@ -8,6 +8,8 @@
 //! contramap) are one-line inherent wrappers over `map_phases`.
 
 pub mod edgy;
+pub mod shape_capable;
+pub mod shape_lifts;
 
 use std::rc::Rc;
 use crate::ops::{FoldOps, FoldTransformsByRef};

@@ -1,8 +1,7 @@
-//! ComposedLift — atom of Lift composition. CPS-nested apply.
+//! ComposedLift — atom of Lift composition. Domain-generic CPS-nested
+//! apply.
 
-use std::sync::Arc;
-use crate::graph::Treeish;
-use crate::domain::shared::fold::Fold;
+use crate::domain::Domain;
 use super::core::Lift;
 
 pub struct ComposedLift<L1, L2> {
@@ -22,11 +21,12 @@ impl<L1, L2> ComposedLift<L1, L2> {
     }
 }
 
-impl<N, H, R, L1, L2> Lift<N, H, R> for ComposedLift<L1, L2>
+impl<D, N, H, R, L1, L2> Lift<D, N, H, R> for ComposedLift<L1, L2>
 where
+    D: Domain<N> + Domain<L1::N2>,
     N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
-    L1: Lift<N, H, R>,
-    L2: Lift<L1::N2, L1::MapH, L1::MapR>,
+    L1: Lift<D, N, H, R>,
+    L2: Lift<D, L1::N2, L1::MapH, L1::MapR>,
 {
     type N2   = L2::N2;
     type MapH = L2::MapH;
@@ -34,13 +34,13 @@ where
 
     fn apply<Seed, T>(
         &self,
-        grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-        treeish: Treeish<N>,
-        fold:    Fold<N, H, R>,
+        grow:    D::Grow<Seed, N>,
+        treeish: D::Graph<N, N>,
+        fold:    D::Fold<H, R>,
         cont: impl FnOnce(
-            Arc<dyn Fn(&Seed) -> Self::N2 + Send + Sync>,
-            Treeish<Self::N2>,
-            Fold<Self::N2, Self::MapH, Self::MapR>,
+            <D as Domain<L2::N2>>::Grow<Seed, L2::N2>,
+            <D as Domain<L2::N2>>::Graph<L2::N2, L2::N2>,
+            <D as Domain<L2::N2>>::Fold<L2::MapH, L2::MapR>,
         ) -> T,
     ) -> T
     where Seed: Clone + 'static,

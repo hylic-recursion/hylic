@@ -5,8 +5,9 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExec};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::domain::Shared;
 use crate::graph::edgy_visit;
-use crate::prelude::{Explainer, ExplainerHeap, ExplainerResult};
+use crate::prelude::{ExplainerHeap, ExplainerResult};
 
 fn basic() -> SeedPipeline<u64, u64, u64, u64> {
     let ch: Arc<Vec<Vec<u64>>> = Arc::new(vec![vec![1, 2], vec![3], vec![], vec![]]);
@@ -23,13 +24,9 @@ fn basic() -> SeedPipeline<u64, u64, u64, u64> {
 
 #[test]
 fn explainer_early_vs_late_same_orig_result() {
-    // Early-insertion: Explainer wraps the base fold; later zipmap
-    // operates on ExplainerResult — so MapR chains through the
-    // Explainer-wrapped type. The final R is a tuple where .0 is
-    // the ExplainerResult.
     let r_early = basic()
         .lift()
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
         .zipmap(|r: &ExplainerResult<u64, u64, u64>| r.orig_result * 2)
         .run_from_slice(&dom::FUSED, &[0u64], ExplainerHeap::new(0u64, 0u64));
     // Base R = 0+1+2+3 = 6. Zipmap pairs (ExplainerResult{6, …}, 12).
@@ -37,17 +34,16 @@ fn explainer_early_vs_late_same_orig_result() {
     assert_eq!(r_early.1, 12);
     assert!(!r_early.0.heap.transitions.is_empty());
 
-    // Late-insertion: zipmap first, then Explainer caps the chain.
     let r_late: ExplainerResult<u64, u64, (u64, u64)> = basic()
         .lift()
         .zipmap(|r: &u64| r * 2)
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, u64)>())
         .run_from_slice(
             &dom::FUSED,
             &[0u64],
             ExplainerHeap::new(0u64, 0u64),
         );
-    // Here R = (u64, u64). Base pair = (6, 12). Explainer wraps.
+    // R = (u64, u64). Base pair = (6, 12). Explainer wraps.
     assert_eq!(r_late.orig_result, (6, 12));
     assert!(!r_late.heap.transitions.is_empty());
 }
@@ -55,22 +51,22 @@ fn explainer_early_vs_late_same_orig_result() {
 #[test]
 fn nested_explainers_compose() {
     // Two Explainers in one chain. Inner wraps the base fold; outer
-    // then wraps the inner-explained fold. Types nest accordingly:
-    //   inner MapH = ExplainerHeap<u64, u64, u64>
+    // wraps the inner-explained fold.
+    //   inner MapH = ExplainerHeap<u64, u64, ExplainerResult<u64, u64, u64>>
     //   inner MapR = ExplainerResult<u64, u64, u64>
-    //   outer MapH = ExplainerHeap<u64, inner MapH, inner MapR>
+    //   outer MapH = ExplainerHeap<u64, inner MapH, ExplainerResult<u64, inner MapH, inner MapR>>
     //   outer MapR = ExplainerResult<u64, inner MapH, inner MapR>
-    type InnerMapH = ExplainerHeap<u64, u64, u64>;
+    type InnerMapH = ExplainerHeap<u64, u64, ExplainerResult<u64, u64, u64>>;
     type InnerMapR = ExplainerResult<u64, u64, u64>;
     type OuterMapR = ExplainerResult<u64, InnerMapH, InnerMapR>;
 
-    let entry: ExplainerHeap<u64, InnerMapH, InnerMapR> =
+    let entry: ExplainerHeap<u64, InnerMapH, OuterMapR> =
         ExplainerHeap::new(0u64, ExplainerHeap::new(0u64, 0u64));
 
     let r: OuterMapR = basic()
         .lift()
-        .apply_pre_lift(Explainer)
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
+        .apply_pre_lift(Shared::explainer_lift::<u64, InnerMapH, InnerMapR>())
         .run_from_slice(&dom::FUSED, &[0u64], entry);
 
     // Unwrap the two trace layers and assert the innermost result.
@@ -81,21 +77,17 @@ fn nested_explainers_compose() {
 
 #[test]
 fn explainer_trace_structure_walks_tree() {
-    // Concrete assertion about the trace tree shape.
     let r: ExplainerResult<u64, u64, u64> = basic()
         .lift()
-        .apply_pre_lift(Explainer)
+        .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
         .run_from_slice(
             &dom::FUSED,
             &[0u64],
             ExplainerHeap::new(0u64, 0u64),
         );
 
-    // Entry's heap has one transition (the entry-seed's subtree result).
     assert_eq!(r.heap.transitions.len(), 1, "Entry has one child");
 
-    // That child is node 0, whose heap has two transitions (its
-    // children 1 and 2).
     let zero_step = &r.heap.transitions[0];
     assert_eq!(zero_step.incoming_result.heap.transitions.len(), 2,
                "node 0 has two children (1, 2)");

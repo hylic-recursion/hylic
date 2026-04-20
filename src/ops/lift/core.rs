@@ -1,16 +1,22 @@
-//! Lift<N, H, R> — the algebra-transform type class (Phase 3).
+//! Lift<D, N, H, R> — the domain-generic algebra-transform type class.
 //!
-//! Three trait parameters, three associated types, one method.
-//! `Seed` is method-polymorphic — the lift struct never stores
-//! Seed-dependent data.
+//! Four trait parameters: D (domain), N (node type), H (heap), R
+//! (result). Three associated types (N2, MapH, MapR). One CPS method
+//! `apply`. `Seed` is method-level.
+//!
+//! Under (a-uniform), the closure bounds at grow-construction sites
+//! are uniform `Fn + Send + Sync + 'static` across all domains.
+//! Per-domain per-closure-type bounds are handled by
+//! `FoldTransformsByRef` / `GraphTransformsByRef` (which this trait
+//! doesn't bind here — lift bodies import them ad-hoc when wrapping
+//! fold or graph closures).
 
-use std::sync::Arc;
-use crate::graph::Treeish;
-use crate::domain::shared::fold::Fold;
+use crate::domain::Domain;
 
 // ANCHOR: lift_trait
-pub trait Lift<N, H, R>
-where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+pub trait Lift<D, N, H, R>
+where D: Domain<N>,
+      N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
     type N2:   Clone + 'static;
     type MapH: Clone + 'static;
@@ -18,13 +24,13 @@ where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 
     fn apply<Seed, T>(
         &self,
-        grow:    Arc<dyn Fn(&Seed) -> N + Send + Sync>,
-        treeish: Treeish<N>,
-        fold:    Fold<N, H, R>,
+        grow:    D::Grow<Seed, N>,
+        treeish: D::Graph<N, N>,
+        fold:    D::Fold<H, R>,
         cont: impl FnOnce(
-            Arc<dyn Fn(&Seed) -> Self::N2 + Send + Sync>,
-            Treeish<Self::N2>,
-            Fold<Self::N2, Self::MapH, Self::MapR>,
+            D::Grow<Seed, Self::N2>,
+            D::Graph<Self::N2, Self::N2>,
+            D::Fold<Self::MapH, Self::MapR>,
         ) -> T,
     ) -> T
     where Seed: Clone + 'static;

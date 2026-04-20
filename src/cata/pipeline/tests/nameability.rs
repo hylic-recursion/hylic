@@ -2,13 +2,14 @@
 //! type aliases. Proves the Arc-erasure claim via std::any::type_name.
 
 use crate::cata::pipeline::{SeedPipeline, LiftedPipeline};
-use crate::ops::{ComposedLift, IdentityLift, ZipmapLift};
+use crate::domain::Shared;
+use crate::ops::{ComposedLift, IdentityLift, ShapeLift};
 
 type MyBasePipeline = SeedPipeline<u64, u64, u64, u64>;
 
 type MyTransformedPipeline = LiftedPipeline<
     SeedPipeline<u64, u64, u64, u64>,
-    ComposedLift<IdentityLift, ZipmapLift<u64, bool>>,
+    ComposedLift<IdentityLift, ShapeLift<Shared, u64, u64, u64, u64, u64, (u64, bool)>>,
 >;
 
 #[allow(dead_code)]
@@ -32,5 +33,5 @@ fn pipeline_types_name_and_store() {
     let transformed_name = std::any::type_name::<MyTransformedPipeline>();
     assert!(transformed_name.contains("LiftedPipeline"));
     assert!(transformed_name.contains("ComposedLift"));
-    assert!(transformed_name.contains("ZipmapLift"));
+    assert!(transformed_name.contains("ShapeLift"));
 }
