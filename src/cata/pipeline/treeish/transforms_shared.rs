@@ -9,7 +9,7 @@ use super::TreeishPipeline;
 impl<N, H, R> TreeishPipeline<Shared, N, H, R>
 where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
-    pub fn contramap_node<N2, Co, Contra>(
+    pub fn map_node_bi<N2, Co, Contra>(
         self,
         co: Co,
         contra: Contra,
@@ -29,7 +29,7 @@ where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
                        .map(move |n: &N| co_for_treeish(n))
             },
             move |fold: Fold<N, H, R>| -> Fold<N2, H, R> {
-                fold.contramap(move |n2: &N2| contra_for_fold(n2))
+                fold.contramap_n(move |n2: &N2| contra_for_fold(n2))
             },
         )
     }

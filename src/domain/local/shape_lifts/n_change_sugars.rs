@@ -1,11 +1,11 @@
-//! N-change Local sugars — one-line wrappers over `Local::inline_lift`.
+//! N-change Local sugars — one-line wrappers over `Local::n_lift`.
 
 use crate::domain::Local;
 use crate::domain::local::edgy::{edgy_visit, Edgy};
 use crate::ops::lift::shape::universal::ShapeLift;
 
 impl Local {
-    pub fn contramap_n_lift<N, H, R, N2, Co, Contra>(co: Co, contra: Contra)
+    pub fn map_n_bi_lift<N, H, R, N2, Co, Contra>(co: Co, contra: Contra)
         -> ShapeLift<Local, N, H, R, N2, H, R>
     where
         N:  Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -17,7 +17,7 @@ impl Local {
         let co_for_tree = co.clone();
         let ca_for_tree = contra.clone();
         let ca_for_fold = contra;
-        Local::inline_lift::<N, H, R, N2, _, _, _>(
+        Local::n_lift::<N, H, R, N2, _, _, _>(
             co_for_grow,
             move |base: &Edgy<N, N>| -> Edgy<N2, N2> {
                 let base = base.clone();

@@ -14,7 +14,7 @@ pub fn seeds_for_fallible<V, E, S>(
 ) -> Edgy<Either<E, V>, S>
 where V: Clone + 'static, E: 'static, S: 'static,
 {
-    seeds_from_valid.contramap_or(|node: &Either<E, V>| match node {
+    seeds_from_valid.contramap_or_emit(|node: &Either<E, V>| match node {
         Either::Right(valid) => Either::Left(valid.clone()),
         Either::Left(_) => Either::Right(vec![]),
     })

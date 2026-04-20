@@ -1,4 +1,4 @@
-//! Stage-1 Local sugar on TreeishPipeline — contramap_node mirror.
+//! Stage-1 Local sugar on TreeishPipeline — map_node_bi mirror.
 
 use std::rc::Rc;
 use crate::domain::Local;
@@ -9,7 +9,7 @@ use super::TreeishPipeline;
 impl<N, H, R> TreeishPipeline<Local, N, H, R>
 where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
-    pub fn contramap_node_local<N2, Co, Contra>(
+    pub fn map_node_bi_local<N2, Co, Contra>(
         self, co: Co, contra: Contra,
     ) -> TreeishPipeline<Local, N2, H, R>
     where N2: Clone + 'static,
@@ -27,7 +27,7 @@ where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
                        .map(move |n: &N| co_for_treeish(n))
             },
             move |fold: Fold<N, H, R>| -> Fold<N2, H, R> {
-                fold.contramap(move |n2: &N2| contra_for_fold(n2))
+                fold.contramap_n(move |n2: &N2| contra_for_fold(n2))
             },
         )
     }

@@ -3,9 +3,9 @@
 //! Three primitives, each rewriting at most a coordinated subset of
 //! the (grow, treeish, fold) triple:
 //!
-//!   - `map_fold_phases_lift(mi, ma, mf)` — fold-phase rewrite
-//!   - `map_treeish_lift(mt)`              — treeish rewrite
-//!   - `inline_lift(ln, bt, fc)`           — N-change with all three
+//!   - `phases_lift(mi, ma, mf)` — fold-phase rewrite
+//!   - `treeish_lift(mt)`              — treeish rewrite
+//!   - `n_lift(ln, bt, fc)`           — N-change with all three
 //!
 //! Every other Shared shape-lift (wrap_init, zipmap, map_r,
 //! contramap_n, filter_edges, wrap_visit, memoize_by, …) is a thin
@@ -19,46 +19,35 @@ use crate::graph::Edgy;
 use crate::ops::lift::capability::ShapeCapable;
 use crate::ops::lift::shape::universal::ShapeLift;
 
-// ── Identity phase mappers (usable when the corresponding type axis is preserved) ─
+// ── Identity phase mappers (internal, used by fold_sugars) ────
 
 impl Shared {
-    /// Identity mapper for the init phase. Valid when `NewH = H`.
-    pub fn identity_init_mapper<N, H>()
+    pub(crate) fn identity_init_mapper<N, H>()
         -> impl Fn(Arc<dyn Fn(&N) -> H + Send + Sync>)
                -> Arc<dyn Fn(&N) -> H + Send + Sync>
             + Send + Sync + Clone + 'static
     where N: 'static, H: 'static,
-    {
-        |init| init
-    }
+    { |init| init }
 
-    /// Identity mapper for the accumulate phase. Valid when
-    /// `NewH = H` AND `NewR = R`.
-    pub fn identity_acc_mapper<H, R>()
+    pub(crate) fn identity_acc_mapper<H, R>()
         -> impl Fn(Arc<dyn Fn(&mut H, &R) + Send + Sync>)
                -> Arc<dyn Fn(&mut H, &R) + Send + Sync>
             + Send + Sync + Clone + 'static
     where H: 'static, R: 'static,
-    {
-        |acc| acc
-    }
+    { |acc| acc }
 
-    /// Identity mapper for the finalize phase. Valid when
-    /// `NewH = H` AND `NewR = R`.
-    pub fn identity_fin_mapper<H, R>()
+    pub(crate) fn identity_fin_mapper<H, R>()
         -> impl Fn(Arc<dyn Fn(&H) -> R + Send + Sync>)
                -> Arc<dyn Fn(&H) -> R + Send + Sync>
             + Send + Sync + Clone + 'static
     where H: 'static, R: 'static,
-    {
-        |fin| fin
-    }
+    { |fin| fin }
 }
 
-// ── map_fold_phases_lift — fold-phase rewrite primitive ────────────────
+// ── phases_lift — fold-phase rewrite primitive ────────────────
 
 impl Shared {
-    pub fn map_fold_phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
+    pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
         mi: MI, ma: MA, mf: MF,
     ) -> ShapeLift<Shared, N, H, R, N, NewH, NewR>
     where
@@ -101,10 +90,10 @@ impl Shared {
     }
 }
 
-// ── map_treeish_lift — treeish rewrite primitive ───────────────────────
+// ── treeish_lift — treeish rewrite primitive ───────────────────────
 
 impl Shared {
-    pub fn map_treeish_lift<N, H, R, MT>(
+    pub fn treeish_lift<N, H, R, MT>(
         mt: MT,
     ) -> ShapeLift<Shared, N, H, R, N, H, R>
     where
@@ -124,10 +113,10 @@ impl Shared {
     }
 }
 
-// ── inline_lift — N-change primitive (coordinated grow + treeish + fold) ─
+// ── n_lift — N-change primitive (coordinated grow + treeish + fold) ─
 
 impl Shared {
-    pub fn inline_lift<N, H, R, N2, LN, BT, FC>(
+    pub fn n_lift<N, H, R, N2, LN, BT, FC>(
         lift_node:     LN,
         build_treeish: BT,
         fold_contra:   FC,
@@ -145,7 +134,7 @@ impl Shared {
             let fc = Arc::new(fold_contra);
             Arc::new(move |f: Fold<N, H, R>| {
                 let fc = fc.clone();
-                f.contramap(move |n2: &N2| fc(n2))
+                f.contramap_n(move |n2: &N2| fc(n2))
             })
         };
         ShapeLift::new(grow_xform, treeish_xform, fold_xform)

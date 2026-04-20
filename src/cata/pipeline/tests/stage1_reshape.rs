@@ -52,7 +52,7 @@ fn contramap_node_changes_n_type() {
     struct Tagged { v: u64 }
 
     let r = basic_pipeline()
-        .contramap_node(
+        .map_node_bi(
             |n: &u64| Tagged { v: *n },
             |t: &Tagged| t.v,
         )
@@ -65,7 +65,7 @@ fn contramap_node_changes_n_type() {
 fn map_seed_changes_seed_type() {
     // Map u64 seeds to String seeds and back.
     let r = basic_pipeline()
-        .map_seed(
+        .map_seed_bi(
             |s: &u64| format!("seed-{s}"),
             |s: &String| s.strip_prefix("seed-").unwrap().parse::<u64>().unwrap(),
         )

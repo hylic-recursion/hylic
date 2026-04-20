@@ -1,6 +1,6 @@
 //! Cookbook: graph-side transforms.
 //!
-//! Demonstrates filter_edges, wrap_visit, contramap_node at Stage-2
+//! Demonstrates filter_edges, wrap_visit, map_node_bi at Stage-2
 //! against a Module dependency graph.
 
 use std::collections::HashMap;
@@ -76,7 +76,7 @@ fn contramap_node_at_stage2_wraps_in_newtype() {
     let root = Tagged(ModuleId("app".into()));
     let r: u32 = base_pipeline()
         .lift()
-        .contramap_node(
+        .map_node_bi(
             |m: &ModuleId| Tagged(m.clone()),
             |t: &Tagged| t.0.clone(),
         )

@@ -52,7 +52,7 @@ fn local_fold_contramap_accepts_non_send_capture() {
 
     let tag_for_contra = tag.clone();
     // contramap accepts a non-Send closure under Local.
-    let contra = base.contramap(move |s: &String| {
+    let contra = base.contramap_n(move |s: &String| {
         tag_for_contra.borrow_mut().push_str(s);
         s.len() as u64
     });
@@ -103,7 +103,7 @@ fn owned_fold_contramap_consumes_and_accepts_non_send() {
 
     // Owned's contramap consumes self.
     let counter_for_contra = shared_counter.clone();
-    let contra = base.contramap(move |s: &String| {
+    let contra = base.contramap_n(move |s: &String| {
         *counter_for_contra.borrow_mut() += 1;
         s.len() as u64
     });

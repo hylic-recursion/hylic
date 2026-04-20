@@ -36,11 +36,11 @@ fn t1_stage1_heavy_reshape() {
     // coalgebra sugars compose; each type change is visible in the
     // resulting pipeline's type.
     let r = basic_pipeline()
-        .contramap_node(
+        .map_node_bi(
             |n: &u64| BoxedU64(*n),
             |b: &BoxedU64| b.0,
         )
-        .map_seed(
+        .map_seed_bi(
             |s: &u64| format!("seed-{s}"),
             |s: &String| s.strip_prefix("seed-").unwrap().parse::<u64>().unwrap(),
         )
@@ -65,7 +65,7 @@ fn t2_full_coalgebra_and_algebra_shape_shift() {
     // ending with Explainer. Assert the ExplainerResult comes
     // through with the full shape-shifted types.
     let result: ExplainerResult<BoxedU64, u64, i128> = basic_pipeline()
-        .contramap_node(
+        .map_node_bi(
             |n: &u64| BoxedU64(*n),
             |b: &BoxedU64| b.0,
         )
@@ -73,7 +73,7 @@ fn t2_full_coalgebra_and_algebra_shape_shift() {
         .lift()
         .wrap_init(|n: &BoxedU64, orig: &dyn Fn(&BoxedU64) -> u64| orig(n) + 10)
         .zipmap(|r: &u64| *r > 100)
-        .map(
+        .map_r_bi(
             |r: &(u64, bool)| (r.0 as i128) + (if r.1 { 1000 } else { 0 }),
             |r: &i128| {
                 let v = (*r % 1000) as u64;
@@ -81,7 +81,7 @@ fn t2_full_coalgebra_and_algebra_shape_shift() {
                 (v, flag)
             },
         )
-        .apply_pre_lift(Shared::explainer_lift::<BoxedU64, u64, i128>())
+        .then_lift(Shared::explainer_lift::<BoxedU64, u64, i128>())
         .run_from_slice(
             &dom::exec(funnel::Spec::default(4)),
             &[0u64],
@@ -90,7 +90,7 @@ fn t2_full_coalgebra_and_algebra_shape_shift() {
 
     // Trace:
     // filter_seeds keeps 1 (drops 2); 0 → {1}; 1 → {3}.
-    // contramap_node wraps to BoxedU64 but fold sees plain u64.
+    // map_node_bi wraps to BoxedU64 but fold sees plain u64.
     // wrap_init(+10): each node's init = val + 10.
     // Per-subtree sums of (val + 10):
     //   3 → 13

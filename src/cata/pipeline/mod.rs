@@ -2,12 +2,12 @@
 //!
 //! - `SeedPipeline<N, Seed, H, R>` (Stage 1, coalgebra) — holds the
 //!   three base slots. Sole primitive: `reshape`. Sugars:
-//!   `filter_seeds`, `wrap_grow`, `contramap_node`, `map_seed`.
+//!   `filter_seeds`, `wrap_grow`, `map_node_bi`, `map_seed_bi`.
 //!   Transition to Stage 2 via `.lift()`.
 //!
 //! - `LiftedPipeline<N, Seed, H, R, L = IdentityLift>` (Stage 2,
 //!   algebra) — holds a Stage-1 base plus a lift chain. Sole
-//!   primitive: `apply_pre_lift`. Sugars: `wrap_init`,
+//!   primitive: `then_lift`. Sugars: `wrap_init`,
 //!   `wrap_accumulate`, `wrap_finalize`, `zipmap`, `map`.
 //!
 //! Both typestates implement `PipelineSource` (sole primitive

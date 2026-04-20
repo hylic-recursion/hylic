@@ -3,11 +3,11 @@
 //! Parametric over its source: `LiftedPipeline<Base, L>` wraps any
 //! `Base: PipelineSource` (SeedPipeline, TreeishPipeline, or any
 //! future source) with a lift chain `L`. Sole Stage-2 primitive:
-//! `apply_pre_lift`.
+//! `then_lift`.
 
 use crate::ops::IdentityLift;
 
-pub mod apply_pre_lift;
+pub mod then_lift;
 pub mod transforms_shared;
 pub mod transforms_local;
 pub mod source_impl;

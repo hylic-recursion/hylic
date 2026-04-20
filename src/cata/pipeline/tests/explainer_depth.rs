@@ -27,7 +27,7 @@ fn basic() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
 fn explainer_early_vs_late_same_orig_result() {
     let r_early = basic()
         .lift()
-        .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
+        .then_lift(Shared::explainer_lift::<u64, u64, u64>())
         .zipmap(|r: &ExplainerResult<u64, u64, u64>| r.orig_result * 2)
         .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], ExplainerHeap::new(0u64, 0u64));
     // Base R = 0+1+2+3 = 6. Zipmap pairs (ExplainerResult{6, …}, 12).
@@ -38,7 +38,7 @@ fn explainer_early_vs_late_same_orig_result() {
     let r_late: ExplainerResult<u64, u64, (u64, u64)> = basic()
         .lift()
         .zipmap(|r: &u64| r * 2)
-        .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, u64)>())
+        .then_lift(Shared::explainer_lift::<u64, u64, (u64, u64)>())
         .run_from_slice(
             &dom::exec(funnel::Spec::default(4)),
             &[0u64],
@@ -66,8 +66,8 @@ fn nested_explainers_compose() {
 
     let r: OuterMapR = basic()
         .lift()
-        .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
-        .apply_pre_lift(Shared::explainer_lift::<u64, InnerMapH, InnerMapR>())
+        .then_lift(Shared::explainer_lift::<u64, u64, u64>())
+        .then_lift(Shared::explainer_lift::<u64, InnerMapH, InnerMapR>())
         .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], entry);
 
     // Unwrap the two trace layers and assert the innermost result.
@@ -80,7 +80,7 @@ fn nested_explainers_compose() {
 fn explainer_trace_structure_walks_tree() {
     let r: ExplainerResult<u64, u64, u64> = basic()
         .lift()
-        .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
+        .then_lift(Shared::explainer_lift::<u64, u64, u64>())
         .run_from_slice(
             &dom::exec(funnel::Spec::default(4)),
             &[0u64],

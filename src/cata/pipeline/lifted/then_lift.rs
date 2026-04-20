@@ -1,4 +1,4 @@
-//! apply_pre_lift — the sole Stage-2 primitive. Composes a new Lift
+//! then_lift — the sole Stage-2 primitive. Composes a new Lift
 //! onto the pre_lift chain via ComposedLift. Requires only
 //! `TreeishSource` on the base — Seed-agnostic composition.
 
@@ -15,7 +15,7 @@ where Base: TreeishSource,
               <Base as TreeishSource>::H,
               <Base as TreeishSource>::R>,
 {
-    pub fn apply_pre_lift<L2>(
+    pub fn then_lift<L2>(
         self,
         outer: L2,
     ) -> LiftedPipeline<Base, ComposedLift<L, L2>>

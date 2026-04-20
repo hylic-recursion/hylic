@@ -1,7 +1,7 @@
 //! Edgy and Treeish — Arc-based graph types.
 //!
 //! One primitive: `map_endpoints(rewrite_visit)`. Every sugar
-//! (`map`, `contramap`, `contramap_or`, `filter`) is a one-line
+//! (`map`, `contramap`, `contramap_or_emit`, `filter`) is a one-line
 //! wrapper that constructs the right visit-rewrite closure.
 
 use std::sync::Arc;
@@ -79,7 +79,7 @@ where NodeT: 'static, EdgeT: 'static,
     // ANCHOR_END: edgy_contramap
 
     // ANCHOR: edgy_contramap_or
-    pub fn contramap_or<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
+    pub fn contramap_or_emit<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> Either<NodeT, Vec<EdgeT>> + Send + Sync + 'static,
     {
         self.map_endpoints(move |inner| {

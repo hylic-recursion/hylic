@@ -9,24 +9,24 @@ use crate::ops::lift::capability::ShapeCapable;
 use crate::ops::lift::shape::universal::ShapeLift;
 
 impl Local {
-    pub fn identity_init_mapper<N, H>()
+    pub(crate) fn identity_init_mapper<N, H>()
         -> impl Fn(Rc<dyn Fn(&N) -> H>) -> Rc<dyn Fn(&N) -> H> + Clone + 'static
     where N: 'static, H: 'static,
     { |init| init }
 
-    pub fn identity_acc_mapper<H, R>()
+    pub(crate) fn identity_acc_mapper<H, R>()
         -> impl Fn(Rc<dyn Fn(&mut H, &R)>) -> Rc<dyn Fn(&mut H, &R)> + Clone + 'static
     where H: 'static, R: 'static,
     { |acc| acc }
 
-    pub fn identity_fin_mapper<H, R>()
+    pub(crate) fn identity_fin_mapper<H, R>()
         -> impl Fn(Rc<dyn Fn(&H) -> R>) -> Rc<dyn Fn(&H) -> R> + Clone + 'static
     where H: 'static, R: 'static,
     { |fin| fin }
 }
 
 impl Local {
-    pub fn map_fold_phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
+    pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
         mi: MI, ma: MA, mf: MF,
     ) -> ShapeLift<Local, N, H, R, N, NewH, NewR>
     where
@@ -61,7 +61,7 @@ impl Local {
 }
 
 impl Local {
-    pub fn map_treeish_lift<N, H, R, MT>(mt: MT) -> ShapeLift<Local, N, H, R, N, H, R>
+    pub fn treeish_lift<N, H, R, MT>(mt: MT) -> ShapeLift<Local, N, H, R, N, H, R>
     where
         N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
         MT: Fn(Edgy<N, N>) -> Edgy<N, N> + 'static,
@@ -80,7 +80,7 @@ impl Local {
 }
 
 impl Local {
-    pub fn inline_lift<N, H, R, N2, LN, BT, FC>(
+    pub fn n_lift<N, H, R, N2, LN, BT, FC>(
         lift_node:     LN,
         build_treeish: BT,
         fold_contra:   FC,
@@ -98,7 +98,7 @@ impl Local {
             let fc = Rc::new(fold_contra);
             Rc::new(move |f: Fold<N, H, R>| {
                 let fc = fc.clone();
-                f.contramap(move |n2: &N2| fc(n2))
+                f.contramap_n(move |n2: &N2| fc(n2))
             })
         };
         ShapeLift::new(grow_xform, treeish_xform, fold_xform)

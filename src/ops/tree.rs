@@ -19,7 +19,7 @@ pub trait TreeOps<N> {
 
 /// Graph transformations for domains whose storage permits cheap
 /// cloning (Arc, Rc). Sole primitive is `map_endpoints`; sugars
-/// (`map`, `contramap`, `contramap_or`, `filter`) are inherent
+/// (`map`, `contramap`, `contramap_or_emit`, `filter`) are inherent
 /// one-line wrappers per domain.
 ///
 /// By-reference: takes `&self`, returns a new graph over new

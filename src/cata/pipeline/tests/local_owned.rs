@@ -5,7 +5,7 @@
 //!   Local+Fused with non-Send captures in the fold.
 //! - `OwnedPipeline<N, H, R>` consumes on run; the fold is
 //!   pre-built and the pipeline is one-shot.
-//! - `ShapeLift<Local, …>` composes via apply_pre_lift (once
+//! - `ShapeLift<Local, …>` composes via then_lift (once
 //!   LiftedPipeline's sugars are wired for Local — until then
 //!   via the raw primitive).
 

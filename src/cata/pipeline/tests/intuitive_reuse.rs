@@ -137,15 +137,15 @@ fn two_user_lifts_in_series() {
     //     chain finalize: (1836 + 100) * 2 = 3872.
     let r = basic()
         .lift()
-        .apply_pre_lift(AddToR(100))
-        .apply_pre_lift(MulByTwo)
+        .then_lift(AddToR(100))
+        .then_lift(MulByTwo)
         .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 3872);
 }
 
 #[test]
 fn lift_that_changes_both_n_and_r() {
-    // Compose coalgebra N-change (Stage 1 contramap_node) with a
+    // Compose coalgebra N-change (Stage 1 map_node_bi) with a
     // Stage-2 R-transform (map), producing a pipeline whose N and
     // R are both different from the base.
 
@@ -153,15 +153,15 @@ fn lift_that_changes_both_n_and_r() {
     struct N2(u64);
 
     let r: String = basic()
-        .contramap_node(|n: &u64| N2(*n * 10), |w: &N2| w.0 / 10)
+        .map_node_bi(|n: &u64| N2(*n * 10), |w: &N2| w.0 / 10)
         .lift()
-        .map(
+        .map_r_bi(
             |r: &u64| format!("sum={r}"),
             |s: &String| s.strip_prefix("sum=").unwrap().parse::<u64>().unwrap(),
         )
         .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
 
-    // After contramap_node, N is N2 at the traversal level; the
+    // After map_node_bi, N is N2 at the traversal level; the
     // fold still operates on the N=u64 value (via contramap back).
     // Fold sums: 0 + 1 + 2 + 3 = 6.
     // Then map: "sum=6".

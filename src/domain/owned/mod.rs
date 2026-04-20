@@ -119,7 +119,7 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
         )
     }
 
-    pub fn map<RNew: 'static>(self, mapper: impl Fn(&R) -> RNew + 'static, backmapper: impl Fn(&RNew) -> R + 'static) -> Fold<N, H, RNew> {
+    pub fn map_r_bi<RNew: 'static>(self, mapper: impl Fn(&R) -> RNew + 'static, backmapper: impl Fn(&RNew) -> R + 'static) -> Fold<N, H, RNew> {
         <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, RNew, _, _, _>(
             self,
             |init| init,
@@ -131,10 +131,10 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
     pub fn zipmap<RZip: 'static>(self, mapper: impl Fn(&R) -> RZip + 'static) -> Fold<N, H, (R, RZip)>
     where R: Clone,
     {
-        self.map(move |x| (x.clone(), mapper(x)), |x: &(R, RZip)| x.0.clone())
+        self.map_r_bi(move |x| (x.clone(), mapper(x)), |x: &(R, RZip)| x.0.clone())
     }
 
-    pub fn contramap<NewN: 'static>(self, f: impl Fn(&NewN) -> N + 'static) -> Fold<NewN, H, R> {
+    pub fn contramap_n<NewN: 'static>(self, f: impl Fn(&NewN) -> N + 'static) -> Fold<NewN, H, R> {
         <Self as FoldTransformsByValue<N, H, R>>::map_phases::<NewN, H, R, _, _, _>(
             self,
             |init| Box::new(move |new_n: &NewN| init(&f(new_n))),

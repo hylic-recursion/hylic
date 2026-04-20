@@ -9,7 +9,7 @@ mod fold_map_phases;
 mod edgy_map_endpoints;
 mod treeish_pipeline;
 mod non_send_r;
-mod inline_lift;
+mod n_lift;
 mod nameability;
 mod shape_shifting;
 mod explainer_depth;

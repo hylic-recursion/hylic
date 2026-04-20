@@ -58,7 +58,7 @@ impl<N, Seed, H> SeedLift<N, Seed, H>
 where N: 'static, Seed: 'static, H: 'static,
 {
     /// Public constructor for user-explicit composition
-    /// (`apply_pre_lift(SeedLift::new(...))`).
+    /// (`then_lift(SeedLift::new(...))`).
     pub fn new<F, HFn>(
         grow:          F,
         entry_seeds:   Edgy<(), Seed>,

@@ -1,5 +1,5 @@
 //! Treeish-side Local sugars — one-line wrappers over
-//! `Local::map_treeish_lift`.
+//! `Local::treeish_lift`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ impl Local {
         P: Fn(&N) -> bool + 'static,
     {
         let pred = Rc::new(pred);
-        Local::map_treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
+        Local::treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
             let p = pred.clone();
             g.filter(move |c: &N| p(c))
         })
@@ -29,7 +29,7 @@ impl Local {
         W: Fn(&N, &mut dyn FnMut(&N), &dyn Fn(&N, &mut dyn FnMut(&N))) + 'static,
     {
         let w = Rc::new(wrapper);
-        Local::map_treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
+        Local::treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
             let w = w.clone();
             let g = g.clone();
             edgy_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {
@@ -48,7 +48,7 @@ impl Local {
         KeyFn: Fn(&N) -> K + 'static,
     {
         let key_fn = Rc::new(key_fn);
-        Local::map_treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
+        Local::treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
             let key_fn = key_fn.clone();
             let cache: Rc<RefCell<HashMap<K, Vec<N>>>> = Rc::new(RefCell::new(HashMap::new()));
             edgy_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {

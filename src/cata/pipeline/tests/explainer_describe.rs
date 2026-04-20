@@ -34,7 +34,7 @@ fn explainer_describe_streams_per_node_and_preserves_r() {
 
     let r: u64 = basic_pipeline()
         .lift()
-        .apply_pre_lift(Shared::explainer_describe_lift::<u64, u64, u64, _, _>(
+        .then_lift(Shared::explainer_describe_lift::<u64, u64, u64, _, _>(
             trace_fold_compact::<u64, u64, u64>,
             move |s: &str| {
                 captured_for_emit.lock().unwrap().push(s.to_string());

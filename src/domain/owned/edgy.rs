@@ -54,7 +54,7 @@ where NodeT: 'static, EdgeT: 'static,
         )
     }
 
-    pub fn contramap_or<F, NewNodeT: 'static>(self, transform: F) -> Edgy<NewNodeT, EdgeT>
+    pub fn contramap_or_emit<F, NewNodeT: 'static>(self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> Either<NodeT, Vec<EdgeT>> + 'static,
     {
         <Self as GraphTransformsByValue<NodeT, EdgeT>>::map_endpoints::<NewNodeT, EdgeT, _>(

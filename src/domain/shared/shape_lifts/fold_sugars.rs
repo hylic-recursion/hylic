@@ -1,5 +1,5 @@
 //! Fold-side Shared sugars — one-line wrappers over
-//! `Shared::map_fold_phases_lift`.
+//! `Shared::phases_lift`.
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ impl Shared {
             let w = w.clone();
             Arc::new(move |n: &N| w(n, &*old))
         };
-        Shared::map_fold_phases_lift::<N, H, R, H, R, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, R, _, _, _>(
             mi,
             Shared::identity_acc_mapper::<H, R>(),
             Shared::identity_fin_mapper::<H, R>(),
@@ -38,7 +38,7 @@ impl Shared {
             let w = w.clone();
             Arc::new(move |h: &mut H, r: &R| w(h, r, &*old))
         };
-        Shared::map_fold_phases_lift::<N, H, R, H, R, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, R, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             ma,
             Shared::identity_fin_mapper::<H, R>(),
@@ -56,7 +56,7 @@ impl Shared {
             let w = w.clone();
             Arc::new(move |h: &H| w(h, &*old))
         };
-        Shared::map_fold_phases_lift::<N, H, R, H, R, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, R, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             Shared::identity_acc_mapper::<H, R>(),
             mf,
@@ -98,14 +98,14 @@ impl Shared {
                 })
             })
         };
-        Shared::map_fold_phases_lift::<N, H, R, H, (R, Extra), _, _, _>(
+        Shared::phases_lift::<N, H, R, H, (R, Extra), _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
         )
     }
 
-    pub fn map_r_lift<N, H, R, RNew, Fwd, Bwd>(forward: Fwd, backward: Bwd)
+    pub fn map_r_bi_lift<N, H, R, RNew, Fwd, Bwd>(forward: Fwd, backward: Bwd)
         -> ShapeLift<Shared, N, H, R, N, H, RNew>
     where
         N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -133,7 +133,7 @@ impl Shared {
                 Arc::new(move |h: &H| fwd(&old(h)))
             })
         };
-        Shared::map_fold_phases_lift::<N, H, R, H, RNew, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, RNew, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),

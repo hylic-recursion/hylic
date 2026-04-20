@@ -38,7 +38,7 @@ where N: Clone + 'static, Seed: Clone + 'static,
         )
     }
 
-    pub fn contramap_node_local<N2, Co, Contra>(
+    pub fn map_node_bi_local<N2, Co, Contra>(
         self, co: Co, contra: Contra,
     ) -> SeedPipeline<Local, N2, Seed, H, R>
     where N2: Clone + 'static,
@@ -62,12 +62,12 @@ where N: Clone + 'static, Seed: Clone + 'static,
             },
             move |fold: Fold<N, H, R>| -> Fold<N2, H, R> {
                 let contra = contra_for_fold;
-                fold.contramap(move |n2: &N2| contra(n2))
+                fold.contramap_n(move |n2: &N2| contra(n2))
             },
         )
     }
 
-    pub fn map_seed_local<Seed2, ToNew, FromNew>(
+    pub fn map_seed_bi_local<Seed2, ToNew, FromNew>(
         self, to_new: ToNew, from_new: FromNew,
     ) -> SeedPipeline<Local, N, Seed2, H, R>
     where Seed2: Clone + 'static,

@@ -1,7 +1,7 @@
 //! Phase 5/8: Local shape-lift coverage.
 //!
 //! Local pipelines don't have the library sugars yet (transforms.rs
-//! is Shared-only), so composition uses `apply_pre_lift` with a
+//! is Shared-only), so composition uses `then_lift` with a
 //! `Shared`-→-`Local`-mirrored constructor directly. The polymorphic
 //! `Lift<D, …>` impl on ShapeLift is the same; only the constructor
 //! differs.
@@ -41,7 +41,7 @@ fn local_pipeline_with_wrap_init_lift_non_send_capture() {
 
     let r = pipe
         .lift()
-        .apply_pre_lift(wrap_lift)
+        .then_lift(wrap_lift)
         .run_from_node(&local::FUSED, &0u64);
 
     // init at each node = n + 100. Sum tree rooted at 0:

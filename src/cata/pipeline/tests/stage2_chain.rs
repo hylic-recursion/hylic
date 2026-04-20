@@ -1,4 +1,4 @@
-//! Stage-2 apply_pre_lift + the five algebra sugars.
+//! Stage-2 then_lift + the five algebra sugars.
 
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
@@ -42,7 +42,7 @@ fn zipmap_pairs_result() {
 fn map_bijectively_transforms_r() {
     let r: String = basic_pipeline()
         .lift()
-        .map(
+        .map_r_bi(
             |r: &u64| format!("sum={r}"),
             |s: &String| s.strip_prefix("sum=").unwrap().parse::<u64>().unwrap(),
         )
@@ -63,7 +63,7 @@ fn fluent_chain_stacks_lifts() {
 }
 
 #[test]
-fn apply_pre_lift_accepts_user_lift() {
+fn then_lift_accepts_user_lift() {
     // Prove users can write their own Lift impl and plug it in.
     use crate::domain::Domain;
     use crate::ops::Lift;
@@ -96,8 +96,8 @@ fn apply_pre_lift_accepts_user_lift() {
 
     let r = basic_pipeline()
         .lift()
-        .apply_pre_lift(NoOp)
-        .apply_pre_lift(NoOp)
+        .then_lift(NoOp)
+        .then_lift(NoOp)
         .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 6);
 }

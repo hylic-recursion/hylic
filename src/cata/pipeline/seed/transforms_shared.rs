@@ -3,8 +3,8 @@
 //!
 //! - filter_seeds(p)            — narrows the seed set (N/Seed/H/R preserved)
 //! - wrap_grow(w)                — wraps grow closure (N/Seed/H/R preserved)
-//! - contramap_node(co, contra)  — changes N to N2 via bijection
-//! - map_seed(to, from)          — changes Seed to Seed2 via bijection
+//! - map_node_bi(co, contra)  — changes N to N2 via bijection
+//! - map_seed_bi(to, from)          — changes Seed to Seed2 via bijection
 
 use std::sync::Arc;
 use crate::domain::Shared;
@@ -44,7 +44,7 @@ where N: Clone + 'static, Seed: Clone + 'static,
         )
     }
 
-    pub fn contramap_node<N2, Co, Contra>(
+    pub fn map_node_bi<N2, Co, Contra>(
         self,
         co: Co,
         contra: Contra,
@@ -71,12 +71,12 @@ where N: Clone + 'static, Seed: Clone + 'static,
             },
             move |fold: Fold<N, H, R>| -> Fold<N2, H, R> {
                 let contra = contra_for_fold;
-                fold.contramap(move |n2: &N2| contra(n2))
+                fold.contramap_n(move |n2: &N2| contra(n2))
             },
         )
     }
 
-    pub fn map_seed<Seed2, ToNew, FromNew>(
+    pub fn map_seed_bi<Seed2, ToNew, FromNew>(
         self,
         to_new: ToNew,
         from_new: FromNew,

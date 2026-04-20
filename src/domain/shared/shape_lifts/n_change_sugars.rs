@@ -1,11 +1,11 @@
-//! N-change Shared sugars — one-line wrappers over `Shared::inline_lift`.
+//! N-change Shared sugars — one-line wrappers over `Shared::n_lift`.
 
 use crate::domain::Shared;
 use crate::graph::{edgy_visit, Edgy};
 use crate::ops::lift::shape::universal::ShapeLift;
 
 impl Shared {
-    pub fn contramap_n_lift<N, H, R, N2, Co, Contra>(co: Co, contra: Contra)
+    pub fn map_n_bi_lift<N, H, R, N2, Co, Contra>(co: Co, contra: Contra)
         -> ShapeLift<Shared, N, H, R, N2, H, R>
     where
         N:  Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -17,7 +17,7 @@ impl Shared {
         let co_for_tree   = co.clone();
         let contra_for_tr = contra.clone();
         let contra_for_fd = contra;
-        Shared::inline_lift::<N, H, R, N2, _, _, _>(
+        Shared::n_lift::<N, H, R, N2, _, _, _>(
             co_for_grow,
             move |base: &Edgy<N, N>| -> Edgy<N2, N2> {
                 let base = base.clone();

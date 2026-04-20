@@ -1,7 +1,7 @@
 //! Cookbook: N-change lifts.
 //!
-//! `inline_lift` for context-dependent N-change (depth annotation);
-//! `contramap_n_lift` (as `contramap_node` method) for bijective
+//! `n_lift` for context-dependent N-change (depth annotation);
+//! `map_n_bi_lift` (as `map_node_bi` method) for bijective
 //! N-wrap.
 
 use std::sync::Arc;
@@ -36,7 +36,7 @@ fn contramap_node_arc_wraps_non_clone_payload() {
 
     let r: u64 = TreeishPipeline::new(base_treeish, &base_fold)
         .lift()
-        .contramap_node(
+        .map_node_bi(
             |n: &Node| Arc::new(n.clone()),
             |a: &Arc<Node>| (**a).clone(),
         )
@@ -67,7 +67,7 @@ fn inline_lift_depth_annotates() {
     );
     let base_treeish: Treeish<Node> = treeish(|n: &Node| n.children.clone());
 
-    let lift = Shared::inline_lift::<Node, u64, u64, WithDepth, _, _, _>(
+    let lift = Shared::n_lift::<Node, u64, u64, WithDepth, _, _, _>(
         |n: &Node| WithDepth { node: n.clone(), depth: 0 },
         |base: &Treeish<Node>| -> Treeish<WithDepth> {
             let base = base.clone();
@@ -82,8 +82,8 @@ fn inline_lift_depth_annotates() {
     );
 
     // Build TreeishPipeline over the ANNOTATED WithDepth treeish so
-    // the fold's N matches. The inline_lift here is Stage-2, but here
-    // we illustrate a simpler approach: pre-annotate via inline_lift
+    // the fold's N matches. The n_lift here is Stage-2, but here
+    // we illustrate a simpler approach: pre-annotate via n_lift
     // against a base treeish-over-Node pipeline. Fold sees WithDepth.
     let base_pipeline = TreeishPipeline::<Shared, Node, u64, u64>::new(
         base_treeish,
@@ -93,15 +93,15 @@ fn inline_lift_depth_annotates() {
             |h: &u64| *h,
         ),
     );
-    // Override fold via contramap_node-like trick: we use inline_lift
+    // Override fold via map_node_bi-like trick: we use n_lift
     // which changes N to WithDepth; the downstream fold must accept
     // WithDepth. Applying the provided depth-weighted fold requires
-    // matching; we use map_treeish-free approach: compose inline_lift
+    // matching; we use map_treeish-free approach: compose n_lift
     // with a full re-fold via wrap_finalize returning weighted sum.
-    let _ = depth_weighted_fold; // depth-weighted variant shown in inline_lift.rs
+    let _ = depth_weighted_fold; // depth-weighted variant shown in n_lift.rs
     let r: u64 = base_pipeline
         .lift()
-        .apply_pre_lift(lift)
+        .then_lift(lift)
         // After lift, N2 = WithDepth, fold is contramapped to take
         // WithDepth (returning n.val). We post-process via wrap_init
         // to emit val * depth instead.

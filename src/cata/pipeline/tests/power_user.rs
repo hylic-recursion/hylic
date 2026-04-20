@@ -25,7 +25,7 @@ fn full_chain_with_explainer_fused() {
         .lift()                                                             // ─ transition
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)      // Stage 2
         .zipmap(|r: &u64| *r > 5)
-        .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, bool)>())
+        .then_lift(Shared::explainer_lift::<u64, u64, (u64, bool)>())
         .run_from_slice(
             &dom::FUSED,
             &[0u64],
@@ -48,7 +48,7 @@ fn full_chain_with_explainer_funnel() {
         .lift()
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)
         .zipmap(|r: &u64| *r > 5)
-        .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, bool)>())
+        .then_lift(Shared::explainer_lift::<u64, u64, (u64, bool)>())
         .run_from_slice(
             &dom::exec(funnel::Spec::default(4)),
             &[0u64],
@@ -66,7 +66,7 @@ fn stage1_and_stage2_compose_meaningfully() {
         .wrap_grow(|s: &u64, o: &dyn Fn(&u64) -> u64| o(s) * 2)   // Stage 1: double on grow
         .lift()
         .wrap_init(|n: &u64, o: &dyn Fn(&u64) -> u64| o(n) + 100) // Stage 2: +100 at init
-        .map(
+        .map_r_bi(
             |r: &u64| *r as i64,                // Stage 2: R bijection to i64
             |r: &i64| *r as u64,
         )

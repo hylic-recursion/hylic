@@ -131,7 +131,7 @@ where N: 'static, H: 'static, R: 'static,
 
     // ── Type-changing combinators — one-liners over map_phases ──
 
-    pub fn map<RNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> Fold<N, H, RNew>
+    pub fn map_r_bi<RNew, MapF, BackF>(&self, mapper: MapF, backmapper: BackF) -> Fold<N, H, RNew>
     where
         RNew: 'static,
         MapF:  Fn(&R) -> RNew + Send + Sync + 'static,
@@ -151,10 +151,10 @@ where N: 'static, H: 'static, R: 'static,
         RZip: 'static,
         MapF: Fn(&R) -> RZip + Send + Sync + 'static,
     {
-        self.map(move |x| (x.clone(), mapper(x)), |x: &(R, RZip)| x.0.clone())
+        self.map_r_bi(move |x| (x.clone(), mapper(x)), |x: &(R, RZip)| x.0.clone())
     }
 
-    pub fn contramap<NewN: 'static>(&self, f: impl Fn(&NewN) -> N + Send + Sync + 'static) -> Fold<NewN, H, R> {
+    pub fn contramap_n<NewN: 'static>(&self, f: impl Fn(&NewN) -> N + Send + Sync + 'static) -> Fold<NewN, H, R> {
         let f = Arc::new(f);
         <Self as FoldTransformsByRef<N, H, R>>::map_phases::<NewN, H, R, _, _, _>(
             self,

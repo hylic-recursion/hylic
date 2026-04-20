@@ -1,5 +1,5 @@
 //! Treeish-side Shared sugars — one-line wrappers over
-//! `Shared::map_treeish_lift`. N, H, R preserved.
+//! `Shared::treeish_lift`. N, H, R preserved.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -18,7 +18,7 @@ impl Shared {
         P: Fn(&N) -> bool + Send + Sync + 'static,
     {
         let pred = Arc::new(pred);
-        Shared::map_treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
+        Shared::treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
             let p = pred.clone();
             g.filter(move |c: &N| p(c))
         })
@@ -35,7 +35,7 @@ impl Shared {
             + Send + Sync + 'static,
     {
         let w = Arc::new(wrapper);
-        Shared::map_treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
+        Shared::treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
             let w = w.clone();
             let g = g.clone();
             edgy_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {
@@ -57,7 +57,7 @@ impl Shared {
         KeyFn: Fn(&N) -> K + Send + Sync + 'static,
     {
         let key_fn = Arc::new(key_fn);
-        Shared::map_treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
+        Shared::treeish_lift::<N, H, R, _>(move |g: Edgy<N, N>| {
             let key_fn = key_fn.clone();
             let cache: Arc<Mutex<HashMap<K, Vec<N>>>> = Arc::new(Mutex::new(HashMap::new()));
             edgy_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {

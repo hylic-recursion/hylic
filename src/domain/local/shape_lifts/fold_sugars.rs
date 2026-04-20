@@ -1,5 +1,5 @@
 //! Fold-side Local sugars — one-line wrappers over
-//! `Local::map_fold_phases_lift`.
+//! `Local::phases_lift`.
 
 use std::rc::Rc;
 
@@ -17,7 +17,7 @@ impl Local {
             let w = w.clone();
             Rc::new(move |n: &N| w(n, &*old))
         };
-        Local::map_fold_phases_lift::<N, H, R, H, R, _, _, _>(
+        Local::phases_lift::<N, H, R, H, R, _, _, _>(
             mi,
             Local::identity_acc_mapper::<H, R>(),
             Local::identity_fin_mapper::<H, R>(),
@@ -34,7 +34,7 @@ impl Local {
             let w = w.clone();
             Rc::new(move |h: &mut H, r: &R| w(h, r, &*old))
         };
-        Local::map_fold_phases_lift::<N, H, R, H, R, _, _, _>(
+        Local::phases_lift::<N, H, R, H, R, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             ma,
             Local::identity_fin_mapper::<H, R>(),
@@ -51,7 +51,7 @@ impl Local {
             let w = w.clone();
             Rc::new(move |h: &H| w(h, &*old))
         };
-        Local::map_fold_phases_lift::<N, H, R, H, R, _, _, _>(
+        Local::phases_lift::<N, H, R, H, R, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             Local::identity_acc_mapper::<H, R>(),
             mf,
@@ -84,14 +84,14 @@ impl Local {
                 })
             })
         };
-        Local::map_fold_phases_lift::<N, H, R, H, (R, Extra), _, _, _>(
+        Local::phases_lift::<N, H, R, H, (R, Extra), _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
         )
     }
 
-    pub fn map_r_lift<N, H, R, RNew, Fwd, Bwd>(forward: Fwd, backward: Bwd)
+    pub fn map_r_bi_lift<N, H, R, RNew, Fwd, Bwd>(forward: Fwd, backward: Bwd)
         -> ShapeLift<Local, N, H, R, N, H, RNew>
     where
         N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -119,7 +119,7 @@ impl Local {
                 Rc::new(move |h: &H| fwd(&old(h)))
             })
         };
-        Local::map_fold_phases_lift::<N, H, R, H, RNew, _, _, _>(
+        Local::phases_lift::<N, H, R, H, RNew, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
