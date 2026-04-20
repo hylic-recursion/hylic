@@ -1,12 +1,12 @@
-//! Edgy and Treeish — Arc-based graph types with full combinators.
+//! Edgy and Treeish — Arc-based graph types.
 //!
-//! Domain-independent: used by all executors via TreeOps. Arc storage
-//! enables Clone for graph composition (Graph, SeedGraph).
+//! One primitive: `map_endpoints(rewrite_visit)`. Every sugar
+//! (`map`, `contramap`, `contramap_or`, `filter`) is a one-line
+//! wrapper that constructs the right visit-rewrite closure.
 
 use std::sync::Arc;
 use either::Either;
 use crate::ops::TreeOps;
-use crate::graph::combinators;
 use crate::graph::visit::Visit;
 
 // ANCHOR: edgy_struct
@@ -35,14 +35,34 @@ where NodeT: 'static, EdgeT: 'static,
         self.at(input).collect_vec()
     }
 
+    // ── map_endpoints — sole slot-level primitive ──
+
+    /// Rewrite the stored visit callback: the sole primitive for
+    /// producing a new `Edgy<N2, E2>` from this one. Every sugar
+    /// below is a one-line wrapper over `map_endpoints`.
+    pub fn map_endpoints<N2, E2, MV>(
+        &self,
+        rewrite_visit: MV,
+    ) -> Edgy<N2, E2>
+    where
+        N2: 'static, E2: 'static,
+        MV: FnOnce(Arc<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>)
+                   -> Arc<dyn Fn(&N2, &mut dyn FnMut(&E2)) + Send + Sync>,
+    {
+        Edgy { impl_visit: rewrite_visit(self.impl_visit.clone()) }
+    }
+
+    // ── Sugars — one-liners over map_endpoints ──
+
     // ANCHOR: edgy_map
     pub fn map<F, NewEdgeT: 'static>(&self, transform: F) -> Edgy<NodeT, NewEdgeT>
     where F: Fn(&EdgeT) -> NewEdgeT + Send + Sync + 'static,
     {
-        let inner = self.impl_visit.clone();
-        edgy_visit(combinators::map_edges(
-            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
-        ))
+        self.map_endpoints(move |inner| {
+            Arc::new(move |n: &NodeT, cb: &mut dyn FnMut(&NewEdgeT)| {
+                inner(n, &mut |e: &EdgeT| cb(&transform(e)))
+            })
+        })
     }
     // ANCHOR_END: edgy_map
 
@@ -50,10 +70,11 @@ where NodeT: 'static, EdgeT: 'static,
     pub fn contramap<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> NodeT + Send + Sync + 'static,
     {
-        let inner = self.impl_visit.clone();
-        edgy_visit(combinators::contramap_node(
-            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
-        ))
+        self.map_endpoints(move |inner| {
+            Arc::new(move |n: &NewNodeT, cb: &mut dyn FnMut(&EdgeT)| {
+                inner(&transform(n), cb)
+            })
+        })
     }
     // ANCHOR_END: edgy_contramap
 
@@ -61,18 +82,23 @@ where NodeT: 'static, EdgeT: 'static,
     pub fn contramap_or<F, NewNodeT: 'static>(&self, transform: F) -> Edgy<NewNodeT, EdgeT>
     where F: Fn(&NewNodeT) -> Either<NodeT, Vec<EdgeT>> + Send + Sync + 'static,
     {
-        let inner = self.impl_visit.clone();
-        edgy_visit(combinators::contramap_or_node(
-            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), transform,
-        ))
+        self.map_endpoints(move |inner| {
+            Arc::new(move |n: &NewNodeT, cb: &mut dyn FnMut(&EdgeT)| {
+                match transform(n) {
+                    Either::Left(node) => inner(&node, cb),
+                    Either::Right(edges) => { for e in &edges { cb(e); } }
+                }
+            })
+        })
     }
     // ANCHOR_END: edgy_contramap_or
 
     pub fn filter(&self, pred: impl Fn(&EdgeT) -> bool + Send + Sync + 'static) -> Self {
-        let inner = self.impl_visit.clone();
-        edgy_visit(combinators::filter_edges(
-            move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| inner(n, cb), pred,
-        ))
+        self.map_endpoints(move |inner| {
+            Arc::new(move |n: &NodeT, cb: &mut dyn FnMut(&EdgeT)| {
+                inner(n, &mut |e: &EdgeT| if pred(e) { cb(e); })
+            })
+        })
     }
 }
 

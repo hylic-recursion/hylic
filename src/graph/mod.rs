@@ -8,7 +8,6 @@
 //! The fold's domain is a separate choice.
 
 pub mod edgy;
-pub(crate) mod combinators;
 pub mod visit;
 
 pub use edgy::{
