@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use either::Either;
-use crate::ops::TreeOps;
+use crate::ops::{TreeOps, GraphTransformsByRef};
 use crate::graph::visit::Visit;
 
 // ANCHOR: edgy_struct
@@ -99,6 +99,24 @@ where NodeT: 'static, EdgeT: 'static,
                 inner(n, &mut |e: &EdgeT| if pred(e) { cb(e); })
             })
         })
+    }
+}
+
+impl<NodeT, EdgeT> GraphTransformsByRef<NodeT, EdgeT> for Edgy<NodeT, EdgeT>
+where NodeT: 'static, EdgeT: 'static,
+{
+    type Visit = Arc<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>;
+    type Out<N2, E2> = Edgy<N2, E2> where N2: 'static, E2: 'static;
+    type OutVisit<N2, E2> =
+        Arc<dyn Fn(&N2, &mut dyn FnMut(&E2)) + Send + Sync>
+        where N2: 'static, E2: 'static;
+
+    fn map_endpoints<N2, E2, MV>(&self, rewrite_visit: MV) -> Edgy<N2, E2>
+    where
+        N2: 'static, E2: 'static,
+        MV: FnOnce(Self::Visit) -> Self::OutVisit<N2, E2>,
+    {
+        Edgy { impl_visit: rewrite_visit(self.impl_visit.clone()) }
     }
 }
 

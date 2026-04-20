@@ -7,6 +7,8 @@
 //! differs (Rc vs Arc + Send+Sync). Sugars (wrap_init, map, zipmap,
 //! contramap) are one-line inherent wrappers over `map_phases`.
 
+pub mod edgy;
+
 use std::rc::Rc;
 use crate::ops::{FoldOps, FoldTransformsByRef};
 use crate::cata::exec::{Exec, fused};

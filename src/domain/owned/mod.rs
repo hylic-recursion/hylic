@@ -4,6 +4,8 @@
 //! Implements `FoldTransformsByValue` (consume-self); every sugar
 //! is a one-line inherent wrapper over `map_phases`.
 
+pub mod edgy;
+
 use crate::ops::{FoldOps, FoldTransformsByValue};
 use crate::cata::exec::{Exec, fused};
 
