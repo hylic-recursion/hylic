@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::Domain;
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::edgy_visit;
 use crate::ops::Lift;
 
@@ -30,16 +31,16 @@ fn reuse_pipeline_across_runs() {
     // Same pipeline, two entry-seed sets, both succeed independently.
     let pipe = basic();
 
-    let r1 = pipe.run_from_slice(&dom::FUSED, &[0u64], 0u64);
+    let r1 = pipe.run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // 0 + 1 + 2 + 3 = 6.
     assert_eq!(r1, 6);
 
-    let r2 = pipe.run_from_slice(&dom::FUSED, &[4u64], 0u64);
+    let r2 = pipe.run_from_slice(&dom::exec(funnel::Spec::default(4)), &[4u64], 0u64);
     // 4 + 1 + 3 = 8. (ch[4] = [1]; ch[1] = [3]; ch[3] = [].)
     assert_eq!(r2, 8);
 
     // Original pipe is still usable — PipelineSource takes &self.
-    let r3 = pipe.run_from_slice(&dom::FUSED, &[0u64, 4u64], 0u64);
+    let r3 = pipe.run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64, 4u64], 0u64);
     // 6 + 8 = 14.
     assert_eq!(r3, 14);
 }
@@ -138,7 +139,7 @@ fn two_user_lifts_in_series() {
         .lift()
         .apply_pre_lift(AddToR(100))
         .apply_pre_lift(MulByTwo)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 3872);
 }
 
@@ -158,7 +159,7 @@ fn lift_that_changes_both_n_and_r() {
             |r: &u64| format!("sum={r}"),
             |s: &String| s.strip_prefix("sum=").unwrap().parse::<u64>().unwrap(),
         )
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
 
     // After contramap_node, N is N2 at the traversal level; the
     // fold still operates on the N=u64 value (via contramap back).

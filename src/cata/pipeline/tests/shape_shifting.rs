@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::edgy_visit;
 use crate::domain::Shared;
 use crate::prelude::{ExplainerHeap, ExplainerResult};
@@ -49,7 +50,7 @@ fn t1_stage1_heavy_reshape() {
             let b = orig(s);
             BoxedU64(b.0 + 1000)
         })
-        .run_from_slice(&dom::FUSED, &["seed-0".to_string()], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &["seed-0".to_string()], 0u64);
 
     // Tree after filter+wrap_grow:
     // entry seed "seed-0" → grow'd through +1000 → BoxedU64(1000).
@@ -82,7 +83,7 @@ fn t2_full_coalgebra_and_algebra_shape_shift() {
         )
         .apply_pre_lift(Shared::explainer_lift::<BoxedU64, u64, i128>())
         .run_from_slice(
-            &dom::FUSED,
+            &dom::exec(funnel::Spec::default(4)),
             &[0u64],
             ExplainerHeap::new(BoxedU64(0), 0u64),
         );

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, LiftedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::edgy_visit;
 use crate::ops::IdentityLift;
 
@@ -20,15 +21,15 @@ fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
 #[test]
 fn lift_produces_identity_lifted_pipeline() {
     let p: LiftedPipeline<SeedPipeline<crate::domain::Shared, u64, u64, u64, u64>, IdentityLift> = basic_pipeline().lift();
-    let r = p.run_from_slice(&dom::FUSED, &[0u64], 0u64);
+    let r = p.run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 6);
 }
 
 #[test]
 fn lift_preserves_semantics_of_base_run() {
     // A SeedPipeline and its .lift() run should produce the same R.
-    let direct = basic_pipeline().run_from_slice(&dom::FUSED, &[0u64], 0u64);
-    let lifted = basic_pipeline().lift().run_from_slice(&dom::FUSED, &[0u64], 0u64);
+    let direct = basic_pipeline().run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
+    let lifted = basic_pipeline().lift().run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(direct, lifted);
 }
 
@@ -43,7 +44,7 @@ fn coalgebra_must_precede_algebra() {
         .filter_seeds(|s: &u64| *s != 2)  // Stage 1
         .lift()                           // transition
         .zipmap(|r: &u64| *r > 0)         // Stage 2
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // After filter: 0→{1}; 1→{3}. Sum = 0 + 1 + 3 = 4. zipmap → (4, true).
     assert_eq!(r, (4u64, true));
 }
@@ -54,10 +55,10 @@ fn clone_and_branch_before_lifting() {
     // different lift chains.
     let base = basic_pipeline();
 
-    let unlifted = base.clone().run_from_slice(&dom::FUSED, &[0u64], 0u64);
-    let zipped = base.clone().lift().zipmap(|r: &u64| *r).run_from_slice(&dom::FUSED, &[0u64], 0u64);
+    let unlifted = base.clone().run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
+    let zipped = base.clone().lift().zipmap(|r: &u64| *r).run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     let wrapped = base.lift().wrap_init(|n: &u64, o: &dyn Fn(&u64) -> u64| o(n) + 1)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
 
     assert_eq!(unlifted, 6);
     assert_eq!(zipped, (6, 6));

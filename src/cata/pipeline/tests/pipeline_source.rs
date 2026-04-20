@@ -6,6 +6,7 @@ use crate::cata::pipeline::{
     SeedPipeline, TreeishSource, SeedSource, PipelineExec, PipelineExecSeed,
 };
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::edgy_visit;
 
 fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
@@ -61,15 +62,15 @@ fn run_from_node_skips_entry() {
     // PipelineExec (blanket on TreeishSource) bypasses SeedLift.
     let r = basic_pipeline()
         .lift()
-        .run_from_node(&dom::FUSED, &0u64);
+        .run_from_node(&dom::exec(funnel::Spec::default(4)), &0u64);
     assert_eq!(r, 6);
 }
 
 #[test]
 fn run_from_slice_covers_both_stages() {
     // PipelineExecSeed (blanket on SeedSource) handles Entry dispatch.
-    let stage1_result = basic_pipeline().run_from_slice(&dom::FUSED, &[0u64], 0u64);
-    let stage2_result = basic_pipeline().lift().run_from_slice(&dom::FUSED, &[0u64], 0u64);
+    let stage1_result = basic_pipeline().run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
+    let stage2_result = basic_pipeline().lift().run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(stage1_result, stage2_result);
     assert_eq!(stage1_result, 6);
 }

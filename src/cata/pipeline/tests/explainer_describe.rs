@@ -6,6 +6,7 @@
 use std::sync::{Arc, Mutex};
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::domain::Shared;
 use crate::graph::edgy_visit;
 use crate::prelude::{trace_fold_compact, ExplainerHeap};
@@ -39,7 +40,7 @@ fn explainer_describe_streams_per_node_and_preserves_r() {
                 captured_for_emit.lock().unwrap().push(s.to_string());
             },
         ))
-        .run_from_slice(&dom::FUSED, &[0u64], ExplainerHeap::new(0u64, 0u64));
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], ExplainerHeap::new(0u64, 0u64));
 
     // R unchanged: 0 + 1 + 2 + 3 = 6.
     assert_eq!(r, 6);

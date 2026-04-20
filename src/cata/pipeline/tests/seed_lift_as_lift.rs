@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExec, PipelineExecSeed, LiftedNode};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::domain::Shared;
 use crate::graph::{edgy_visit, Edgy};
 use crate::ops::SeedLift;
@@ -24,7 +25,7 @@ fn basic_pipeline() -> SeedPipeline<Shared, u64, u64, u64, u64> {
 fn explicit_seedlift_composition_matches_run() {
     // Implicit path: the convenience `.run_from_slice`.
     let implicit = basic_pipeline()
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(implicit, 6);
 
     // Explicit path: compose SeedLift into the chain ourselves and
@@ -38,7 +39,7 @@ fn explicit_seedlift_composition_matches_run() {
     let explicit: u64 = basic_pipeline()
         .lift()
         .apply_pre_lift(sl)
-        .run_from_node(&dom::FUSED, &LiftedNode::Entry);
+        .run_from_node(&dom::exec(funnel::Spec::default(4)), &LiftedNode::Entry);
     assert_eq!(explicit, 6);
 
     assert_eq!(implicit, explicit);
@@ -58,7 +59,7 @@ fn seed_lift_composes_after_user_shape_lifts() {
         .lift()
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 100)
         .apply_pre_lift(sl)
-        .run_from_node(&dom::FUSED, &LiftedNode::Entry);
+        .run_from_node(&dom::exec(funnel::Spec::default(4)), &LiftedNode::Entry);
     // Tree 0 → {1, 2}; 1 → {3}. Per-node init = n + 100.
     // 3 → 103; 1 → 101 + 103 = 204; 2 → 102; 0 → 100 + 204 + 102 = 406.
     // Entry accumulates the root seed result: 0 + 406 = 406.

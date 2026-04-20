@@ -9,6 +9,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{TreeishPipeline, PipelineExec};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::{treeish, treeish_visit, Treeish};
 use crate::domain::Shared;
 
@@ -110,7 +111,7 @@ fn depth_annotator_via_inline_lift() {
         |h: &mut u64, c: &u64| *h += c,
         |h: &u64| *h,
     ));
-    let r = pipe.lift().apply_pre_lift(lift).run_from_node(&dom::FUSED, &WithDepth {
+    let r = pipe.lift().apply_pre_lift(lift).run_from_node(&dom::exec(funnel::Spec::default(4)), &WithDepth {
         node: tree.clone(), depth: 0,
     });
     // With inline_lift's fold_contra (strip depth), the fold sees
@@ -149,6 +150,6 @@ fn inline_lift_preserves_identity_on_node_type() {
     let r = TreeishPipeline::new(base_treeish, &f)
         .lift()
         .apply_pre_lift(lift)
-        .run_from_node(&dom::FUSED, &Boxed(42));
+        .run_from_node(&dom::exec(funnel::Spec::default(4)), &Boxed(42));
     assert_eq!(r, 42);
 }

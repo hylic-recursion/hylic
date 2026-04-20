@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::edgy_visit;
 
 fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
@@ -21,7 +22,7 @@ fn wrap_init_adds_constant() {
     let r = basic_pipeline()
         .lift()
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // wrap_init adds 1 to each Node's init; Entry uses entry_heap directly.
     // 3 → 4; 2 → 3; 1 → 2 + [4] = 6; 0 → 1 + [6, 3] = 10; Entry → 0 + [10] = 10.
     assert_eq!(r, 10);
@@ -32,7 +33,7 @@ fn zipmap_pairs_result() {
     let r = basic_pipeline()
         .lift()
         .zipmap(|r: &u64| *r > 5)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // base sum = 6; zipmap appends (6, true).
     assert_eq!(r, (6u64, true));
 }
@@ -45,7 +46,7 @@ fn map_bijectively_transforms_r() {
             |r: &u64| format!("sum={r}"),
             |s: &String| s.strip_prefix("sum=").unwrap().parse::<u64>().unwrap(),
         )
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, "sum=6");
 }
 
@@ -55,7 +56,7 @@ fn fluent_chain_stacks_lifts() {
         .lift()
         .wrap_init(|n: &u64, orig: &dyn Fn(&u64) -> u64| orig(n) + 1)
         .zipmap(|r: &u64| *r > 10)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // base with wrap_init(+1): 10 (see wrap_init_adds_constant).
     // zipmap appends (10, 10 > 10) = (10, false).
     assert_eq!(r, (10u64, false));
@@ -97,6 +98,6 @@ fn apply_pre_lift_accepts_user_lift() {
         .lift()
         .apply_pre_lift(NoOp)
         .apply_pre_lift(NoOp)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 6);
 }

@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::domain::Shared;
 use crate::graph::edgy_visit;
 use crate::prelude::{ExplainerHeap, ExplainerResult};
@@ -28,7 +29,7 @@ fn explainer_early_vs_late_same_orig_result() {
         .lift()
         .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
         .zipmap(|r: &ExplainerResult<u64, u64, u64>| r.orig_result * 2)
-        .run_from_slice(&dom::FUSED, &[0u64], ExplainerHeap::new(0u64, 0u64));
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], ExplainerHeap::new(0u64, 0u64));
     // Base R = 0+1+2+3 = 6. Zipmap pairs (ExplainerResult{6, …}, 12).
     assert_eq!(r_early.0.orig_result, 6);
     assert_eq!(r_early.1, 12);
@@ -39,7 +40,7 @@ fn explainer_early_vs_late_same_orig_result() {
         .zipmap(|r: &u64| r * 2)
         .apply_pre_lift(Shared::explainer_lift::<u64, u64, (u64, u64)>())
         .run_from_slice(
-            &dom::FUSED,
+            &dom::exec(funnel::Spec::default(4)),
             &[0u64],
             ExplainerHeap::new(0u64, 0u64),
         );
@@ -67,7 +68,7 @@ fn nested_explainers_compose() {
         .lift()
         .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
         .apply_pre_lift(Shared::explainer_lift::<u64, InnerMapH, InnerMapR>())
-        .run_from_slice(&dom::FUSED, &[0u64], entry);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], entry);
 
     // Unwrap the two trace layers and assert the innermost result.
     assert_eq!(r.orig_result.orig_result, 6);
@@ -81,7 +82,7 @@ fn explainer_trace_structure_walks_tree() {
         .lift()
         .apply_pre_lift(Shared::explainer_lift::<u64, u64, u64>())
         .run_from_slice(
-            &dom::FUSED,
+            &dom::exec(funnel::Spec::default(4)),
             &[0u64],
             ExplainerHeap::new(0u64, 0u64),
         );

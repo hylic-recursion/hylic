@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
 use crate::domain::shared::{self as dom, fold::fold};
+use crate::cata::exec::funnel;
 use crate::graph::edgy_visit;
 
 fn flat_children(flat: Vec<Vec<u64>>) -> Arc<Vec<Vec<u64>>> { Arc::new(flat) }
@@ -22,13 +23,13 @@ fn basic_pipeline() -> SeedPipeline<crate::domain::Shared, u64, u64, u64, u64> {
 #[test]
 fn filter_seeds_prunes() {
     // 0 → {1,2}; 1 → {3}; sum = 0 + 1 + 3 + 2 = 6.
-    let r = basic_pipeline().run_from_slice(&dom::FUSED, &[0u64], 0u64);
+    let r = basic_pipeline().run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 6);
 
     // filter out seed == 2: 0 → {1}; 1 → {3}; sum = 0 + 1 + 3 = 4.
     let r = basic_pipeline()
         .filter_seeds(|s: &u64| *s != 2)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     assert_eq!(r, 4);
 }
 
@@ -39,7 +40,7 @@ fn wrap_grow_intercepts_resolution() {
     // empty). Tree shape: Entry → 0 → {10, 20}.
     let r = basic_pipeline()
         .wrap_grow(|s: &u64, orig: &dyn Fn(&u64) -> u64| orig(s) * 10)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // 10 → 10, 20 → 20; 0 → 0 + 10 + 20 = 30; Entry → 0 + 30 = 30.
     assert_eq!(r, 30);
 }
@@ -55,7 +56,7 @@ fn contramap_node_changes_n_type() {
             |n: &u64| Tagged { v: *n },
             |t: &Tagged| t.v,
         )
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // Sum unchanged by the bijection.
     assert_eq!(r, 6);
 }
@@ -68,7 +69,7 @@ fn map_seed_changes_seed_type() {
             |s: &u64| format!("seed-{s}"),
             |s: &String| s.strip_prefix("seed-").unwrap().parse::<u64>().unwrap(),
         )
-        .run_from_slice(&dom::FUSED, &["seed-0".to_string()], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &["seed-0".to_string()], 0u64);
     assert_eq!(r, 6);
 }
 
@@ -78,7 +79,7 @@ fn reshape_is_fluent() {
     let r = basic_pipeline()
         .filter_seeds(|s: &u64| *s != 2)
         .wrap_grow(|s: &u64, orig: &dyn Fn(&u64) -> u64| orig(s) + 100)
-        .run_from_slice(&dom::FUSED, &[0u64], 0u64);
+        .run_from_slice(&dom::exec(funnel::Spec::default(4)), &[0u64], 0u64);
     // After filter: seeds_from_node(0) = [1] (was [1,2]).
     // wrap_grow: new_grow(s) = s + 100. Entry seed 0 → Node(100).
     // 100 is not an index in `ch`, so it's a leaf.
