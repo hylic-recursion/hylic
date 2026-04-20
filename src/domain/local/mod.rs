@@ -1,12 +1,14 @@
 //! Local domain — Rc-based storage.
 //!
 //! Clone (non-atomic refcount), not Send+Sync. Lighter than Shared
-//! when parallelism isn't needed. Works with Fused.
+//! when parallelism isn't needed. Works with Fused (sequential only).
 //!
-//! Supports the full transformation API (map, zipmap, contramap, product).
+//! Implements `FoldTransformsByRef` — same trait as Shared; storage
+//! differs (Rc vs Arc + Send+Sync). Sugars (wrap_init, map, zipmap,
+//! contramap) are one-line inherent wrappers over `map_phases`.
 
 use std::rc::Rc;
-use crate::ops::FoldOps;
+use crate::ops::{FoldOps, FoldTransformsByRef};
 use crate::cata::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
@@ -58,52 +60,86 @@ impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
     fn finalize(&self, heap: &H) -> R { Fold::finalize(self, heap) }
 }
 
-// ── Transformations ───────────────────────────────
-// Same logic as shared::Fold (domain/shared/fold.rs), Rc instead of Arc,
-// no Send+Sync bounds.
+// ── FoldTransformsByRef impl — Rc version ──
+
+impl<N, H, R> FoldTransformsByRef<N, H, R> for Fold<N, H, R>
+where N: 'static, H: 'static, R: 'static,
+{
+    type Init = Rc<dyn Fn(&N) -> H>;
+    type Acc  = Rc<dyn Fn(&mut H, &R)>;
+    type Fin  = Rc<dyn Fn(&H) -> R>;
+
+    type Out<N2, H2, R2> = Fold<N2, H2, R2> where N2: 'static, H2: 'static, R2: 'static;
+
+    type OutInit<N2, H2> = Rc<dyn Fn(&N2) -> H2> where N2: 'static, H2: 'static;
+    type OutAcc<H2, R2>  = Rc<dyn Fn(&mut H2, &R2)> where H2: 'static, R2: 'static;
+    type OutFin<H2, R2>  = Rc<dyn Fn(&H2) -> R2>   where H2: 'static, R2: 'static;
+
+    fn map_phases<N2, H2, R2, MI, MA, MF>(
+        &self,
+        map_init: MI,
+        map_acc:  MA,
+        map_fin:  MF,
+    ) -> Fold<N2, H2, R2>
+    where
+        N2: 'static, H2: 'static, R2: 'static,
+        MI: FnOnce(Self::Init) -> Self::OutInit<N2, H2>,
+        MA: FnOnce(Self::Acc)  -> Self::OutAcc<H2, R2>,
+        MF: FnOnce(Self::Fin)  -> Self::OutFin<H2, R2>,
+    {
+        Fold {
+            impl_init:       map_init(self.impl_init.clone()),
+            impl_accumulate: map_acc(self.impl_accumulate.clone()),
+            impl_finalize:   map_fin(self.impl_finalize.clone()),
+        }
+    }
+}
+
+// ── Inherent sugar methods — one-liners over map_phases ──
 
 impl<N, H, R> Fold<N, H, R>
 where N: 'static, H: 'static, R: 'static,
 {
-    // ── Phase-wrapping ─────────────────────────────
-
-    pub fn wrap_init(&self, wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + 'static) -> Self {
-        let inner = self.impl_init.clone();
-        Fold {
-            impl_init: Rc::new(crate::fold::combinators::wrap_init(move |n: &N| inner(n), wrapper)),
-            impl_accumulate: self.impl_accumulate.clone(),
-            impl_finalize: self.impl_finalize.clone(),
-        }
+    pub fn wrap_init<W>(&self, wrapper: W) -> Self
+    where W: Fn(&N, &dyn Fn(&N) -> H) -> H + 'static,
+    {
+        <Self as FoldTransformsByRef<N, H, R>>::map_phases::<N, H, R, _, _, _>(
+            self,
+            |init| Rc::new(crate::fold::combinators::wrap_init(move |n: &N| init(n), wrapper)),
+            |acc| acc,
+            |fin| fin,
+        )
     }
 
-    pub fn wrap_accumulate(&self, wrapper: impl Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + 'static) -> Self {
-        let inner = self.impl_accumulate.clone();
-        Fold {
-            impl_init: self.impl_init.clone(),
-            impl_accumulate: Rc::new(crate::fold::combinators::wrap_accumulate(move |h: &mut H, r: &R| inner(h, r), wrapper)),
-            impl_finalize: self.impl_finalize.clone(),
-        }
+    pub fn wrap_accumulate<W>(&self, wrapper: W) -> Self
+    where W: Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + 'static,
+    {
+        <Self as FoldTransformsByRef<N, H, R>>::map_phases::<N, H, R, _, _, _>(
+            self,
+            |init| init,
+            |acc| Rc::new(crate::fold::combinators::wrap_accumulate(move |h: &mut H, r: &R| acc(h, r), wrapper)),
+            |fin| fin,
+        )
     }
 
-    pub fn wrap_finalize(&self, wrapper: impl Fn(&H, &dyn Fn(&H) -> R) -> R + 'static) -> Self {
-        let inner = self.impl_finalize.clone();
-        Fold {
-            impl_init: self.impl_init.clone(),
-            impl_accumulate: self.impl_accumulate.clone(),
-            impl_finalize: Rc::new(crate::fold::combinators::wrap_finalize(move |h: &H| inner(h), wrapper)),
-        }
+    pub fn wrap_finalize<W>(&self, wrapper: W) -> Self
+    where W: Fn(&H, &dyn Fn(&H) -> R) -> R + 'static,
+    {
+        <Self as FoldTransformsByRef<N, H, R>>::map_phases::<N, H, R, _, _, _>(
+            self,
+            |init| init,
+            |acc| acc,
+            |fin| Rc::new(crate::fold::combinators::wrap_finalize(move |h: &H| fin(h), wrapper)),
+        )
     }
-
-    // ── Type-changing combinators ───────────────────
 
     pub fn map<RNew: 'static>(&self, mapper: impl Fn(&R) -> RNew + 'static, backmapper: impl Fn(&RNew) -> R + 'static) -> Fold<N, H, RNew> {
-        let (i, a, f) = crate::fold::combinators::map_fold(
-            { let v = self.impl_init.clone(); move |n: &N| v(n) },
-            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
-            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
-            mapper, backmapper,
-        );
-        Fold::new(i, a, f)
+        <Self as FoldTransformsByRef<N, H, R>>::map_phases::<N, H, RNew, _, _, _>(
+            self,
+            |init| init,
+            |acc|  Rc::new(move |h: &mut H, r: &RNew| acc(h, &backmapper(r))),
+            |fin|  Rc::new(move |h: &H| mapper(&fin(h))),
+        )
     }
 
     pub fn zipmap<RZip: 'static>(&self, mapper: impl Fn(&R) -> RZip + 'static) -> Fold<N, H, (R, RZip)>
@@ -113,15 +149,17 @@ where N: 'static, H: 'static, R: 'static,
     }
 
     pub fn contramap<NewN: 'static>(&self, f: impl Fn(&NewN) -> N + 'static) -> Fold<NewN, H, R> {
-        let (i, a, fin) = crate::fold::combinators::contramap_fold(
-            { let v = self.impl_init.clone(); move |n: &N| v(n) },
-            { let v = self.impl_accumulate.clone(); move |h: &mut H, r: &R| v(h, r) },
-            { let v = self.impl_finalize.clone(); move |h: &H| v(h) },
-            f,
-        );
-        Fold::new(i, a, fin)
+        let f = Rc::new(f);
+        <Self as FoldTransformsByRef<N, H, R>>::map_phases::<NewN, H, R, _, _, _>(
+            self,
+            {
+                let f = f.clone();
+                |init| Rc::new(move |new_n: &NewN| init(&f(new_n)))
+            },
+            |acc| acc,
+            |fin| fin,
+        )
     }
-
 }
 
 // ── Constructors ──────────────────────────────────
@@ -140,4 +178,3 @@ pub fn simple_fold<N: 'static, H: Clone + 'static>(
 ) -> Fold<N, H, H> {
     Fold::new(init, accumulate, |heap| heap.clone())
 }
-

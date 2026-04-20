@@ -1,9 +1,10 @@
 //! Owned domain — Box-based storage.
 //!
 //! Not Clone, not Send+Sync. The lightest domain — zero refcount.
-//! Transformations consume self (move semantics).
+//! Implements `FoldTransformsByValue` (consume-self); every sugar
+//! is a one-line inherent wrapper over `map_phases`.
 
-use crate::ops::FoldOps;
+use crate::ops::{FoldOps, FoldTransformsByValue};
 use crate::cata::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
@@ -37,41 +38,92 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
     pub fn init(&self, node: &N) -> H { (self.impl_init)(node) }
     pub fn accumulate(&self, heap: &mut H, result: &R) { (self.impl_accumulate)(heap, result) }
     pub fn finalize(&self, heap: &H) -> R { (self.impl_finalize)(heap) }
+}
 
-    // ── Phase-wrapping (consume self) ──────────────
+impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
+    fn init(&self, node: &N) -> H { (self.impl_init)(node) }
+    fn accumulate(&self, heap: &mut H, result: &R) { (self.impl_accumulate)(heap, result) }
+    fn finalize(&self, heap: &H) -> R { (self.impl_finalize)(heap) }
+}
 
-    pub fn wrap_init(self, wrapper: impl Fn(&N, &dyn Fn(&N) -> H) -> H + 'static) -> Self {
+// ── FoldTransformsByValue impl — Box version, consumes self ──
+
+impl<N, H, R> FoldTransformsByValue<N, H, R> for Fold<N, H, R>
+where N: 'static, H: 'static, R: 'static,
+{
+    type Init = Box<dyn Fn(&N) -> H>;
+    type Acc  = Box<dyn Fn(&mut H, &R)>;
+    type Fin  = Box<dyn Fn(&H) -> R>;
+
+    type Out<N2, H2, R2> = Fold<N2, H2, R2> where N2: 'static, H2: 'static, R2: 'static;
+
+    type OutInit<N2, H2> = Box<dyn Fn(&N2) -> H2> where N2: 'static, H2: 'static;
+    type OutAcc<H2, R2>  = Box<dyn Fn(&mut H2, &R2)> where H2: 'static, R2: 'static;
+    type OutFin<H2, R2>  = Box<dyn Fn(&H2) -> R2>   where H2: 'static, R2: 'static;
+
+    fn map_phases<N2, H2, R2, MI, MA, MF>(
+        self,
+        map_init: MI,
+        map_acc:  MA,
+        map_fin:  MF,
+    ) -> Fold<N2, H2, R2>
+    where
+        N2: 'static, H2: 'static, R2: 'static,
+        MI: FnOnce(Self::Init) -> Self::OutInit<N2, H2>,
+        MA: FnOnce(Self::Acc)  -> Self::OutAcc<H2, R2>,
+        MF: FnOnce(Self::Fin)  -> Self::OutFin<H2, R2>,
+    {
         Fold {
-            impl_init: Box::new(crate::fold::combinators::wrap_init(self.impl_init, wrapper)),
-            impl_accumulate: self.impl_accumulate,
-            impl_finalize: self.impl_finalize,
+            impl_init:       map_init(self.impl_init),
+            impl_accumulate: map_acc(self.impl_accumulate),
+            impl_finalize:   map_fin(self.impl_finalize),
         }
     }
+}
 
-    pub fn wrap_accumulate(self, wrapper: impl Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + 'static) -> Self {
-        Fold {
-            impl_init: self.impl_init,
-            impl_accumulate: Box::new(crate::fold::combinators::wrap_accumulate(self.impl_accumulate, wrapper)),
-            impl_finalize: self.impl_finalize,
-        }
+// ── Inherent sugar methods — one-liners over map_phases ──
+
+impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
+    pub fn wrap_init<W>(self, wrapper: W) -> Self
+    where W: Fn(&N, &dyn Fn(&N) -> H) -> H + 'static,
+    {
+        <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, R, _, _, _>(
+            self,
+            |init| Box::new(crate::fold::combinators::wrap_init(init, wrapper)),
+            |acc| acc,
+            |fin| fin,
+        )
     }
 
-    pub fn wrap_finalize(self, wrapper: impl Fn(&H, &dyn Fn(&H) -> R) -> R + 'static) -> Self {
-        Fold {
-            impl_init: self.impl_init,
-            impl_accumulate: self.impl_accumulate,
-            impl_finalize: Box::new(crate::fold::combinators::wrap_finalize(self.impl_finalize, wrapper)),
-        }
+    pub fn wrap_accumulate<W>(self, wrapper: W) -> Self
+    where W: Fn(&mut H, &R, &dyn Fn(&mut H, &R)) + 'static,
+    {
+        <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, R, _, _, _>(
+            self,
+            |init| init,
+            |acc| Box::new(crate::fold::combinators::wrap_accumulate(acc, wrapper)),
+            |fin| fin,
+        )
     }
 
-    // ── Type-changing combinators (consume self) ───
+    pub fn wrap_finalize<W>(self, wrapper: W) -> Self
+    where W: Fn(&H, &dyn Fn(&H) -> R) -> R + 'static,
+    {
+        <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, R, _, _, _>(
+            self,
+            |init| init,
+            |acc| acc,
+            |fin| Box::new(crate::fold::combinators::wrap_finalize(fin, wrapper)),
+        )
+    }
 
     pub fn map<RNew: 'static>(self, mapper: impl Fn(&R) -> RNew + 'static, backmapper: impl Fn(&RNew) -> R + 'static) -> Fold<N, H, RNew> {
-        let (i, a, f) = crate::fold::combinators::map_fold(
-            self.impl_init, self.impl_accumulate, self.impl_finalize,
-            mapper, backmapper,
-        );
-        Fold::new(i, a, f)
+        <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, RNew, _, _, _>(
+            self,
+            |init| init,
+            |acc|  Box::new(move |h: &mut H, r: &RNew| acc(h, &backmapper(r))),
+            |fin|  Box::new(move |h: &H| mapper(&fin(h))),
+        )
     }
 
     pub fn zipmap<RZip: 'static>(self, mapper: impl Fn(&R) -> RZip + 'static) -> Fold<N, H, (R, RZip)>
@@ -81,18 +133,13 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
     }
 
     pub fn contramap<NewN: 'static>(self, f: impl Fn(&NewN) -> N + 'static) -> Fold<NewN, H, R> {
-        let (i, a, fin) = crate::fold::combinators::contramap_fold(
-            self.impl_init, self.impl_accumulate, self.impl_finalize, f,
-        );
-        Fold::new(i, a, fin)
+        <Self as FoldTransformsByValue<N, H, R>>::map_phases::<NewN, H, R, _, _, _>(
+            self,
+            |init| Box::new(move |new_n: &NewN| init(&f(new_n))),
+            |acc| acc,
+            |fin| fin,
+        )
     }
-
-}
-
-impl<N: 'static, H: 'static, R: 'static> FoldOps<N, H, R> for Fold<N, H, R> {
-    fn init(&self, node: &N) -> H { (self.impl_init)(node) }
-    fn accumulate(&self, heap: &mut H, result: &R) { (self.impl_accumulate)(heap, result) }
-    fn finalize(&self, heap: &H) -> R { (self.impl_finalize)(heap) }
 }
 
 pub fn fold<N: 'static, H: 'static, R: 'static>(
@@ -109,4 +156,3 @@ pub fn simple_fold<N: 'static, H: Clone + 'static>(
 ) -> Fold<N, H, H> {
     Fold::new(init, accumulate, |heap| heap.clone())
 }
-

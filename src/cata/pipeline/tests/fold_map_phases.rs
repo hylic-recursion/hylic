@@ -1,7 +1,8 @@
-//! Fold::map_phases — the sole slot-level primitive.
+//! Fold::map_phases — the sole slot-level primitive (trait method).
 
 use std::sync::Arc;
 use crate::domain::shared::fold::fold;
+use crate::ops::FoldTransformsByRef;
 
 #[test]
 fn map_phases_identity() {
