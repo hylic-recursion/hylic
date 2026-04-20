@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! TreeishPipeline — the honest-base pipeline for users who have
 //! a `Treeish<N>` directly (no `grow: Seed → N` step). Two base
 //! slots: `treeish` and `fold`. `Self::Seed = ()` — no Seed

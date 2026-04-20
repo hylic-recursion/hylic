@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! LiftedPipeline source impls.
 //!
 //! `TreeishSource` impl (always, when Base is TreeishSource): Seed-

@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! reshape — the sole TreeishPipeline primitive. Domain-generic.
 
 use crate::domain::Domain;

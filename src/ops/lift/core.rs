@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Lift<D, N, H, R> — the domain-generic algebra-transform type class.
 //!
 //! Four trait parameters: D (domain), N (node type), H (heap), R

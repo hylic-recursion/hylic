@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! TreeishPipeline impls `TreeishSource` only. It is Seed-agnostic
 //! by construction and intentionally does NOT provide `SeedSource`
 //! — calling `.run(exec, entry_seeds, entry_heap)` on it is a

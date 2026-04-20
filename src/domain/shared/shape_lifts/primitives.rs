@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Shared-domain general primitives.
 //!
 //! Three primitives, each rewriting at most a coordinated subset of

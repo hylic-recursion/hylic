@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! SeedPipeline impls both source traits:
 //! - `TreeishSource`: fuses (grow, seeds_from_node) into a treeish
 //!   over N at yield time; the caller receives the 2-slot pair.

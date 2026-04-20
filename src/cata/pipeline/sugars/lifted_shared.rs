@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Blanket Stage-2 sugars for the Shared domain.
 //!
 //! `LiftedSugarsShared<N, H, R>` is implemented for any pipeline

@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::cata::pipeline::{PipelineExec, TreeishPipeline};
+use crate::cata::pipeline::{PipelineExec, TreeishPipeline, LiftedSugarsLocal};
 use crate::domain::{local, Local};
 
 // Non-Clone N, wrapped in Rc.
@@ -76,7 +76,7 @@ fn local_wrap_accumulate_captures_non_send_state() {
 
     let r = TreeishPipeline::<Local, u64, u64, u64>::new_local(graph, f)
         .lift()
-        .wrap_accumulate_local(move |h: &mut u64, r: &u64, orig: &dyn Fn(&mut u64, &u64)| {
+        .wrap_accumulate(move |h: &mut u64, r: &u64, orig: &dyn Fn(&mut u64, &u64)| {
             counter_for_wrap.borrow_mut().push((*h, *r));
             orig(h, r);
         })

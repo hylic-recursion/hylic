@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! SeedPipeline — Stage 1 of the Phase-3 typestate. Holds the three
 //! base slots (grow, seeds_from_node, fold) in the domain D's
 //! native storage. Sole primitive: reshape.

@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! OwnedPipeline — one-shot, seedless, by-value pipeline over the
 //! Owned domain.
 //!

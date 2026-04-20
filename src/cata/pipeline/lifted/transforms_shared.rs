@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Shared-domain Stage-2 primitive: `before_lift` (pre-compose a
 //! type-preserving lift before the existing chain).
 //!

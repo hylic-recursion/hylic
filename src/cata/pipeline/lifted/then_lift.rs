@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! then_lift — the sole Stage-2 primitive. Composes a new Lift
 //! onto the pre_lift chain via ComposedLift. Requires only
 //! `TreeishSource` on the base — Seed-agnostic composition.

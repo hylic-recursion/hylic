@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! LiftedPipeline — Stage 2 of the pipeline typestate.
 //!
 //! Parametric over its source: `LiftedPipeline<Base, L>` wraps any

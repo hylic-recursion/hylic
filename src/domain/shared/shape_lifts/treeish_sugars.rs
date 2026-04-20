@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Treeish-side Shared sugars — one-line wrappers over
 //! `Shared::treeish_lift`. N, H, R preserved.
 

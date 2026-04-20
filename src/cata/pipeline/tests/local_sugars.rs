@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::cata::pipeline::{PipelineExec, TreeishPipeline};
+use crate::cata::pipeline::{PipelineExec, TreeishPipeline, LiftedSugarsLocal};
 use crate::domain::{local, Local};
 
 #[test]
@@ -24,8 +24,7 @@ fn wrap_init_local_sugar_composes() {
     let pipe = TreeishPipeline::<Local, u64, u64, u64>::new_local(treeish, fold);
 
     let r = pipe
-        .lift()
-        .wrap_init_local(move |n: &u64, orig: &dyn Fn(&u64) -> u64| {
+        .wrap_init(move |n: &u64, orig: &dyn Fn(&u64) -> u64| {
             init_log_for_wrap.borrow_mut().push(*n);
             orig(n) + 100
         })
@@ -45,8 +44,7 @@ fn zipmap_local_sugar_pairs_result() {
     let pipe = TreeishPipeline::<Local, u64, u64, u64>::new_local(treeish, fold);
 
     let r: (u64, bool) = pipe
-        .lift()
-        .zipmap_local(|r: &u64| *r > 0)
+        .zipmap(|r: &u64| *r > 0)
         .run_from_node(&local::FUSED, &0u64);
     // 0 + 1 = 1; (1, true).
     assert_eq!(r, (1, true));

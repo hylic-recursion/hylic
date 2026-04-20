@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Explainer shape-lift for the Local domain.
 //! (ExplainerDescribe deferred — the formatter-fold run requires
 //! Shared for the fmt_fold_ctor's Send+Sync bound; Local variant

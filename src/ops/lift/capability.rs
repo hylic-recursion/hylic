@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Capability traits for lifts.
 //!
 //! `ShapeCapable<N>: Domain<N>` extends a domain with xform storage

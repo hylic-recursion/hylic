@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! LiftedNode — type-level structure of SeedLift's output treeish.
 //!
 //! Two variants:

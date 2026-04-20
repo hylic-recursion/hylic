@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Local-domain shape-lift catalogue. Mirror of Shared with Rc
 //! storage and non-Send bounds.
 

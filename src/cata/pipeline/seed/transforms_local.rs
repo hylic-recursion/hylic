@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Stage-1 Local sugars on SeedPipeline. Mirror of Shared with
 //! Rc-based closure storage and non-Send bounds.
 

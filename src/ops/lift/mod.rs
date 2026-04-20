@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Lift trait + library lifts.
 //!
 //! `Lift<D, N, H, R>` (in `core`) is the domain-generic triple

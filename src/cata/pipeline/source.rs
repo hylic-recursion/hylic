@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Pipeline source traits and execution extensions.
 //!
 //! The source hierarchy has two axes: **by-reference vs by-value**

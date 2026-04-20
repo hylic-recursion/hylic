@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Explainer and ExplainerDescribe shape-lifts for the Shared domain.
 //!
 //! Distinct from the generic primitives because their MapH and MapR

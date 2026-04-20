@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Phase-3 pipeline — two typestates sharing a CPS yield primitive.
 //!
 //! - `SeedPipeline<N, Seed, H, R>` (Stage 1, coalgebra) — holds the
@@ -35,5 +36,5 @@ pub use seed::SeedPipeline;
 pub use treeish::TreeishPipeline;
 pub use lifted::LiftedPipeline;
 pub use owned::OwnedPipeline;
-pub use sugars::LiftedSugarsShared;
+pub use sugars::{LiftedSugarsShared, LiftedSugarsLocal};
 pub use internal::lifted_types::LiftedNode;

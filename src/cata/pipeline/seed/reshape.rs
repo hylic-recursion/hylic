@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! reshape — the sole Stage-1 primitive. Rewrites all three base
 //! slots consistently; every Stage-1 sugar is a one-line wrapper
 //! over this. Domain-generic.

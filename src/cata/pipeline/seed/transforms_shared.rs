@@ -1,3 +1,4 @@
+// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Stage-1 sugars — Shared-domain only for now (Phase 5/5).
 //! Per-domain variants can be added following the same pattern.
 //!
