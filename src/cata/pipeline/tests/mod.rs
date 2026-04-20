@@ -19,3 +19,4 @@ mod domain_constructors;
 mod local_owned;
 mod explainer_describe;
 mod local_shape_lifts;
+mod seed_lift_as_lift;

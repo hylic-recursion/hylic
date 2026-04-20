@@ -15,9 +15,11 @@ pub mod identity;
 pub mod composed;
 pub mod capability;
 pub mod shape;
+pub mod seed_lift;
 
 pub use core::Lift;
 pub use identity::IdentityLift;
 pub use composed::ComposedLift;
 pub use capability::{ShapeCapable, PureLift, ShareableLift};
 pub use shape::ShapeLift;
+pub use seed_lift::SeedLift;

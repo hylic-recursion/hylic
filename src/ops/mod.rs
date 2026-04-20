@@ -12,4 +12,5 @@ pub use lift::{
     ShapeCapable,
     PureLift,
     ShareableLift,
+    SeedLift,
 };

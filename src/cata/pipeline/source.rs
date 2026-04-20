@@ -13,9 +13,11 @@
 //! `PipelineExec` — blanket extension with three run methods:
 //!   * `run_from_node`: sequential, any capable domain. No
 //!     Send+Sync requirements on pipeline types.
-//!   * `run`: Entry dispatch via SeedLift — Shared-only pending
-//!     Phase 5/6 generalisation.
-//!   * `run_from_slice`: Sugar over `run` with a &[Seed] source.
+//!   * `run`: Entry dispatch via a `SeedLift` (a library Lift,
+//!     Shared-pinned) whose `apply` rewrites the yielded triple
+//!     into `LiftedNode<Seed, N>` / `LiftedHeap<H, R>` form.
+//!   * `run_from_slice`: Sugar over `run` with a &[Seed] source;
+//!     wraps the slice into the canonical `Edgy<(), Seed>` form.
 //!
 //! `PipelineExecOnce` — the by-value analogue for OwnedPipeline:
 //!   * `run_from_node_once`: consumes self; no SeedLift.
@@ -25,8 +27,8 @@ use crate::cata::exec::Executor;
 use crate::domain::{Domain, Shared};
 use crate::domain::shared::fold::Fold;
 use crate::graph::{self, Edgy, Treeish};
-use crate::ops::TreeOps;
-use super::internal::{LiftedNode, SeedLift};
+use crate::ops::{Lift, SeedLift, TreeOps};
+use super::internal::LiftedNode;
 
 // ── PipelineSource ─────────────────────────────────────
 
@@ -87,9 +89,10 @@ pub trait PipelineExec: PipelineSource {
         })
     }
 
-    /// Run from entry seeds via SeedLift Entry dispatch. Requires
-    /// the pipeline's domain to be Shared (SeedLift pinned pending
-    /// Phase 5/6 generalisation).
+    /// Run from entry seeds via a finishing `SeedLift` Lift.
+    /// Shared-pinned. The apply step rewrites the yielded triple
+    /// into `LiftedNode<Seed, N>` / `LiftedHeap<H, R>` form; the
+    /// executor runs the result rooted at `LiftedNode::Entry`.
     fn run<E>(
         &self,
         exec:        &E,
@@ -106,15 +109,19 @@ pub trait PipelineExec: PipelineSource {
     {
         self.with_constructed(|grow, treeish, fold| {
             let grow: Arc<dyn Fn(&Self::Seed) -> Self::N + Send + Sync> = grow;
-            let sl = SeedLift { grow };
-            let lifted_treeish = sl.lift_treeish(treeish, entry_seeds);
-            let heap = entry_heap;
-            let lifted_fold = sl.lift_fold(fold, move || heap.clone());
-            exec.run(&lifted_fold, &lifted_treeish, &LiftedNode::Entry)
+            let sl: SeedLift<Self::N, Self::Seed, Self::H> =
+                SeedLift::from_arc_grow(grow.clone(), entry_seeds, move || entry_heap.clone());
+            sl.apply::<Self::Seed, _>(
+                grow, treeish, fold,
+                |_unreachable_grow, lifted_treeish, lifted_fold| {
+                    exec.run(&lifted_fold, &lifted_treeish, &LiftedNode::Entry)
+                },
+            )
         })
     }
 
-    /// Sugar over `run` with a `&[Seed]` source.
+    /// Sugar over `run` with a `&[Seed]` source. Lowers the slice
+    /// into the canonical callback-iterator form `Edgy<(), Seed>`.
     fn run_from_slice<E>(
         &self,
         exec:       &E,
