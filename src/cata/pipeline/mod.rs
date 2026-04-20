@@ -19,13 +19,15 @@ pub mod source;
 pub mod seed;
 pub mod treeish;
 pub mod lifted;
+pub mod owned;
 pub(crate) mod internal;
 
 #[cfg(test)]
 mod tests;
 
-pub use source::{PipelineSource, PipelineExec};
+pub use source::{PipelineSource, PipelineSourceOnce, PipelineExec, PipelineExecOnce};
 pub use seed::SeedPipeline;
 pub use treeish::TreeishPipeline;
 pub use lifted::LiftedPipeline;
+pub use owned::OwnedPipeline;
 pub use internal::lifted_types::{LiftedNode, LiftedHeap};

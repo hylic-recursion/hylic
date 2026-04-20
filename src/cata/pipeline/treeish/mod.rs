@@ -57,3 +57,19 @@ where N: 'static, H: 'static, R: 'static,
         TreeishPipeline { treeish, fold: fold.clone() }
     }
 }
+
+// ── Local convenience constructor ──────────────────────
+
+impl<N, H, R> TreeishPipeline<crate::domain::Local, N, H, R>
+where N: 'static, H: 'static, R: 'static,
+{
+    /// Local-specific constructor using Rc-based storage. Non-Send
+    /// folds/treeishes compose into a Local pipeline; sequential
+    /// execution only (Fused).
+    pub fn new_local(
+        treeish: crate::domain::local::edgy::Edgy<N, N>,
+        fold:    crate::domain::local::Fold<N, H, R>,
+    ) -> Self {
+        TreeishPipeline { treeish, fold }
+    }
+}

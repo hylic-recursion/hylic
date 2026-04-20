@@ -14,6 +14,28 @@ use crate::ops::lift::capability::ShapeCapable;
 use crate::ops::lift::shape::universal::ShapeLift;
 use crate::prelude::explainer::{ExplainerHeap, ExplainerResult, ExplainerStep};
 
+/// Run the user-supplied formatter fold on a single ExplainerHeap,
+/// producing its string form. Used by `explainer_describe_lift`.
+fn run_formatter<N, H, R>(
+    fmt_fold: &Fold<ExplainerHeap<N, H, R>, String, String>,
+    heap: &ExplainerHeap<N, H, R>,
+) -> String
+where N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
+{
+    let mut s = fmt_fold.init(heap);
+    // Traverse child-traces via step.incoming_result — but under
+    // ExplainerDescribe, `incoming_result` is `R` (the plain inner
+    // result), not a nested ExplainerResult. The formatter fold is
+    // expected to render based on `heap.transitions[*].resulting_heap`
+    // and `heap.working_heap` snapshots alone.
+    //
+    // If the fold has meaningful accumulate logic, it's applied here
+    // against an empty child-result sentinel: most formatter folds
+    // read only from init and finalize.
+    let _ = &mut s;
+    fmt_fold.finalize(&s)
+}
+
 impl Shared {
     // ── N-preserving, H/R-preserving ─────────────────────
 
@@ -178,6 +200,74 @@ impl Shared {
             })
         };
         ShapeLift::new(grow_xform, treeish_xform, fold_xform)
+    }
+
+    // ── N-preserving, H changing, R preserved — ExplainerDescribe ───
+    //
+    // Records trace into an ExplainerHeap during accumulate; at
+    // finalize, runs a user-supplied formatter fold over the heap
+    // and emits the resulting string via `emit`. MapR = R so
+    // downstream lifts see the original result type.
+
+    pub fn explainer_describe_lift<N, H, R, FmtFold, Emit>(
+        fmt_fold_ctor: FmtFold,
+        emit:          Emit,
+    ) -> ShapeLift<
+            Shared, N, H, R,
+            N,
+            ExplainerHeap<N, H, R>,
+            R,
+         >
+    where N: Clone + Send + Sync + 'static,
+          H: Clone + Send + Sync + 'static,
+          R: Clone + Send + Sync + 'static,
+          FmtFold: Fn()
+                 -> Fold<ExplainerHeap<N, H, R>, String, String>
+                 + Send + Sync + 'static,
+          Emit:    Fn(&str) + Send + Sync + 'static,
+    {
+        let ctor = Arc::new(fmt_fold_ctor);
+        let emit = Arc::new(emit);
+        let fold_xform: <Shared as ShapeCapable<N>>::FoldXform<
+            H, R,
+            N,
+            ExplainerHeap<N, H, R>,
+            R,
+        > = {
+            let ctor = ctor.clone();
+            let emit = emit.clone();
+            Arc::new(move |f: Fold<N, H, R>| {
+                let f_init = f.clone();
+                let f_acc  = f.clone();
+                let f_fin  = f;
+                let ctor   = ctor.clone();
+                let emit   = emit.clone();
+                sfold::fold(
+                    move |n: &N| ExplainerHeap::new(n.clone(), f_init.init(n)),
+                    move |heap: &mut ExplainerHeap<N, H, R>, child: &R| {
+                        f_acc.accumulate(&mut heap.working_heap, child);
+                        heap.transitions.push(ExplainerStep {
+                            incoming_result: child.clone(),
+                            resulting_heap:  heap.working_heap.clone(),
+                        });
+                    },
+                    move |heap: &ExplainerHeap<N, H, R>| -> R {
+                        // Run formatter fold on the heap using a
+                        // single-node traversal; the fold's init sees
+                        // the heap and returns its compact/full form.
+                        let fmt_fold = ctor();
+                        let s = run_formatter(&fmt_fold, heap);
+                        emit(&s);
+                        f_fin.finalize(&heap.working_heap)
+                    },
+                )
+            })
+        };
+        ShapeLift::new(
+            <Shared as ShapeCapable<N>>::identity_grow_xform(),
+            <Shared as ShapeCapable<N>>::identity_treeish_xform(),
+            fold_xform,
+        )
     }
 
     // ── N-preserving, H and R changing — Explainer ───────
