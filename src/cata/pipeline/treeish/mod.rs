@@ -7,6 +7,7 @@ use crate::domain::Domain;
 
 pub mod reshape;
 pub mod transforms;
+pub mod transforms_local;
 pub mod source_impl;
 
 pub struct TreeishPipeline<D, N, H, R>
