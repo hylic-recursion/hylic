@@ -1,7 +1,7 @@
 //! End-to-end power-user fluent chains under both Fused and Funnel.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
+use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed, LiftedSugarsShared};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::graph::edgy_visit;
 use crate::domain::Shared;

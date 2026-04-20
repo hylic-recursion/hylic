@@ -1,7 +1,7 @@
 //! TreeishPipeline — the honest-base typestate for users who have
 //! a Treeish<N> directly.
 
-use crate::cata::pipeline::{TreeishPipeline, PipelineExec};
+use crate::cata::pipeline::{TreeishPipeline, PipelineExec, LiftedSugarsShared};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::cata::exec::funnel;
 use crate::graph::treeish;

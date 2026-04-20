@@ -3,7 +3,7 @@
 //! content differs. Also exercises nested Explainer composition.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
+use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed, LiftedSugarsShared};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::cata::exec::funnel;
 use crate::domain::Shared;

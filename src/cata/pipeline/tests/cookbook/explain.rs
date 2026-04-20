@@ -1,7 +1,7 @@
 //! Cookbook: explainer_lift / explainer_describe_lift.
 
 use std::sync::{Arc, Mutex};
-use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed};
+use crate::cata::pipeline::{SeedPipeline, PipelineExecSeed, LiftedSugarsShared};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::cata::exec::funnel;
 use crate::domain::Shared;

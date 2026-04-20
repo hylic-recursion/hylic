@@ -24,3 +24,4 @@ mod local_sugars;
 mod complex_types;
 mod stretch_local;
 mod cookbook;
+mod blanket_sugar;

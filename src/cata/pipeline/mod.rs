@@ -20,6 +20,7 @@ pub mod seed;
 pub mod treeish;
 pub mod lifted;
 pub mod owned;
+pub mod sugars;
 pub(crate) mod internal;
 
 #[cfg(test)]
@@ -34,4 +35,5 @@ pub use seed::SeedPipeline;
 pub use treeish::TreeishPipeline;
 pub use lifted::LiftedPipeline;
 pub use owned::OwnedPipeline;
+pub use sugars::LiftedSugarsShared;
 pub use internal::lifted_types::LiftedNode;

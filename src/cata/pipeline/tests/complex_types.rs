@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use crate::cata::pipeline::{
     SeedPipeline, TreeishPipeline, PipelineExec, PipelineExecSeed,
+    LiftedSugarsShared,
 };
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::cata::exec::funnel;

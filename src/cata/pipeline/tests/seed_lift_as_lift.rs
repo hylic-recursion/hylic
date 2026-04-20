@@ -5,7 +5,7 @@
 //! matches `PipelineExec::run`'s internal path.
 
 use std::sync::Arc;
-use crate::cata::pipeline::{SeedPipeline, PipelineExec, PipelineExecSeed, LiftedNode};
+use crate::cata::pipeline::{SeedPipeline, PipelineExec, PipelineExecSeed, LiftedNode, LiftedSugarsShared};
 use crate::domain::shared::{self as dom, fold::fold};
 use crate::cata::exec::funnel;
 use crate::domain::Shared;
