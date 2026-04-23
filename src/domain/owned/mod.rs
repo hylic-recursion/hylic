@@ -91,7 +91,7 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
     {
         <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, R, _, _, _>(
             self,
-            |init| Box::new(crate::fold::combinators::wrap_init(init, wrapper)),
+            |init| Box::new(crate::domain::fold_combinators::wrap_init(init, wrapper)),
             |acc| acc,
             |fin| fin,
         )
@@ -103,7 +103,7 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
         <Self as FoldTransformsByValue<N, H, R>>::map_phases::<N, H, R, _, _, _>(
             self,
             |init| init,
-            |acc| Box::new(crate::fold::combinators::wrap_accumulate(acc, wrapper)),
+            |acc| Box::new(crate::domain::fold_combinators::wrap_accumulate(acc, wrapper)),
             |fin| fin,
         )
     }
@@ -115,7 +115,7 @@ impl<N: 'static, H: 'static, R: 'static> Fold<N, H, R> {
             self,
             |init| init,
             |acc| acc,
-            |fin| Box::new(crate::fold::combinators::wrap_finalize(fin, wrapper)),
+            |fin| Box::new(crate::domain::fold_combinators::wrap_finalize(fin, wrapper)),
         )
     }
 

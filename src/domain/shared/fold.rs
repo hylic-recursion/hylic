@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 use crate::ops::{FoldOps, FoldTransformsByRef};
-use crate::fold::combinators;
+use crate::domain::fold_combinators as combinators;
 
 // ANCHOR: fold_struct
 pub struct Fold<N, H, R> {

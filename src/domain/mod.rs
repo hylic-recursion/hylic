@@ -13,6 +13,7 @@
 pub mod shared;
 pub mod local;
 pub mod owned;
+pub(crate) mod fold_combinators;
 
 use std::sync::Arc;
 use std::rc::Rc;

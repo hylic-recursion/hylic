@@ -9,8 +9,6 @@
 
 pub mod ops;
 pub mod domain;
-
-pub(crate) mod fold;
 pub mod graph;
 pub mod cata;
 

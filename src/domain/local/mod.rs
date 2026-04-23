@@ -109,7 +109,7 @@ where N: 'static, H: 'static, R: 'static,
     {
         <Self as FoldTransformsByRef<N, H, R>>::map_phases::<N, H, R, _, _, _>(
             self,
-            |init| Rc::new(crate::fold::combinators::wrap_init(move |n: &N| init(n), wrapper)),
+            |init| Rc::new(crate::domain::fold_combinators::wrap_init(move |n: &N| init(n), wrapper)),
             |acc| acc,
             |fin| fin,
         )
@@ -121,7 +121,7 @@ where N: 'static, H: 'static, R: 'static,
         <Self as FoldTransformsByRef<N, H, R>>::map_phases::<N, H, R, _, _, _>(
             self,
             |init| init,
-            |acc| Rc::new(crate::fold::combinators::wrap_accumulate(move |h: &mut H, r: &R| acc(h, r), wrapper)),
+            |acc| Rc::new(crate::domain::fold_combinators::wrap_accumulate(move |h: &mut H, r: &R| acc(h, r), wrapper)),
             |fin| fin,
         )
     }
@@ -133,7 +133,7 @@ where N: 'static, H: 'static, R: 'static,
             self,
             |init| init,
             |acc| acc,
-            |fin| Rc::new(crate::fold::combinators::wrap_finalize(move |h: &H| fin(h), wrapper)),
+            |fin| Rc::new(crate::domain::fold_combinators::wrap_finalize(move |h: &H| fin(h), wrapper)),
         )
     }
 
