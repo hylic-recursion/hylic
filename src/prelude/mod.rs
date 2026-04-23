@@ -1,26 +1,25 @@
-//! hylic core prelude — Shared-default.
+//! hylic core prelude.
 //!
 //! ```no_run
 //! use hylic::prelude::*;
 //! ```
 //!
-//! covers: Shared-domain Fold/Edgy constructors, executor,
+//! covers: the three domain markers (Shared / Local / Owned),
+//! Shared-default Fold/Edgy/Treeish constructors, executor helpers,
 //! every lift atom (Lift, IdentityLift, ComposedLift, ShapeLift,
-//! SeedLift, LiftBare, capability markers), common debug helpers
-//! (explainer).
+//! SeedLift, LiftBare, capability markers, LiftedNode), and common
+//! debug helpers (explainer, formatters).
+//!
+//! For Local or Owned construction, import the per-domain module
+//! directly: `use hylic::domain::local as ldom;` then use
+//! `ldom::fold(…)`, `ldom::edgy::treeish(…)`, `ldom::FUSED`, etc.
 //!
 //! For pipeline typestates + sugar traits, depend on
 //! `hylic-pipeline` and use `use hylic_pipeline::prelude::*;`
 //! (which re-exports everything below, plus pipelines).
 //!
-//! For the Local domain, also `use hylic::prelude::local::*;`.
-//! For Owned, also `use hylic::prelude::owned::*;`.
-//!
 //! Advanced helpers (`Traced`, `memoize_treeish`, `VecFold`, etc.)
 //! are NOT in the prelude; import them with their explicit paths.
-
-pub mod local;
-pub mod owned;
 
 pub(crate) mod utils;
 pub mod vec_fold;
@@ -45,9 +44,9 @@ pub use memoize::{memoize_treeish, memoize_treeish_by};
 pub use common_folds::{count_fold, depth_fold, pretty_print};
 pub use fallible::seeds_for_fallible;
 
-// ── Domain marker + core traits ─────────────────────────────────
+// ── Domain markers + core traits ────────────────────────────────
 
-pub use crate::domain::{Domain, Shared};
+pub use crate::domain::{Domain, Shared, Local, Owned};
 pub use crate::ops::{FoldOps, TreeOps};
 pub use crate::cata::exec::{Exec, Executor};
 
