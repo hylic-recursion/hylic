@@ -14,4 +14,5 @@ pub use lift::{
     ShareableLift,
     LiftBare,
     SeedLift,
+    LiftedNode,
 };

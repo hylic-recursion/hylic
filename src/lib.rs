@@ -15,3 +15,6 @@ pub mod graph;
 pub mod cata;
 
 pub mod prelude;
+
+#[cfg(test)]
+mod tests;

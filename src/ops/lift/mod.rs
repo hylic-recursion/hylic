@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Lift trait + library lifts.
 //!
 //! `Lift<D, N, H, R>` (in `core`) is the domain-generic triple
@@ -10,6 +9,9 @@
 //!
 //! Capability markers (`PureLift`, `ShareableLift`) and the
 //! `ShapeCapable<N>` trait live in `capability`.
+//!
+//! `LiftedNode<N>` is SeedLift's output type and lives here next
+//! to SeedLift so both travel together with the core crate.
 
 pub mod core;
 pub mod identity;
@@ -18,6 +20,7 @@ pub mod capability;
 pub mod bare;
 pub mod shape;
 pub mod seed_lift;
+pub mod lifted_node;
 
 pub use core::Lift;
 pub use identity::IdentityLift;
@@ -26,3 +29,4 @@ pub use capability::{ShapeCapable, PureLift, ShareableLift};
 pub use bare::LiftBare;
 pub use shape::ShapeLift;
 pub use seed_lift::SeedLift;
+pub use lifted_node::LiftedNode;

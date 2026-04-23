@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! IdentityLift — unit of Lift composition. Polymorphic over any
 //! domain D and any (N, H, R). N-preserving, trivially.
 

@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! LiftedNode — type-level structure of SeedLift's output treeish.
 //!
 //! Two variants:
@@ -13,6 +12,10 @@
 //! earlier design modelled a deferred-grow state (Seed child that
 //! later resolves to a Node); the current design grows inline at
 //! Entry-visit time, so such states are never observed.
+//!
+//! Lives in core with `SeedLift` — `LiftedNode<N>` is SeedLift's
+//! `N2` associated type and must be visible wherever `SeedLift`
+//! is constructed or applied.
 
 #[derive(Clone)]
 pub enum LiftedNode<N> {

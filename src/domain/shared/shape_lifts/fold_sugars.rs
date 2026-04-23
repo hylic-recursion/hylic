@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Fold-side Shared sugars — one-line wrappers over
 //! `Shared::phases_lift`.
 

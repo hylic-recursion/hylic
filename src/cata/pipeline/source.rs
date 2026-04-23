@@ -31,8 +31,7 @@ use std::sync::Arc;
 use crate::cata::exec::Executor;
 use crate::domain::{Domain, Shared};
 use crate::graph::{self, Edgy, Treeish};
-use crate::ops::{Lift, SeedLift, TreeOps};
-use super::internal::LiftedNode;
+use crate::ops::{Lift, LiftedNode, SeedLift, TreeOps};
 
 // ── TreeishSource ─────────────────────────────────────
 

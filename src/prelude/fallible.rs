@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Helpers for the fallible seed pattern: nodes are Either<Error, Valid>,
 //! where errors are leaves (no seeds) and valid nodes produce seeds.
 //!

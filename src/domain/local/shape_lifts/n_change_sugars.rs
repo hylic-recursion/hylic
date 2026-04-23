@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! N-change Local sugars — one-line wrappers over `Local::n_lift`.
 
 use crate::domain::Local;

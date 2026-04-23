@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Local-domain general primitives. Mirror of Shared with Rc.
 
 use std::rc::Rc;

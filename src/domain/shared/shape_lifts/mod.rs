@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! Shared-domain shape-lift catalogue.
 //!
 //! Three primitives (primitives.rs) underpin every sugar.

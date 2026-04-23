@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! ShapeLift — the universal shape-lift struct.
 //!
 //! One struct, one polymorphic `Lift<D, N, H, R>` impl, three

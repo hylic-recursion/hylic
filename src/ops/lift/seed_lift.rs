@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! SeedLift — the finishing Lift that retires the Seed axis.
 //!
 //! `SeedLift<N, Seed, H>` is a `Lift<Shared, N, H, R>` with
@@ -30,7 +29,7 @@ use std::sync::Arc;
 use crate::domain::{Domain, Shared};
 use crate::domain::shared::fold::{self as sfold, Fold};
 use crate::graph::{self, Edgy, Treeish};
-use crate::cata::pipeline::LiftedNode;
+use super::lifted_node::LiftedNode;
 use super::core::Lift;
 
 pub struct SeedLift<N, Seed, H>

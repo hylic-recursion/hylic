@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! `LiftBare` — apply any Lift to a bare `(treeish, fold)` pair.
 //!
 //! Users who don't use pipelines can still construct library Lifts

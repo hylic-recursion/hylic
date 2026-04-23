@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! N-change Shared sugars — one-line wrappers over `Shared::n_lift`.
 
 use crate::domain::Shared;

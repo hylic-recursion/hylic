@@ -1,4 +1,3 @@
-// LAYER: upper  (moves to `hylic-pipelines` crate on future split — see KB/.plans/finishing-up/next-modularization/layer-manifest.md)
 //! ComposedLift — atom of Lift composition. Domain-generic CPS-nested
 //! apply. Outer's input = inner's output; both impls must share D.
 
