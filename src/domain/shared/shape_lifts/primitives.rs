@@ -11,6 +11,8 @@
 //! contramap_n, filter_edges, wrap_visit, memoize_by, …) is a thin
 //! wrapper over one of these three.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::sync::Arc;
 
 use crate::domain::shared::fold::Fold;

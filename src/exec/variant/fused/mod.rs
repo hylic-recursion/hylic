@@ -1,6 +1,8 @@
 //! Fused executor: zero-overhead sequential recursive traversal.
 //! Supports ALL domains and ALL graph types.
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 use crate::ops::{FoldOps, TreeOps};
 use crate::domain::Domain;
 use super::super::{Executor, ExecutorSpec};

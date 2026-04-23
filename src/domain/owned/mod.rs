@@ -4,6 +4,8 @@
 //! Implements `FoldTransformsByValue` (consume-self); every sugar
 //! is a one-line inherent wrapper over `map_phases`.
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 pub mod edgy;
 
 use crate::ops::{FoldOps, FoldTransformsByValue};

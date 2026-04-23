@@ -5,8 +5,11 @@
 // ANCHOR: foldops_trait
 /// The three fold operations, independent of storage.
 pub trait FoldOps<N, H, R> {
+    /// Construct a fresh per-node heap from a node reference.
     fn init(&self, node: &N) -> H;
+    /// Fold one child result into the heap in place.
     fn accumulate(&self, heap: &mut H, result: &R);
+    /// Close out the heap into the node's final result.
     fn finalize(&self, heap: &H) -> R;
 }
 // ANCHOR_END: foldops_trait
@@ -35,7 +38,9 @@ where N: 'static, H: 'static, R: 'static,
 
     /// Associated storage types for the output Fold's phases.
     type OutInit<N2, H2>: 'static where N2: 'static, H2: 'static;
+    /// Output phase-storage type for `accumulate` after `map_phases`.
     type OutAcc<H2, R2>: 'static where H2: 'static, R2: 'static;
+    /// Output phase-storage type for `finalize` after `map_phases`.
     type OutFin<H2, R2>: 'static where H2: 'static, R2: 'static;
 
     /// Rewrite all three phase-closures at once. Sole slot-level
@@ -56,6 +61,7 @@ where N: 'static, H: 'static, R: 'static,
 
 /// Transformations on folds whose storage is single-owner (Box).
 /// `map_phases` consumes `self`; no cloning is possible.
+#[allow(missing_docs)] // parallels FoldTransformsByRef; items documented there
 pub trait FoldTransformsByValue<N, H, R>: FoldOps<N, H, R> + Sized
 where N: 'static, H: 'static, R: 'static,
 {

@@ -1,3 +1,5 @@
+
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
 use std::{fmt::Display, sync::Arc};
 
 use derive_more::Display;

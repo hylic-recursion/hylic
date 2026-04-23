@@ -4,6 +4,8 @@
 //! The last event bulk-sweeps all slots and accumulates sequentially.
 //! Lower per-delivery overhead. No CAS contention on heavy accumulate.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use crate::ops::FoldOps;
 use crate::exec::funnel::cps::chain::{FoldChain, SlotRef};
 use super::AccumulateStrategy;

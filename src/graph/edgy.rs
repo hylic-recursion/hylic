@@ -4,12 +4,17 @@
 //! (`map`, `contramap`, `contramap_or_emit`, `filter`) is a one-line
 //! wrapper that constructs the right visit-rewrite closure.
 
+#![allow(missing_docs)] // transformation sugars documented by their signatures; the struct itself is the user-facing type
+
 use std::sync::Arc;
 use either::Either;
 use crate::ops::{TreeOps, GraphTransformsByRef};
 use crate::graph::visit::Visit;
 
 // ANCHOR: edgy_struct
+/// A `NodeT → EdgeT*` function wrapped as a clonable Arc-backed
+/// struct. When `NodeT = EdgeT` the type is typically named
+/// [`crate::graph::Treeish`].
 pub struct Edgy<NodeT, EdgeT> {
     impl_visit: Arc<dyn Fn(&NodeT, &mut dyn FnMut(&EdgeT)) + Send + Sync>,
 }

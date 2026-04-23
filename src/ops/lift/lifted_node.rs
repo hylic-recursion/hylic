@@ -17,6 +17,8 @@
 //! `N2` associated type and must be visible wherever `SeedLift`
 //! is constructed or applied.
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 #[derive(Clone)]
 // ANCHOR: lifted_node_enum
 pub enum LiftedNode<N> {

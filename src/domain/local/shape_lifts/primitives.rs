@@ -1,5 +1,7 @@
 //! Local-domain general primitives. Mirror of Shared with Rc.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::rc::Rc;
 
 use crate::domain::local::Fold;

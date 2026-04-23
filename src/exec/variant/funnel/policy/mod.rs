@@ -3,6 +3,8 @@
 //! `Policy<Q, A, W>` is the generic implementor. Named presets are type aliases.
 //! Custom policies: use `Policy<MyQueue, MyAccumulate, MyWake>` or impl FunnelPolicy.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 pub mod queue;
 pub mod accumulate;
 pub mod wake;

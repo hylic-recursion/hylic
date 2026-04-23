@@ -13,6 +13,11 @@ use crate::ops::lift::capability::ShapeCapable;
 use crate::ops::lift::core::Lift;
 
 // ANCHOR: shape_lift_struct
+/// The universal library `Lift` — stores one xform per slot
+/// (grow, treeish, fold) and applies them during `apply`. Every
+/// library lift except `SeedLift` is a `ShapeLift` with appropriate
+/// xforms.
+#[must_use = "a ShapeLift performs no work on its own; apply it via a pipeline or LiftBare"]
 pub struct ShapeLift<D, N, H, R, N2, H2, R2>
 where D: ShapeCapable<N> + Domain<N2>,
       N:  Clone + 'static, H:  Clone + 'static, R:  Clone + 'static,
@@ -43,6 +48,9 @@ where D: ShapeCapable<N> + Domain<N2>,
       N:  Clone + 'static, H:  Clone + 'static, R:  Clone + 'static,
       N2: Clone + 'static, H2: Clone + 'static, R2: Clone + 'static,
 {
+    /// Construct a `ShapeLift` from per-slot xforms. Normally
+    /// users call one of the domain-level convenience constructors
+    /// (e.g. `Shared::wrap_init_lift`) rather than this directly.
     pub fn new(
         grow_xform:    D::GrowXform<N2>,
         treeish_xform: D::TreeishXform<N2>,

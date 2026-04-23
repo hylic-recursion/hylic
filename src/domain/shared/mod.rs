@@ -10,6 +10,8 @@
 //! dom::FUSED.run(&dom::fold(...), &graph::treeish_visit(...), &root);
 //! ```
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 pub mod fold;
 pub mod shape_capable;
 pub mod shape_lifts;

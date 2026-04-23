@@ -1,3 +1,5 @@
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 use std::marker::PhantomData;
 
 /// Push-based iterator: produces elements by callback.

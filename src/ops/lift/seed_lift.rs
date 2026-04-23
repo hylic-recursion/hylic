@@ -33,6 +33,11 @@ use super::lifted_node::LiftedNode;
 use super::core::Lift;
 
 // ANCHOR: seed_lift_struct
+/// The finishing lift that closes a `SeedPipeline`'s grow axis.
+/// Composes entry-seed dispatch on top of a `(grow, seeds, fold)`
+/// triple and produces a treeish over `LiftedNode<N>`. Not
+/// user-constructed; created internally by `PipelineExecSeed::run`.
+#[must_use = "a SeedLift performs no work on its own; it is composed onto a pipeline by PipelineExecSeed::run"]
 pub struct SeedLift<N, Seed, H>
 where N: 'static, Seed: 'static, H: 'static,
 {

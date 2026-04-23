@@ -9,6 +9,8 @@
 //! `product` stays as a separate binary method (not a single-fold
 //! transformation).
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 use std::sync::Arc;
 use crate::ops::{FoldOps, FoldTransformsByRef};
 use crate::domain::fold_combinators as combinators;

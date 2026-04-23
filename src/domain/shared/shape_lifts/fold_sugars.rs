@@ -1,6 +1,8 @@
 //! Fold-side Shared sugars — one-line wrappers over
 //! `Shared::phases_lift`.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::sync::Arc;
 
 use crate::domain::Shared;

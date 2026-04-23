@@ -5,7 +5,10 @@ use crate::domain::Domain;
 use super::core::Lift;
 
 #[derive(Clone, Copy)]
+#[must_use = "a Lift on its own performs no work; compose or apply it"]
 // ANCHOR: identity_lift
+/// The pass-through lift — leaves `(grow, treeish, fold)` unchanged
+/// across all three axes. Used as the unit of lift composition.
 pub struct IdentityLift;
 // ANCHOR_END: identity_lift
 

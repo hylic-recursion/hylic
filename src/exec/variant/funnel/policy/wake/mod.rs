@@ -5,6 +5,8 @@
 //! - OncePerBatch: notify first push per visit only (noop optimization)
 //! - EveryK: notify every K-th push (tunable)
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 pub mod every_push;
 pub mod once_per_batch;
 pub mod every_k;

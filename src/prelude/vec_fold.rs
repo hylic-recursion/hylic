@@ -1,3 +1,5 @@
+
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
 use crate::domain::shared::fold::{fold as fold_fn, Fold};
 
 #[derive(Debug, Clone)]

@@ -21,6 +21,7 @@ use super::core::Lift;
 
 /// A domain that supports `ShapeLift` composition.
 // ANCHOR: shape_capable
+#[allow(missing_docs)] // associated types/methods are implementation plumbing for ShapeLift
 pub trait ShapeCapable<N: 'static>: Domain<N> {
     type GrowXform<N2: 'static>: Clone + 'static;
     type TreeishXform<N2: 'static>: Clone + 'static;
@@ -69,6 +70,9 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
 
 // ── PureLift — sequential executor capability ────────────
 
+/// Blanket marker for lifts that satisfy the bounds needed by the
+/// sequential executor (`Fused`): `Lift + Clone + 'static` with
+/// `Clone + 'static` on every output type.
 pub trait PureLift<D, N, H, R>:
     Lift<D, N, H, R> + Clone + 'static
 where
@@ -91,6 +95,9 @@ where
 
 // ── ShareableLift — parallel executor capability ─────────
 
+/// Blanket marker for lifts that additionally satisfy the
+/// `Send + Sync` bounds required by parallel executors (`Funnel`,
+/// `ParLazy`, `ParEager`).
 pub trait ShareableLift<D, N, H, R>:
     PureLift<D, N, H, R> + Send + Sync
 where

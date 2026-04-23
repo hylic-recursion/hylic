@@ -7,6 +7,8 @@
 //! - `try_reclaim(pos) → bool`: CAS slot AVAILABLE → RECLAIMED.
 //!   If won, no worker will ever touch the value at this position.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::sync::atomic::{AtomicU64, Ordering, fence};
 mod segment;
 mod slot;

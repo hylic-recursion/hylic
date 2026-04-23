@@ -4,6 +4,8 @@
 //! can ship when the build_explainer_fold helper goes
 //! domain-generic.)
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::rc::Rc;
 
 use crate::domain::local::{self, Fold};

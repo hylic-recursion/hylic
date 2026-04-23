@@ -50,6 +50,7 @@ where NodeT: 'static, EdgeT: 'static,
 
 /// Graph transformations for domains whose storage is single-owner
 /// (Box). `map_endpoints` consumes `self`.
+#[allow(missing_docs)] // parallels GraphTransformsByRef; items documented there
 pub trait GraphTransformsByValue<NodeT, EdgeT>: Sized
 where NodeT: 'static, EdgeT: 'static,
 {

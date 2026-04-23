@@ -7,6 +7,8 @@
 //! differs (Rc vs Arc + Send+Sync). Sugars (wrap_init, map, zipmap,
 //! contramap) are one-line inherent wrappers over `map_phases`.
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 pub mod edgy;
 pub mod shape_capable;
 pub mod shape_lifts;

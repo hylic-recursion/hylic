@@ -11,6 +11,8 @@
 //! `trace_fold_full`: multi-line; includes all transitions with
 //! per-step `resulting_heap` snapshots.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::fmt::Debug;
 use crate::domain::shared::fold::{self as sfold, Fold};
 use crate::prelude::explainer::ExplainerHeap;

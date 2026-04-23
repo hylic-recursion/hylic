@@ -10,6 +10,8 @@
 //! | [`Local`] | `Rc<dyn Fn>` | yes | no |
 //! | [`Owned`] | `Box<dyn Fn>` | no | no |
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 pub mod shared;
 pub mod local;
 pub mod owned;

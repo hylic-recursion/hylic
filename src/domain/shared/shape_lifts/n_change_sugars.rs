@@ -1,5 +1,7 @@
 //! N-change Shared sugars — one-line wrappers over `Shared::n_lift`.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use crate::domain::Shared;
 use crate::graph::{edgy_visit, Edgy};
 use crate::ops::lift::shape::ShapeLift;

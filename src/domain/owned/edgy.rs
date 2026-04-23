@@ -2,6 +2,8 @@
 //! semantics: transformations consume `self`. Accepts non-Send
 //! closures at construction and transformation sites.
 
+#![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
+
 use either::Either;
 use crate::ops::{TreeOps, GraphTransformsByValue};
 use crate::graph::visit::Visit;

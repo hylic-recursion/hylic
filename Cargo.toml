@@ -2,7 +2,19 @@
 name = "hylic"
 version = "0.1.0"
 edition = "2021"
-description = "Composable tree computation framework: monoidal catamorphisms with parallel execution"
+rust-version = "1.75"
+description = "Composable tree computation: monoidal catamorphisms with parallel execution."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/simlei/hylic"
+homepage = "https://hylic.balcony.codes"
+documentation = "https://hylic.balcony.codes"
+keywords = ["recursion-schemes", "catamorphism", "tree", "parallel", "fold"]
+categories = ["data-structures", "concurrency", "algorithms"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 either = "1.15.0"

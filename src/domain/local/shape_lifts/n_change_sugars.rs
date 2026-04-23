@@ -1,5 +1,7 @@
 //! N-change Local sugars — one-line wrappers over `Local::n_lift`.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use crate::domain::Local;
 use crate::domain::local::edgy::{edgy_visit, Edgy};
 use crate::ops::lift::shape::ShapeLift;

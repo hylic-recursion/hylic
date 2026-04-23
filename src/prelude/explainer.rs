@@ -10,6 +10,8 @@
 //! whole-tree `Explainer` (ChildR = ExplainerResult) and
 //! `ExplainerDescribe` (ChildR = R, streaming emit).
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use crate::graph::{treeish, Treeish};
 
 #[derive(Clone)]

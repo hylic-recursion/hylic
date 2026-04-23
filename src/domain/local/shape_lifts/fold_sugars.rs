@@ -1,6 +1,8 @@
 //! Fold-side Local sugars — one-line wrappers over
 //! `Local::phases_lift`.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::rc::Rc;
 
 use crate::domain::Local;

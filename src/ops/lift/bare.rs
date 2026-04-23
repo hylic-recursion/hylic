@@ -15,6 +15,9 @@ use super::capability::ShapeCapable;
 use super::core::Lift;
 
 // ANCHOR: lift_bare_trait
+/// Blanket trait extending any [`Lift`] with direct application to
+/// a bare `(treeish, fold)` pair. Implemented automatically; users
+/// call `.apply_bare(...)` or `.run_on(...)` without a pipeline.
 pub trait LiftBare<D, N, H, R>: Lift<D, N, H, R>
 where D: ShapeCapable<N> + Domain<Self::N2>,
       N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,

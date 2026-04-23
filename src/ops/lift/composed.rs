@@ -5,6 +5,10 @@ use crate::domain::Domain;
 use super::core::Lift;
 
 // ANCHOR: composed_lift
+/// Sequential composition of two lifts. `L1` runs first; `L2`
+/// takes `L1`'s outputs as its inputs. The outer lift's `apply`
+/// drives this composition.
+#[must_use = "a ComposedLift represents a chained transformation; apply it via a pipeline or LiftBare"]
 pub struct ComposedLift<L1, L2> {
     pub(crate) inner: L1,
     pub(crate) outer: L2,
@@ -18,6 +22,8 @@ impl<L1: Clone, L2: Clone> Clone for ComposedLift<L1, L2> {
 }
 
 impl<L1, L2> ComposedLift<L1, L2> {
+    /// Construct a composed lift from an inner and outer lift.
+    /// The outer's inputs must match the inner's outputs.
     pub fn compose(inner: L1, outer: L2) -> Self {
         ComposedLift { inner, outer }
     }

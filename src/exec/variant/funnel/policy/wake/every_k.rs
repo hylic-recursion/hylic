@@ -1,6 +1,8 @@
 //! EveryK: notify every K-th push. K=1 = EveryPush. K=∞ ≈ OncePerBatch.
 //! K is a const generic — the modulus compiles to a bitmask when K is a power of 2.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use super::WakeStrategy;
 
 pub struct EveryK<const K: u32>;

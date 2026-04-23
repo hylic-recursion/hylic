@@ -22,6 +22,8 @@
 //! });
 //! ```
 
+/// Executor variants: [`variant::fused::Fused`] (sequential) and
+/// [`variant::funnel::Funnel`] (parallel).
 pub mod variant;
 
 pub use variant::fused;
@@ -41,6 +43,8 @@ use crate::ops::TreeOps;
 /// bounds on G (e.g. Fused accepts any TreeOps, Funnel requires
 /// Send+Sync). The compiler checks G at the call site.
 pub trait Executor<N: 'static, R: 'static, D: Domain<N>, G: TreeOps<N> + 'static> {
+    /// Run the given `fold` over the `graph` starting at `root` and
+    /// return the fold's final result for the root.
     fn run<H: 'static>(&self, fold: &D::Fold<H, R>, graph: &G, root: &N) -> R;
 }
 // ANCHOR_END: executor_trait
@@ -51,9 +55,14 @@ pub trait Executor<N: 'static, R: 'static, D: Domain<N>, G: TreeOps<N> + 'static
 /// Lifecycle: resource management + session creation.
 /// Only Specs implement this. Sessions are the output.
 pub trait ExecutorSpec: Copy {
+    /// Borrowed resource attached to a session (for example, a
+    /// thread-pool reference).
     type Resource<'r> where Self: 'r;
+    /// The session type produced by `attach`.
     type Session<'s>: 's where Self: 's;
+    /// Bind the spec to a borrowed resource, returning a session.
     fn attach(self, resource: Self::Resource<'_>) -> Self::Session<'_>;
+    /// Construct an owned session scoped to `f` and run `f` against it.
     fn with_session<R>(&self, f: impl for<'s> FnOnce(&Self::Session<'s>) -> R) -> R;
 }
 // ANCHOR_END: executor_spec
@@ -61,12 +70,17 @@ pub trait ExecutorSpec: Copy {
 // ── Exec<D, S>: the sole user-facing wrapper ───────
 
 // ANCHOR: exec_struct
+/// User-facing executor wrapper tying a domain `D` to an executor
+/// strategy `S`. Both Specs and Sessions appear inside `Exec`.
 #[repr(transparent)]
 pub struct Exec<D, S>(pub(crate) S, PhantomData<D>);
 
 impl<D, S> Exec<D, S> {
+    /// Wrap an executor strategy `inner` as `Exec<D, S>`.
     pub const fn new(inner: S) -> Self { Exec(inner, PhantomData) }
+    /// Borrow the inner strategy.
     pub fn inner(&self) -> &S { &self.0 }
+    /// Unwrap the inner strategy, consuming the wrapper.
     pub fn into_inner(self) -> S { self.0 }
 }
 
@@ -86,6 +100,8 @@ fn wrap_ref<D, T>(inner: &T) -> &Exec<D, T> {
 
 impl<D, S> Exec<D, S> {
     // ANCHOR: inherent_run
+    /// Run the inner strategy as an [`Executor`]. Inferred over `N`,
+    /// `H`, `R`, and `G` from the arguments.
     pub fn run<N: 'static, H: 'static, R: 'static, G: TreeOps<N> + 'static>(
         &self, fold: &<D as Domain<N>>::Fold<H, R>, graph: &G, root: &N,
     ) -> R
@@ -100,10 +116,15 @@ impl<D, S> Exec<D, S> {
 
 // ANCHOR: exec_session
 impl<D, S: ExecutorSpec> Exec<D, S> {
+    /// Construct a session bound to an owned resource, pass it to
+    /// `f`, and return `f`'s result. The session is dropped at the
+    /// end of the scope.
     pub fn session<R>(&self, f: impl for<'s> FnOnce(&Exec<D, S::Session<'s>>) -> R) -> R {
         self.0.with_session(|session| f(wrap_ref(session)))
     }
 
+    /// Bind the spec to a borrowed resource, returning a session as
+    /// an `Exec`.
     pub fn attach(self, resource: S::Resource<'_>) -> Exec<D, S::Session<'_>> {
         Exec::new(self.0.attach(resource))
     }

@@ -1,6 +1,8 @@
 //! EveryPush: notify on every successful push.
 //! Robust default. No missed wakes. No dedup overhead.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use super::WakeStrategy;
 
 pub struct EveryPush;

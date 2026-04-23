@@ -13,14 +13,22 @@
 use crate::domain::Domain;
 
 // ANCHOR: lift_trait
+/// Domain-generic transformer over the `(grow, treeish, fold)`
+/// triple. See [Lifts in the user guide](https://hylic.balcony.codes/concepts/lifts.html).
 pub trait Lift<D, N, H, R>
 where D: Domain<N> + Domain<Self::N2>,
       N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
 {
+    /// Output node type after the lift has been applied.
     type N2:   Clone + 'static;
+    /// Output heap type after the lift has been applied.
     type MapH: Clone + 'static;
+    /// Output result type after the lift has been applied.
     type MapR: Clone + 'static;
 
+    /// Apply the lift to the input triple and call `cont` with the
+    /// transformed `(grow, treeish, fold)` triple. Continuation-passing
+    /// style keeps the output-type chain fully inferred.
     fn apply<Seed, T>(
         &self,
         grow:    <D as Domain<N>>::Grow<Seed, N>,

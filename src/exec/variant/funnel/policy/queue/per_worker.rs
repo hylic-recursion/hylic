@@ -4,6 +4,8 @@
 //! Steal uses an AtomicU64 bitmask to find non-empty deques —
 //! one atomic load instead of scanning N deques.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::exec::funnel::cps::cont::FunnelTask;

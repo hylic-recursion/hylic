@@ -4,6 +4,8 @@
 //! No per-worker deques. No bitmask. Simple and contention-friendly
 //! for small trees.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use crate::exec::funnel::infra::steal_queue::StealQueue;
 use crate::exec::funnel::cps::cont::FunnelTask;
 use super::{WorkStealing, TaskOps};

@@ -4,6 +4,8 @@
 //! per-fold resources (Store) and per-worker handles (Handle).
 //! The rest of the system interacts through `TaskOps` — push, try_acquire.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 pub mod per_worker;
 pub mod shared;
 

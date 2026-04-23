@@ -5,6 +5,8 @@
 //! arrive — earlier cascade start, but CAS contention when accumulate
 //! is heavy.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use crate::ops::FoldOps;
 use crate::exec::funnel::cps::chain::{FoldChain, SlotRef};
 use super::AccumulateStrategy;

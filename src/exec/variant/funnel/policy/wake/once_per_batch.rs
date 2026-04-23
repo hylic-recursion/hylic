@@ -2,6 +2,8 @@
 //! Reduces redundant wakeups. Best for noop/overhead-sensitive.
 //! Regresses on wide trees with light work (workers starve).
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 use super::WakeStrategy;
 
 pub struct OncePerBatch;

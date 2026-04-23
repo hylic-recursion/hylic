@@ -4,6 +4,8 @@
 //! - OnArrival: streaming sweep with CAS gate. Accumulate as results arrive.
 //! - OnFinalize: bulk sweep by the last event. Accumulate all at once.
 
+#![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
+
 pub mod on_arrival;
 pub mod on_finalize;
 
