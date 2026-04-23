@@ -72,14 +72,11 @@ pub trait ExecutorSpec: Copy {
 // ANCHOR: exec_struct
 /// User-facing executor wrapper tying a domain `D` to an executor
 /// strategy `S`. Both Specs and Sessions appear inside `Exec`.
-#[repr(transparent)]
 pub struct Exec<D, S>(pub(crate) S, PhantomData<D>);
 
 impl<D, S> Exec<D, S> {
     /// Wrap an executor strategy `inner` as `Exec<D, S>`.
     pub const fn new(inner: S) -> Self { Exec(inner, PhantomData) }
-    /// Borrow the inner strategy.
-    pub fn inner(&self) -> &S { &self.0 }
     /// Unwrap the inner strategy, consuming the wrapper.
     pub fn into_inner(self) -> S { self.0 }
 }
@@ -89,12 +86,6 @@ impl<D, S: Clone> Clone for Exec<D, S> {
 }
 impl<D, S: Copy> Copy for Exec<D, S> {}
 // ANCHOR_END: exec_struct
-
-/// Safe reinterpret: &T → &Exec<D, T> via repr(transparent).
-fn wrap_ref<D, T>(inner: &T) -> &Exec<D, T> {
-    // SAFETY: Exec is repr(transparent) over T. PhantomData<D> is ZST.
-    unsafe { &*(inner as *const T as *const Exec<D, T>) }
-}
 
 // ── Block A: run (S implements Executor) ────────────
 
@@ -117,10 +108,14 @@ impl<D, S> Exec<D, S> {
 // ANCHOR: exec_session
 impl<D, S: ExecutorSpec> Exec<D, S> {
     /// Construct a session bound to an owned resource, pass it to
-    /// `f`, and return `f`'s result. The session is dropped at the
-    /// end of the scope.
-    pub fn session<R>(&self, f: impl for<'s> FnOnce(&Exec<D, S::Session<'s>>) -> R) -> R {
-        self.0.with_session(|session| f(wrap_ref(session)))
+    /// `f` by value (wrapping a borrowed session inside a fresh
+    /// `Exec<D, &Session>`), and return `f`'s result. The session
+    /// is dropped at the end of the scope.
+    pub fn session<R>(
+        &self,
+        f: impl for<'s> FnOnce(Exec<D, &S::Session<'s>>) -> R,
+    ) -> R {
+        self.0.with_session(|session| f(Exec::new(session)))
     }
 
     /// Bind the spec to a borrowed resource, returning a session as
