@@ -13,7 +13,7 @@ pub mod shape_lifts;
 
 use std::rc::Rc;
 use crate::ops::{FoldOps, FoldTransformsByRef};
-use crate::cata::exec::{Exec, fused};
+use crate::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
 

@@ -8,7 +8,7 @@
 //! 3-slot signature; the panic closure is never invoked because no
 //! Lift impl calls grow at runtime.
 
-use crate::cata::exec::Executor;
+use crate::exec::Executor;
 use crate::domain::Domain;
 use crate::ops::TreeOps;
 use super::capability::ShapeCapable;

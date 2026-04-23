@@ -10,7 +10,7 @@
 pub mod ops;
 pub mod domain;
 pub mod graph;
-pub mod cata;
+pub mod exec;
 
 pub mod prelude;
 

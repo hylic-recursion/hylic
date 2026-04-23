@@ -6,8 +6,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::cata::exec::funnel::cps::cont::FunnelTask;
-use crate::cata::exec::funnel::infra::deque::WorkerDeque;
+use crate::exec::funnel::cps::cont::FunnelTask;
+use crate::exec::funnel::infra::deque::WorkerDeque;
 use super::{WorkStealing, TaskOps};
 
 pub struct PerWorker;

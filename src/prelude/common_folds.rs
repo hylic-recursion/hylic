@@ -2,7 +2,7 @@
 
 use crate::domain::shared::fold::{Fold, simple_fold};
 use crate::graph::Treeish;
-use crate::cata::exec;
+use crate::exec;
 use crate::domain;
 use crate::prelude::vec_fold::{vec_fold, VecHeap};
 use crate::prelude::utils::push_indent;

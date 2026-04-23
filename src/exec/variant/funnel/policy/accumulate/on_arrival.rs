@@ -6,7 +6,7 @@
 //! is heavy.
 
 use crate::ops::FoldOps;
-use crate::cata::exec::funnel::cps::chain::{FoldChain, SlotRef};
+use crate::exec::funnel::cps::chain::{FoldChain, SlotRef};
 use super::AccumulateStrategy;
 
 pub struct OnArrival;

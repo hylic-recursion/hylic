@@ -11,7 +11,7 @@ pub use on_arrival::OnArrival;
 pub use on_finalize::OnFinalize;
 
 use crate::ops::FoldOps;
-use crate::cata::exec::funnel::cps::chain::{FoldChain, SlotRef};
+use crate::exec::funnel::cps::chain::{FoldChain, SlotRef};
 
 // ANCHOR: accumulate_strategy_trait
 /// Accumulation strategy: how child results flow into the parent's heap.

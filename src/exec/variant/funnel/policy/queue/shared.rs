@@ -4,8 +4,8 @@
 //! No per-worker deques. No bitmask. Simple and contention-friendly
 //! for small trees.
 
-use crate::cata::exec::funnel::infra::steal_queue::StealQueue;
-use crate::cata::exec::funnel::cps::cont::FunnelTask;
+use crate::exec::funnel::infra::steal_queue::StealQueue;
+use crate::exec::funnel::cps::cont::FunnelTask;
 use super::{WorkStealing, TaskOps};
 
 pub struct Shared;

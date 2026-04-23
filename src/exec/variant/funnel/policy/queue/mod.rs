@@ -10,7 +10,7 @@ pub mod shared;
 pub use per_worker::PerWorker;
 pub use shared::Shared;
 
-use crate::cata::exec::funnel::cps::cont::FunnelTask;
+use crate::exec::funnel::cps::cont::FunnelTask;
 
 // ANCHOR: task_ops
 /// Per-worker task operations. Each WorkStealing::Handle implements this.

@@ -7,7 +7,7 @@
 pub mod edgy;
 
 use crate::ops::{FoldOps, FoldTransformsByValue};
-use crate::cata::exec::{Exec, fused};
+use crate::exec::{Exec, fused};
 
 // ── Executor constants (domain-bound) ────────────
 

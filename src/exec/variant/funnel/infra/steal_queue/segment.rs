@@ -115,7 +115,7 @@ impl<T> Drop for SegmentTable<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cata::exec::funnel::infra::steal_queue::slot as slot_mod;
+    use crate::exec::funnel::infra::steal_queue::slot as slot_mod;
     use std::sync::{Arc, Barrier};
 
     #[test]

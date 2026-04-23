@@ -48,7 +48,7 @@ pub use fallible::seeds_for_fallible;
 
 pub use crate::domain::{Domain, Shared, Local, Owned};
 pub use crate::ops::{FoldOps, TreeOps};
-pub use crate::cata::exec::{Exec, Executor};
+pub use crate::exec::{Exec, Executor};
 
 // ── Shared-domain constructors (default) ────────────────────────
 
@@ -65,7 +65,7 @@ pub use crate::graph::{
 
 // ── Executor variants as modules (opt-in with e.g. `funnel::Spec`) ─
 
-pub use crate::cata::exec::{fused, funnel};
+pub use crate::exec::{fused, funnel};
 
 // ── Lift atoms (including SeedLift, LiftBare, LiftedNode) ───────
 

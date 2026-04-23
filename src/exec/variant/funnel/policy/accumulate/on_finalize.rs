@@ -5,7 +5,7 @@
 //! Lower per-delivery overhead. No CAS contention on heavy accumulate.
 
 use crate::ops::FoldOps;
-use crate::cata::exec::funnel::cps::chain::{FoldChain, SlotRef};
+use crate::exec::funnel::cps::chain::{FoldChain, SlotRef};
 use super::AccumulateStrategy;
 
 pub struct OnFinalize;

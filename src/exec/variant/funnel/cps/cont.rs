@@ -3,8 +3,8 @@
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use super::chain::{FoldChain, SlotRef};
-use crate::cata::exec::funnel::infra::arena::ArenaIdx;
-use crate::cata::exec::funnel::infra::cont_arena::ContIdx;
+use crate::exec::funnel::infra::arena::ArenaIdx;
+use crate::exec::funnel::infra::cont_arena::ContIdx;
 
 // ANCHOR: funnel_task
 pub enum FunnelTask<N, H, R> {

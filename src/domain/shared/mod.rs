@@ -14,7 +14,7 @@ pub mod fold;
 pub mod shape_capable;
 pub mod shape_lifts;
 
-use crate::cata::exec::{Exec, fused};
+use crate::exec::{Exec, fused};
 
 pub const FUSED: Exec<super::Shared, fused::Spec> = Exec::new(fused::Spec);
 

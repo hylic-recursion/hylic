@@ -10,7 +10,7 @@ mod stress;
 mod interleaving;
 
 use crate::domain::shared as dom;
-use crate::cata::exec::ExecutorSpec;
+use crate::exec::ExecutorSpec;
 use super::{Spec, Pool};
 use super::policy::{self, FunnelPolicy};
 use super::policy::queue::WorkStealing;
@@ -90,7 +90,7 @@ pub(super) fn n_graph() -> crate::graph::Treeish<N> {
 pub(super) fn run_on_pool<P: FunnelPolicy, R>(
     pool: &Pool<'_>,
     n_workers: usize,
-    f: impl for<'s> FnOnce(&crate::cata::exec::Exec<crate::domain::Shared, super::Session<'s, P>>) -> R,
+    f: impl for<'s> FnOnce(&crate::exec::Exec<crate::domain::Shared, super::Session<'s, P>>) -> R,
 ) -> R {
     let spec = Spec::<P>::new(
             n_workers,
@@ -105,7 +105,7 @@ pub(super) fn run_on_pool<P: FunnelPolicy, R>(
 /// One-shot: create pool, run fold, destroy pool.
 pub(super) fn with_exec<P: FunnelPolicy, R>(
     n_workers: usize,
-    f: impl for<'s> FnOnce(&crate::cata::exec::Exec<crate::domain::Shared, super::Session<'s, P>>) -> R,
+    f: impl for<'s> FnOnce(&crate::exec::Exec<crate::domain::Shared, super::Session<'s, P>>) -> R,
 ) -> R {
     Pool::with(n_workers, |pool| run_on_pool::<P, _>(pool, n_workers, f))
 }
