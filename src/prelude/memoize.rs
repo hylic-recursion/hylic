@@ -26,12 +26,15 @@ where
     let cache: Arc<Mutex<HashMap<K, Vec<N>>>> = Arc::new(Mutex::new(HashMap::new()));
     treeish(move |node: &N| {
         let k = key_fn(node);
-        let mut cache = cache.lock().unwrap();
-        if let Some(children) = cache.get(&k) {
+        // Check the cache under a short-lived lock; otherwise compute
+        // children with the lock released, so an executor that
+        // recurses through the memoized graph before returning cannot
+        // deadlock on reentrant acquisition.
+        if let Some(children) = cache.lock().unwrap().get(&k) {
             return children.clone();
         }
         let children = graph.apply(node);
-        cache.insert(k, children.clone());
+        cache.lock().unwrap().insert(k, children.clone());
         children
     })
 }

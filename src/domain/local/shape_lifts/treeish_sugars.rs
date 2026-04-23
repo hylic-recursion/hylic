@@ -42,6 +42,10 @@ impl Local {
         })
     }
 
+    /// See `Shared::memoize_by_lift` for the rationale on
+    /// scoping the cache borrow tightly and dropping it before
+    /// invoking the callback. Under `RefCell` a reentrant borrow
+    /// panics rather than deadlocks, so the same care applies.
     pub fn memoize_by_lift<N, H, R, K, KeyFn>(key_fn: KeyFn)
         -> ShapeLift<Local, N, H, R, N, H, R>
     where
@@ -55,15 +59,18 @@ impl Local {
             let cache: Rc<RefCell<HashMap<K, Vec<N>>>> = Rc::new(RefCell::new(HashMap::new()));
             edgy_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {
                 let k = key_fn(n);
-                let mut cache_g = cache.borrow_mut();
-                if let Some(children) = cache_g.get(&k) {
-                    for c in children { cb(c); }
-                    return;
-                }
-                let mut collected: Vec<N> = Vec::new();
-                g.visit(n, &mut |c: &N| collected.push(c.clone()));
-                for c in &collected { cb(c); }
-                cache_g.insert(k, collected);
+                let children: Vec<N> = {
+                    let mut cache_g = cache.borrow_mut();
+                    if let Some(cached) = cache_g.get(&k) {
+                        cached.clone()
+                    } else {
+                        let mut collected: Vec<N> = Vec::new();
+                        g.visit(n, &mut |c: &N| collected.push(c.clone()));
+                        cache_g.insert(k, collected.clone());
+                        collected
+                    }
+                };
+                for c in &children { cb(c); }
             })
         })
     }

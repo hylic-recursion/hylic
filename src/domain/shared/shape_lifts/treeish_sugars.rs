@@ -49,6 +49,13 @@ impl Shared {
     /// Memoize children by a user-supplied key function. Duplicate
     /// subtrees (identified by the same key) compute their children
     /// once; subsequent visits return the cached Vec.
+    ///
+    /// The cache mutex is scoped tightly: children are collected (or
+    /// looked up) under the lock, the lock is dropped, and the
+    /// callback is invoked on the released vector. This avoids
+    /// reentrant acquisition under sequential executors whose
+    /// `visit`-continuation recurses back through the same
+    /// memoized graph before the outer call returns.
     pub fn memoize_by_lift<N, H, R, K, KeyFn>(key_fn: KeyFn)
         -> ShapeLift<Shared, N, H, R, N, H, R>
     where
@@ -62,16 +69,18 @@ impl Shared {
             let cache: Arc<Mutex<HashMap<K, Vec<N>>>> = Arc::new(Mutex::new(HashMap::new()));
             edgy_visit(move |n: &N, cb: &mut dyn FnMut(&N)| {
                 let k = key_fn(n);
-                let mut cache_g = cache.lock().unwrap();
-                if let Some(children) = cache_g.get(&k) {
-                    for c in children { cb(c); }
-                    return;
-                }
-                // Collect children into cache.
-                let mut collected: Vec<N> = Vec::new();
-                g.visit(n, &mut |c: &N| collected.push(c.clone()));
-                for c in &collected { cb(c); }
-                cache_g.insert(k, collected);
+                let children: Vec<N> = {
+                    let mut cache_g = cache.lock().unwrap();
+                    if let Some(cached) = cache_g.get(&k) {
+                        cached.clone()
+                    } else {
+                        let mut collected: Vec<N> = Vec::new();
+                        g.visit(n, &mut |c: &N| collected.push(c.clone()));
+                        cache_g.insert(k, collected.clone());
+                        collected
+                    }
+                };
+                for c in &children { cb(c); }
             })
         })
     }
