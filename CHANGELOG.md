@@ -15,7 +15,7 @@ into the ten load-bearing changes that shaped the 1.0 surface.
 - **Crate split into `hylic` (core) and `hylic-pipeline`
   (typestate builder)**, with the pipeline subtree relocated and
   the core left as `hylic::{ops, domain, graph, exec}`
-  (`dd7f012`, `f55fd44`, `75e6428`).
+  (`dd7f012`, `75e6428`; pipeline-side `f55fd44`).
 - **`Lift` trait as a three-axis (Grow, Graph, Fold) transformer**
   with four building blocks: `IdentityLift`, `ComposedLift`,
   `ShapeLift`, `SeedLift`. The unified `ShapeLift` replaced a
@@ -46,7 +46,7 @@ into the ten load-bearing changes that shaped the 1.0 surface.
 - **Blanket sugar traits per domain** (`SeedSugarsShared`,
   `TreeishSugarsShared`, `LiftedSugarsShared`, plus `_Local`
   mirrors) replacing `_local`-suffixed duplicate inherent
-  methods (`2639c5d`, `b8a4397`, `80f918f`).
+  methods (`2639c5d`, `80f918f`; pipeline-side `b8a4397`).
 
 ### Removed
 

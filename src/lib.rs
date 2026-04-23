@@ -8,6 +8,7 @@
 //! [`domain::Shared`] (Arc), [`domain::Local`] (Rc), [`domain::Owned`] (Box).
 
 #![warn(missing_docs)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 /// Core operation traits: `FoldOps`, `TreeOps`, and the `Lift`
 /// family.

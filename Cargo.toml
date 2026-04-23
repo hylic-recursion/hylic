@@ -11,6 +11,7 @@ homepage = "https://hylic.balcony.codes"
 documentation = "https://hylic.balcony.codes"
 keywords = ["recursion-schemes", "catamorphism", "tree", "parallel", "fold"]
 categories = ["data-structures", "concurrency", "algorithms"]
+exclude = ["KB/**", "__Scratch__", "notes.txt", "doc/**", ".plans/**"]
 
 [package.metadata.docs.rs]
 all-features = true

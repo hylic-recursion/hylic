@@ -8,7 +8,6 @@
 //! All axes are monomorphized. Zero runtime overhead for strategy dispatch.
 
 #![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
-#![deny(unsafe_op_in_unsafe_fn)]
 
 pub(crate) mod cps;
 pub(crate) mod dispatch;
