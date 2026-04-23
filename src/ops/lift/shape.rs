@@ -17,7 +17,7 @@ use crate::ops::lift::core::Lift;
 /// (grow, treeish, fold) and applies them during `apply`. Every
 /// library lift except `SeedLift` is a `ShapeLift` with appropriate
 /// xforms.
-#[must_use = "a ShapeLift performs no work on its own; apply it via a pipeline or LiftBare"]
+#[must_use]
 pub struct ShapeLift<D, N, H, R, N2, H2, R2>
 where D: ShapeCapable<N> + Domain<N2>,
       N:  Clone + 'static, H:  Clone + 'static, R:  Clone + 'static,

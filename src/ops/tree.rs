@@ -1,6 +1,7 @@
-//! TreeOps — the tree traversal abstraction.
-//! GraphTransformsByRef / GraphTransformsByValue — the graph
-//! transformation abstraction, split by storage mode (mirrors Fold).
+//! Tree traversal and graph-transformation traits. `TreeOps<N>` is
+//! the executor-facing abstraction. `GraphTransformsByRef` and
+//! `GraphTransformsByValue` split by storage mode the same way
+//! `FoldTransforms*` does in `ops/fold.rs`.
 
 // ANCHOR: treeops_trait
 /// Tree traversal operations, independent of storage.

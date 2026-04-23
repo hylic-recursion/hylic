@@ -37,7 +37,7 @@ use super::core::Lift;
 /// Composes entry-seed dispatch on top of a `(grow, seeds, fold)`
 /// triple and produces a treeish over `LiftedNode<N>`. Not
 /// user-constructed; created internally by `PipelineExecSeed::run`.
-#[must_use = "a SeedLift performs no work on its own; it is composed onto a pipeline by PipelineExecSeed::run"]
+#[must_use]
 pub struct SeedLift<N, Seed, H>
 where N: 'static, Seed: 'static, H: 'static,
 {

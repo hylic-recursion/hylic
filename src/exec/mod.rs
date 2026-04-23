@@ -74,10 +74,9 @@ pub trait ExecutorSpec: Copy {
 /// strategy `S`. Both Specs and Sessions appear inside `Exec`.
 pub struct Exec<D, S>(pub(crate) S, PhantomData<D>);
 
+#[allow(missing_docs)] // trivial constructor/accessor pair
 impl<D, S> Exec<D, S> {
-    /// Wrap an executor strategy `inner` as `Exec<D, S>`.
     pub const fn new(inner: S) -> Self { Exec(inner, PhantomData) }
-    /// Unwrap the inner strategy, consuming the wrapper.
     pub fn into_inner(self) -> S { self.0 }
 }
 

@@ -8,7 +8,7 @@ use super::core::Lift;
 /// Sequential composition of two lifts. `L1` runs first; `L2`
 /// takes `L1`'s outputs as its inputs. The outer lift's `apply`
 /// drives this composition.
-#[must_use = "a ComposedLift represents a chained transformation; apply it via a pipeline or LiftBare"]
+#[must_use]
 pub struct ComposedLift<L1, L2> {
     pub(crate) inner: L1,
     pub(crate) outer: L2,

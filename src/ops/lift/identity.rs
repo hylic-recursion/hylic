@@ -4,13 +4,15 @@
 use crate::domain::Domain;
 use super::core::Lift;
 
-#[derive(Clone, Copy)]
-#[must_use = "a Lift on its own performs no work; compose or apply it"]
+#[must_use]
 // ANCHOR: identity_lift
-/// The pass-through lift — leaves `(grow, treeish, fold)` unchanged
-/// across all three axes. Used as the unit of lift composition.
+/// The pass-through lift — the unit of lift composition. Leaves
+/// every slot unchanged.
 pub struct IdentityLift;
 // ANCHOR_END: identity_lift
+
+impl Clone for IdentityLift { fn clone(&self) -> Self { IdentityLift } }
+impl Copy for IdentityLift {}
 
 impl<D, N, H, R> Lift<D, N, H, R> for IdentityLift
 where D: Domain<N>,

@@ -1,6 +1,9 @@
-//! FoldOps — the fold operations abstraction.
-//! FoldTransformsByRef / FoldTransformsByValue — the fold
-//! transformation abstraction, split by storage mode.
+//! Fold operations and phase-level transformation traits.
+//! `FoldOps<N, H, R>` is what executors consume; the
+//! `FoldTransforms*` pair splits by storage mode (by-reference for
+//! `Shared`/`Local`, by-value for `Owned`) so that `map_phases`
+//! can be expressed once per domain without an explicit Clone
+//! bound leaking into the Owned case.
 
 // ANCHOR: foldops_trait
 /// The three fold operations, independent of storage.
