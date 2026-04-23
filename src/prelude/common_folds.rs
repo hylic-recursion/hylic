@@ -1,6 +1,6 @@
 //! Common fold patterns — ready-made folds for frequent use cases.
 
-use crate::domain::shared::fold::{Fold, simple_fold};
+use crate::domain::shared::fold::{Fold, fold};
 use crate::graph::Treeish;
 use crate::exec;
 use crate::domain;
@@ -9,16 +9,20 @@ use crate::prelude::utils::push_indent;
 
 /// Count all nodes in a tree.
 pub fn count_fold<N: 'static>() -> Fold<N, usize, usize> {
-    let init = |_: &N| 1usize;
-    let acc = |heap: &mut usize, child: &usize| *heap += child;
-    simple_fold(init, acc)
+    fold(
+        |_: &N| 1usize,
+        |heap: &mut usize, child: &usize| *heap += child,
+        |heap: &usize| *heap,
+    )
 }
 
 /// Maximum depth of a tree (root = 1).
 pub fn depth_fold<N: 'static>() -> Fold<N, usize, usize> {
-    let init = |_: &N| 1usize;
-    let acc = |heap: &mut usize, child: &usize| *heap = (*heap).max(*child + 1);
-    simple_fold(init, acc)
+    fold(
+        |_: &N| 1usize,
+        |heap: &mut usize, child: &usize| *heap = (*heap).max(*child + 1),
+        |heap: &usize| *heap,
+    )
 }
 
 /// Format a tree as an indented string.

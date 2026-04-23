@@ -23,4 +23,4 @@ pub const FUSED: Exec<super::Shared, fused::Spec> = Exec::new(fused::Spec);
 /// Bind any executor to the Shared domain.
 pub const fn exec<S>(s: S) -> Exec<super::Shared, S> { Exec::new(s) }
 
-pub use fold::{Fold, fold, simple_fold};
+pub use fold::{Fold, fold};

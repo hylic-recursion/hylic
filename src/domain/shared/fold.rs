@@ -198,9 +198,3 @@ pub fn fold<N, H, R>(
     Fold::new(init, accumulate, finalize)
 }
 
-pub fn simple_fold<N, H>(
-    init: impl Fn(&N) -> H + Send + Sync + 'static,
-    accumulate: impl Fn(&mut H, &H) + Send + Sync + 'static,
-) -> Fold<N, H, H> where N: 'static, H: Clone + 'static {
-    Fold::new(init, accumulate, |heap| heap.clone())
-}

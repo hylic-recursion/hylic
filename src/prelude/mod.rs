@@ -52,7 +52,7 @@ pub use crate::exec::{Exec, Executor};
 
 // ── Shared-domain constructors (default) ────────────────────────
 
-pub use crate::domain::shared::{Fold, fold, simple_fold};
+pub use crate::domain::shared::{Fold, fold};
 pub use crate::domain::shared::{exec, FUSED};
 
 // ── Graph (Arc-based; matches Shared) ───────────────────────────

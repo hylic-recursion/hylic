@@ -77,7 +77,11 @@ pub(super) fn gen_adj(node_count: usize, bf: usize) -> std::sync::Arc<Vec<Vec<us
 }
 
 pub(super) fn sum_fold() -> dom::Fold<N, i32, i32> {
-    dom::simple_fold(|n: &N| n.val, |a: &mut i32, c: &i32| { *a += c; })
+    dom::fold(
+        |n: &N| n.val,
+        |a: &mut i32, c: &i32| { *a += c; },
+        |h: &i32| *h,
+    )
 }
 
 pub(super) fn n_graph() -> crate::graph::Treeish<N> {
