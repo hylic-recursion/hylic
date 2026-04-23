@@ -18,7 +18,9 @@
 //! is constructed or applied.
 
 #[derive(Clone)]
+// ANCHOR: lifted_node_enum
 pub enum LiftedNode<N> {
     Entry,
     Node(N),
 }
+// ANCHOR_END: lifted_node_enum

@@ -20,6 +20,7 @@ use super::core::Lift;
 // ── ShapeCapable ─────────────────────────────────────────
 
 /// A domain that supports `ShapeLift` composition.
+// ANCHOR: shape_capable
 pub trait ShapeCapable<N: 'static>: Domain<N> {
     type GrowXform<N2: 'static>: Clone + 'static;
     type TreeishXform<N2: 'static>: Clone + 'static;
@@ -63,6 +64,8 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
     ) -> <Self as Domain<N>>::Graph<N>
     where Seed: Clone;
 }
+
+// ANCHOR_END: shape_capable
 
 // ── PureLift — sequential executor capability ────────────
 

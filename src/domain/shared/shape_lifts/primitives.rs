@@ -47,6 +47,7 @@ impl Shared {
 // ── phases_lift — fold-phase rewrite primitive ────────────────
 
 impl Shared {
+    // ANCHOR: phases_lift
     pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
         mi: MI, ma: MA, mf: MF,
     ) -> ShapeLift<Shared, N, H, R, N, NewH, NewR>
@@ -88,11 +89,13 @@ impl Shared {
             fold_xform,
         )
     }
+    // ANCHOR_END: phases_lift
 }
 
 // ── treeish_lift — treeish rewrite primitive ───────────────────────
 
 impl Shared {
+    // ANCHOR: treeish_lift
     pub fn treeish_lift<N, H, R, MT>(
         mt: MT,
     ) -> ShapeLift<Shared, N, H, R, N, H, R>
@@ -111,11 +114,13 @@ impl Shared {
             <Shared as ShapeCapable<N>>::identity_fold_xform::<H, R>(),
         )
     }
+    // ANCHOR_END: treeish_lift
 }
 
 // ── n_lift — N-change primitive (coordinated grow + treeish + fold) ─
 
 impl Shared {
+    // ANCHOR: n_lift
     pub fn n_lift<N, H, R, N2, LN, BT, FC>(
         lift_node:     LN,
         build_treeish: BT,
@@ -139,5 +144,6 @@ impl Shared {
         };
         ShapeLift::new(grow_xform, treeish_xform, fold_xform)
     }
+    // ANCHOR_END: n_lift
 }
 

@@ -4,10 +4,12 @@
 use crate::domain::Domain;
 use super::core::Lift;
 
+// ANCHOR: composed_lift
 pub struct ComposedLift<L1, L2> {
     pub(crate) inner: L1,
     pub(crate) outer: L2,
 }
+// ANCHOR_END: composed_lift
 
 impl<L1: Clone, L2: Clone> Clone for ComposedLift<L1, L2> {
     fn clone(&self) -> Self {

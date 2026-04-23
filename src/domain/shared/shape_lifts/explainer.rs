@@ -76,6 +76,7 @@ impl Shared {
     /// Whole-tree Explainer: MapH = ExplainerHeap wrapping the
     /// nested ExplainerResult; MapR = ExplainerResult capturing the
     /// full trace.
+    // ANCHOR: explainer_lift_ctor
     pub fn explainer_lift<N, H, R>()
         -> ShapeLift<Shared, N, H, R,
                      N,
@@ -115,4 +116,5 @@ impl Shared {
             fold_xform,
         )
     }
+    // ANCHOR_END: explainer_lift_ctor
 }

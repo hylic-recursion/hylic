@@ -12,6 +12,7 @@ use crate::domain::Domain;
 use crate::ops::lift::capability::ShapeCapable;
 use crate::ops::lift::core::Lift;
 
+// ANCHOR: shape_lift_struct
 pub struct ShapeLift<D, N, H, R, N2, H2, R2>
 where D: ShapeCapable<N> + Domain<N2>,
       N:  Clone + 'static, H:  Clone + 'static, R:  Clone + 'static,
@@ -21,6 +22,7 @@ where D: ShapeCapable<N> + Domain<N2>,
     pub(crate) treeish_xform: D::TreeishXform<N2>,
     pub(crate) fold_xform:    D::FoldXform<H, R, N2, H2, R2>,
 }
+// ANCHOR_END: shape_lift_struct
 
 impl<D, N, H, R, N2, H2, R2> Clone for ShapeLift<D, N, H, R, N2, H2, R2>
 where D: ShapeCapable<N> + Domain<N2>,

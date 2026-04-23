@@ -5,7 +5,9 @@ use crate::domain::Domain;
 use super::core::Lift;
 
 #[derive(Clone, Copy)]
+// ANCHOR: identity_lift
 pub struct IdentityLift;
+// ANCHOR_END: identity_lift
 
 impl<D, N, H, R> Lift<D, N, H, R> for IdentityLift
 where D: Domain<N>,

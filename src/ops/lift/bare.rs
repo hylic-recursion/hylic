@@ -14,6 +14,7 @@ use crate::ops::TreeOps;
 use super::capability::ShapeCapable;
 use super::core::Lift;
 
+// ANCHOR: lift_bare_trait
 pub trait LiftBare<D, N, H, R>: Lift<D, N, H, R>
 where D: ShapeCapable<N> + Domain<Self::N2>,
       N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -56,6 +57,7 @@ where D: ShapeCapable<N> + Domain<Self::N2>,
         exec.run(&f, &t, root)
     }
 }
+// ANCHOR_END: lift_bare_trait
 
 impl<L, D, N, H, R> LiftBare<D, N, H, R> for L
 where L: Lift<D, N, H, R>,

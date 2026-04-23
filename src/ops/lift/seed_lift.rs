@@ -32,6 +32,7 @@ use crate::graph::{self, Edgy, Treeish};
 use super::lifted_node::LiftedNode;
 use super::core::Lift;
 
+// ANCHOR: seed_lift_struct
 pub struct SeedLift<N, Seed, H>
 where N: 'static, Seed: 'static, H: 'static,
 {
@@ -40,6 +41,7 @@ where N: 'static, Seed: 'static, H: 'static,
     pub(crate) entry_heap_fn: Arc<dyn Fn() -> H + Send + Sync>,
     _m: PhantomData<fn() -> (N, Seed, H)>,
 }
+// ANCHOR_END: seed_lift_struct
 
 impl<N, Seed, H> Clone for SeedLift<N, Seed, H>
 where N: 'static, Seed: 'static, H: 'static,
