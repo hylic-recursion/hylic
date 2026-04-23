@@ -164,6 +164,24 @@ where N: 'static, H: 'static, R: 'static,
             |fin| fin,
         )
     }
+
+    // ── product — binary composition; mirrors Shared::Fold::product ──
+    pub fn product<H2: 'static, R2: 'static>(&self, other: &Fold<N, H2, R2>)
+        -> Fold<N, (H, H2), (R, R2)>
+    where N: Clone,
+    {
+        let i1 = self.impl_init.clone();       let i2 = other.impl_init.clone();
+        let a1 = self.impl_accumulate.clone(); let a2 = other.impl_accumulate.clone();
+        let f1 = self.impl_finalize.clone();   let f2 = other.impl_finalize.clone();
+        Fold::new(
+            move |n: &N| (i1(n), i2(n)),
+            move |heap: &mut (H, H2), child: &(R, R2)| {
+                a1(&mut heap.0, &child.0);
+                a2(&mut heap.1, &child.1);
+            },
+            move |heap: &(H, H2)| (f1(&heap.0), f2(&heap.1)),
+        )
+    }
 }
 
 // ── Constructors ──────────────────────────────────

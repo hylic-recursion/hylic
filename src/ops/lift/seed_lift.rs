@@ -75,9 +75,10 @@ where N: 'static, Seed: 'static, H: 'static,
         }
     }
 
-    /// Crate-internal constructor: reuse a pipeline's pre-built
-    /// `Arc<Fn>` grow closure without re-wrapping.
-    pub(crate) fn from_arc_grow<HFn>(
+    /// Construct from a pre-built `Arc<Fn>` grow closure without
+    /// re-wrapping. Used by `hylic-pipeline`'s `PipelineExecSeed::run`
+    /// which already holds an `Arc` via its `with_seeded` yield.
+    pub fn from_arc_grow<HFn>(
         grow: Arc<dyn Fn(&Seed) -> N + Send + Sync>,
         entry_seeds: Edgy<(), Seed>,
         entry_heap_fn: HFn,

@@ -1,20 +1,23 @@
-//! Curated prelude — default case (Shared domain).
+//! hylic core prelude — Shared-default.
 //!
 //! ```no_run
 //! use hylic::prelude::*;
 //! ```
 //!
-//! covers: Shared-domain pipelines, sugars, Fold/Edgy constructors,
-//! executor, lift atoms, common debugging helpers (explainer).
+//! covers: Shared-domain Fold/Edgy constructors, executor,
+//! every lift atom (Lift, IdentityLift, ComposedLift, ShapeLift,
+//! SeedLift, LiftBare, capability markers), common debug helpers
+//! (explainer).
 //!
-//! For Local-domain work, also `use hylic::prelude::local::*;` — the
-//! Local version uses non-`Send` storage (Rc / RefCell).
+//! For pipeline typestates + sugar traits, depend on
+//! `hylic-pipeline` and use `use hylic_pipeline::prelude::*;`
+//! (which re-exports everything below, plus pipelines).
 //!
-//! For Owned-domain work (one-shot), also `use hylic::prelude::owned::*;`.
+//! For the Local domain, also `use hylic::prelude::local::*;`.
+//! For Owned, also `use hylic::prelude::owned::*;`.
 //!
 //! Advanced helpers (`Traced`, `memoize_treeish`, `VecFold`, etc.)
-//! are NOT in the prelude; import them with their explicit paths
-//! when needed.
+//! are NOT in the prelude; import them with their explicit paths.
 
 pub mod local;
 pub mod owned;
@@ -29,7 +32,7 @@ pub mod memoize;
 pub mod common_folds;
 pub mod fallible;
 
-// ── Commonly-used helpers (stays as before) ─────────────────────
+// ── Commonly-used helpers ───────────────────────────────────────
 
 pub use vec_fold::{vec_fold, VecFold, VecHeap};
 pub use explainer::{ExplainerHeap, ExplainerResult, ExplainerStep};
@@ -65,21 +68,9 @@ pub use crate::graph::{
 
 pub use crate::cata::exec::{fused, funnel};
 
-// ── Pipeline types ──────────────────────────────────────────────
-
-pub use crate::cata::pipeline::{
-    SeedPipeline, TreeishPipeline, LiftedPipeline, OwnedPipeline,
-    TreeishSource, SeedSource, PipelineExec, PipelineExecSeed, PipelineExecOnce,
-    LiftedNode,
-};
-
-// ── Sugar trait (Shared default) ────────────────────────────────
-
-pub use crate::cata::pipeline::LiftedSugarsShared;
-
-// ── Lift atoms (for power users) ────────────────────────────────
+// ── Lift atoms (including SeedLift, LiftBare, LiftedNode) ───────
 
 pub use crate::ops::{
-    Lift, IdentityLift, ComposedLift, ShapeLift, SeedLift,
+    Lift, IdentityLift, ComposedLift, ShapeLift, SeedLift, LiftedNode,
     ShapeCapable, PureLift, ShareableLift, LiftBare,
 };
