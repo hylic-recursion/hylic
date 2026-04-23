@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::domain::Shared;
 use crate::graph::{edgy_visit, Edgy};
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 impl Shared {
     /// Filter the treeish's visible children by a predicate on N.

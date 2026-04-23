@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::domain::shared::fold::{self as sfold, Fold};
 use crate::domain::Shared;
 use crate::ops::lift::capability::ShapeCapable;
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 use crate::prelude::explainer::{ExplainerHeap, ExplainerResult, ExplainerStep};
 
 /// Run the user-supplied formatter fold on a single ExplainerHeap,

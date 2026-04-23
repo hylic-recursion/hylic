@@ -17,7 +17,7 @@ use crate::domain::shared::fold::Fold;
 use crate::domain::Shared;
 use crate::graph::Edgy;
 use crate::ops::lift::capability::ShapeCapable;
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 // ── Identity phase mappers (internal, used by fold_sugars) ────
 

@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use crate::domain::Local;
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 impl Local {
     pub fn wrap_init_lift<N, H, R, W>(wrapper: W) -> ShapeLift<Local, N, H, R, N, H, R>

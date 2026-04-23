@@ -2,7 +2,7 @@
 
 use crate::domain::Shared;
 use crate::graph::{edgy_visit, Edgy};
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 impl Shared {
     pub fn map_n_bi_lift<N, H, R, N2, Co, Contra>(co: Co, contra: Contra)

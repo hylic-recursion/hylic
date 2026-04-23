@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::domain::Shared;
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 // ── wrap_init / wrap_accumulate / wrap_finalize — compose-with-old ─────
 

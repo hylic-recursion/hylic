@@ -6,7 +6,7 @@ use crate::domain::local::Fold;
 use crate::domain::local::edgy::Edgy;
 use crate::domain::Local;
 use crate::ops::lift::capability::ShapeCapable;
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 impl Local {
     pub(crate) fn identity_init_mapper<N, H>()

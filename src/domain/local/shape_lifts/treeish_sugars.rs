@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use crate::domain::Local;
 use crate::domain::local::edgy::{edgy_visit, Edgy};
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 
 impl Local {
     pub fn filter_edges_lift<N, H, R, P>(pred: P) -> ShapeLift<Local, N, H, R, N, H, R>

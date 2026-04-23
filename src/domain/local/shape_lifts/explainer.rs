@@ -9,7 +9,7 @@ use std::rc::Rc;
 use crate::domain::local::{self, Fold};
 use crate::domain::Local;
 use crate::ops::lift::capability::ShapeCapable;
-use crate::ops::lift::shape::universal::ShapeLift;
+use crate::ops::lift::shape::ShapeLift;
 use crate::prelude::explainer::{ExplainerHeap, ExplainerResult, ExplainerStep};
 
 impl Local {
