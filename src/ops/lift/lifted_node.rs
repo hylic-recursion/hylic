@@ -19,7 +19,7 @@
 
 #![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 // ANCHOR: lifted_node_enum
 pub enum LiftedNode<N> {
     Entry,
