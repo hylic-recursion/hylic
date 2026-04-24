@@ -50,9 +50,8 @@ impl Shared {
 
 impl Shared {
     // ANCHOR: phases_lift
-    pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF, EHF>(
+    pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
         mi: MI, ma: MA, mf: MF,
-        entry_heap_forward: EHF,
     ) -> ShapeLift<Shared, N, H, R, N, NewH, NewR>
     where
         N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -66,7 +65,6 @@ impl Shared {
         MF: Fn(Arc<dyn Fn(&H) -> R + Send + Sync>)
             -> Arc<dyn Fn(&NewH) -> NewR + Send + Sync>
             + Send + Sync + 'static,
-        EHF: Fn(H) -> NewH + Send + Sync + 'static,
     {
         let mi = Arc::new(mi);
         let ma = Arc::new(ma);
@@ -87,13 +85,9 @@ impl Shared {
                     move |fin|  (mf)(fin),
                 )
             });
-        let entry_heap_xform: <Shared as ShapeCapable<N>>::EntryHeapXform<H, NewH> =
-            Arc::new(entry_heap_forward);
         ShapeLift::new(
             <Shared as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
-            <Shared as ShapeCapable<N>>::identity_entry_node_xform(),
-            entry_heap_xform,
         )
     }
     // ANCHOR_END: phases_lift
@@ -118,8 +112,6 @@ impl Shared {
         ShapeLift::new(
             treeish_xform,
             <Shared as ShapeCapable<N>>::identity_fold_xform::<H, R>(),
-            <Shared as ShapeCapable<N>>::identity_entry_node_xform(),
-            <Shared as ShapeCapable<N>>::identity_entry_heap_xform::<H>(),
         )
     }
     // ANCHOR_END: treeish_lift
@@ -129,21 +121,22 @@ impl Shared {
 
 impl Shared {
     // ANCHOR: n_lift
-    /// Coordinated N-change: rebuild the treeish into N2-space,
-    /// contramap the fold so its `init` accepts `&N2`, and expose
-    /// the forward entry-map `entry_forward: N → N2` so grow
-    /// transports covariantly on the `SeedPipeline` path.
-    pub fn n_lift<N, H, R, N2, BT, FC, EF>(
+    /// Coordinated N-change: rebuild the treeish into N2-space and
+    /// contramap the fold so its `init` accepts `&N2`.
+    ///
+    /// Users of this lift on a `SeedPipeline` must apply the N-change
+    /// at Stage 1 via `reshape` if the seed dispatch must survive;
+    /// at Stage 2 the grow axis is not threaded through `Lift::apply`,
+    /// so `.then_lift(n_lift(...)).run_from_slice(...)` will not type.
+    pub fn n_lift<N, H, R, N2, BT, FC>(
         build_treeish: BT,
         fold_contra:   FC,
-        entry_forward: EF,
     ) -> ShapeLift<Shared, N, H, R, N2, H, R>
     where
         N:  Clone + 'static, H: Clone + 'static, R: Clone + 'static,
         N2: Clone + 'static,
         BT: Fn(&Edgy<N, N>) -> Edgy<N2, N2> + Send + Sync + 'static,
         FC: Fn(&N2) -> N + Send + Sync + 'static,
-        EF: Fn(N) -> N2 + Send + Sync + 'static,
     {
         let treeish_xform: <Shared as ShapeCapable<N>>::TreeishXform<N2> = Arc::new(build_treeish);
         let fold_xform:    <Shared as ShapeCapable<N>>::FoldXform<H, R, N2, H, R> = {
@@ -153,14 +146,7 @@ impl Shared {
                 f.contramap_n(move |n2: &N2| fc(n2))
             })
         };
-        let entry_node_xform: <Shared as ShapeCapable<N>>::EntryNodeXform<N2> =
-            Arc::new(entry_forward);
-        ShapeLift::new(
-            treeish_xform,
-            fold_xform,
-            entry_node_xform,
-            <Shared as ShapeCapable<N>>::identity_entry_heap_xform::<H>(),
-        )
+        ShapeLift::new(treeish_xform, fold_xform)
     }
     // ANCHOR_END: n_lift
 }

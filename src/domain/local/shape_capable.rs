@@ -46,10 +46,6 @@ impl<N: 'static> ShapeCapable<N> for Local {
         Rc<dyn Fn(Fold<N, H, R>) -> Fold<N2, H2, R2>>
         where H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static;
 
-    type EntryNodeXform<N2: 'static> = Rc<dyn Fn(N) -> N2>;
-
-    type EntryHeapXform<H: 'static, H2: 'static> = Rc<dyn Fn(H) -> H2>;
-
     fn apply_grow_xform<Seed: 'static, N2: 'static>(
         t: &Self::GrowXform<N2>,
         g: <Self as Domain<N>>::Grow<Seed, N>,
@@ -96,32 +92,6 @@ impl<N: 'static> ShapeCapable<N> for Local {
 
     fn identity_fold_xform<H: 'static, R: 'static>() -> Self::FoldXform<H, R, N, H, R> {
         Rc::new(|f: Fold<N, H, R>| f)
-    }
-
-    fn apply_entry_node_xform<N2: 'static>(
-        t: &Self::EntryNodeXform<N2>,
-        n: N,
-    ) -> N2 {
-        t(n)
-    }
-
-    fn apply_entry_heap_xform<H: 'static, H2: 'static>(
-        t: &Self::EntryHeapXform<H, H2>,
-        h: H,
-    ) -> H2 {
-        t(h)
-    }
-
-    fn identity_entry_node_xform() -> Self::EntryNodeXform<N>
-    where N: Clone + 'static,
-    {
-        Rc::new(|n: N| n)
-    }
-
-    fn identity_entry_heap_xform<H: Clone + 'static>()
-        -> Self::EntryHeapXform<H, H>
-    {
-        Rc::new(|h: H| h)
     }
 
     fn fuse_grow_with_seeds<Seed: 'static>(

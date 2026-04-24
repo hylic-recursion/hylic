@@ -28,13 +28,6 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
     type FoldXform<H, R, N2, H2, R2>: Clone + 'static
     where H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static;
 
-    /// Forward entry-node map: `N → N2`. Stored as a domain-native
-    /// shared handle so `ShapeLift::project_entry_node` can call it.
-    type EntryNodeXform<N2: 'static>: Clone + 'static;
-
-    /// Forward entry-heap map: `H → H2`. Stored similarly.
-    type EntryHeapXform<H: 'static, H2: 'static>: Clone + 'static;
-
     fn apply_grow_xform<Seed: 'static, N2: 'static>(
         t: &Self::GrowXform<N2>,
         g: <Self as Domain<N>>::Grow<Seed, N>,
@@ -54,18 +47,6 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
     where Self: Domain<N2>,
           H: 'static, R: 'static, N2: 'static, H2: 'static, R2: 'static;
 
-    /// Apply the entry-node xform to lift an `N` value into `N2`.
-    fn apply_entry_node_xform<N2: 'static>(
-        t: &Self::EntryNodeXform<N2>,
-        n: N,
-    ) -> N2;
-
-    /// Apply the entry-heap xform to lift an `H` value into `H2`.
-    fn apply_entry_heap_xform<H: 'static, H2: 'static>(
-        t: &Self::EntryHeapXform<H, H2>,
-        h: H,
-    ) -> H2;
-
     fn identity_grow_xform() -> Self::GrowXform<N>
     where N: Clone;
 
@@ -73,16 +54,6 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
     where N: Clone;
 
     fn identity_fold_xform<H: 'static, R: 'static>() -> Self::FoldXform<H, R, N, H, R>;
-
-    /// Identity entry-node xform: returns `N` unchanged. Used by
-    /// N-preserving shape lifts.
-    fn identity_entry_node_xform() -> Self::EntryNodeXform<N>
-    where N: Clone + 'static;
-
-    /// Identity entry-heap xform: returns `H` unchanged. Used by
-    /// H-preserving shape lifts.
-    fn identity_entry_heap_xform<H: Clone + 'static>()
-        -> Self::EntryHeapXform<H, H>;
 
     /// Compose a `grow: Seed → N` with a `seeds: Graph<Seed>` to
     /// produce the fused `Graph<N>` (treeish). Needed by
