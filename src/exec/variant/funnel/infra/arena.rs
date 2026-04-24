@@ -49,6 +49,8 @@ impl<T> Drop for Arena<T> {
 
 #[cfg(test)]
 mod tests {
+    // SAFETY (throughout this module): every `get` reads an index
+    // returned by a prior `alloc` on the same arena.
     use super::*;
 
     #[test]

@@ -23,6 +23,7 @@ impl Default for PerWorkerSpec {
     fn default() -> Self { PerWorkerSpec { deque_capacity: 4096 } }
 }
 
+// SAFETY: POD config struct (one usize), no interior mutability.
 unsafe impl Send for PerWorkerSpec {}
 unsafe impl Sync for PerWorkerSpec {}
 
@@ -31,6 +32,8 @@ pub struct PerWorkerStore<N, H, R> {
     work_available: AtomicU64,
 }
 
+// SAFETY: WorkerDeque<FunnelTask<N,H,R>>: Send+Sync under N,R: Send
+// (per its own unsafe impl); AtomicU64 is already Send+Sync.
 unsafe impl<N: Send, H, R: Send> Send for PerWorkerStore<N, H, R> {}
 unsafe impl<N: Send, H, R: Send> Sync for PerWorkerStore<N, H, R> {}
 

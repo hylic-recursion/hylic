@@ -26,11 +26,22 @@ struct Slot<T>(UnsafeCell<MaybeUninit<ManuallyDrop<T>>>);
 impl<T> Slot<T> {
     fn new() -> Self { Slot(UnsafeCell::new(MaybeUninit::uninit())) }
 
+    /// # Safety
+    /// Caller must ensure no other thread reads this slot during the write.
+    /// In the deque, push() writes before incrementing bottom, and no
+    /// stealer reads beyond bottom.
     unsafe fn write(&self, value: T) {
+        // SAFETY: forwarded from fn contract.
         unsafe { (*self.0.get()).write(ManuallyDrop::new(value)); }
     }
 
+    /// # Safety
+    /// Slot must have been initialized by a prior write() and not
+    /// already consumed. The ManuallyDrop wrapper tolerates aliased
+    /// speculative reads: only the CAS winner eventually calls
+    /// `into_inner` to take ownership.
     unsafe fn read_speculative(&self) -> ManuallyDrop<T> {
+        // SAFETY: forwarded from fn contract.
         unsafe { (*self.0.get()).assume_init_read() }
     }
 }
@@ -67,6 +78,9 @@ impl<T> WorkerDeque<T> {
         if b - t > self.mask {
             return Err(item);
         }
+        // SAFETY: we are the sole owner (push is single-threaded); the
+        // slot at position `b` is not yet visible to stealers because
+        // `bottom` has not been incremented.
         unsafe { self.buffer[(b & self.mask) as usize].write(item); }
         fence(Ordering::Release);
         self.bottom.0.store(b + 1, Ordering::Relaxed);
@@ -81,6 +95,11 @@ impl<T> WorkerDeque<T> {
         let t = self.top.0.load(Ordering::Relaxed);
 
         if t <= b {
+            // SAFETY: the slot at position `b` was written by a prior
+            // push and never consumed (pop is single-threaded; steal
+            // operates on `top`, not `bottom`). If t < b the slot
+            // belongs to us; if t == b a stealer may race but the
+            // ManuallyDrop wrapper makes the speculative read safe.
             let item = unsafe { self.buffer[(b & self.mask) as usize].read_speculative() };
             if t == b {
                 if self.top.0.compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed).is_err() {
@@ -107,6 +126,9 @@ impl<T> WorkerDeque<T> {
                 return None;
             }
 
+            // SAFETY: slot at position `t` was written by a push before
+            // bottom reached `t + 1`. The read is speculative — the
+            // ManuallyDrop wrapper makes a losing CAS harmless.
             let item = unsafe { self.buffer[(t & self.mask) as usize].read_speculative() };
             if self.top.0.compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
                 return Some(ManuallyDrop::into_inner(item));

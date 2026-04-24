@@ -36,6 +36,8 @@ impl<T> ContArena<T> {
     /// Must be called exactly once per allocated slot.
     #[inline]
     pub unsafe fn take(&self, idx: ContIdx) -> T {
+        // SAFETY: forwarded to SegmentedSlab::take — same contract
+        // (idx allocated, take called exactly once per slot).
         unsafe { self.0.take(idx.0) }
     }
 }

@@ -75,6 +75,8 @@ impl<T> SegmentTable<T> {
     fn ensure_segment(&self, seg_idx: usize) -> &Segment<T> {
         let ptr = self.table[seg_idx].load(Ordering::Acquire);
         if !ptr.is_null() {
+            // SAFETY: installed segments live for &self's lifetime —
+            // freed only in Drop via &mut self.
             return unsafe { &*ptr };
         }
 
@@ -89,11 +91,14 @@ impl<T> SegmentTable<T> {
             Ordering::Acquire,
         ) {
             Ok(_) => {
-                // We installed our segment.
+                // SAFETY: the CAS transferred ownership of new_ptr to
+                // `self.table[seg_idx]`; the allocation outlives self.
                 unsafe { &*new_ptr }
             }
             Err(existing) => {
-                // Another thread beat us. Free our allocation, use theirs.
+                // SAFETY (drop): CAS failed, so new_ptr is still owned
+                // by us and can be freed. (existing): the winner's
+                // allocation is owned by the table and live for &self.
                 unsafe { drop(Box::from_raw(new_ptr)); }
                 unsafe { &*existing }
             }
@@ -106,6 +111,9 @@ impl<T> Drop for SegmentTable<T> {
         for entry in self.table.iter_mut() {
             let ptr = *entry.get_mut();
             if !ptr.is_null() {
+                // SAFETY: non-null segment pointers came from
+                // Box::into_raw in ensure_segment. &mut self gives us
+                // exclusive access during drop.
                 unsafe { drop(Box::from_raw(ptr)); }
             }
         }
@@ -114,6 +122,10 @@ impl<T> Drop for SegmentTable<T> {
 
 #[cfg(test)]
 mod tests {
+    // SAFETY (throughout this module): write() is called on an EMPTY
+    // slot by the test (single-writer), and read() is called after a
+    // successful try_steal that transitions the slot to STOLEN —
+    // matching the Slot's documented protocol.
     use super::*;
     use crate::exec::funnel::infra::steal_queue::slot as slot_mod;
     use std::sync::{Arc, Barrier};

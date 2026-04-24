@@ -24,6 +24,10 @@ pub(crate) struct Job {
 }
 // ANCHOR_END: job_struct
 
+// SAFETY: Job is a raw fn-pointer + *const (). Soundness is upheld by
+// dispatch, which seals the job pointer and latches on `in_job` before
+// the Job's referent (stack-local FoldState) can be dropped. See
+// dispatch + pool_thread for the full protocol.
 unsafe impl Send for Job {}
 unsafe impl Sync for Job {}
 
@@ -138,7 +142,17 @@ fn pool_thread(state: &PoolState, thread_idx: usize) {
         state.in_job.fetch_add(1, Ordering::Acquire);
         let ptr = state.job_ptr.load(Ordering::Acquire);
         if !ptr.is_null() {
+            // SAFETY: non-null ptr was published by dispatch, which
+            // holds the dispatch_lock and does not seal (nor drop the
+            // Job) until `in_job` returns to zero. We incremented
+            // `in_job` before loading ptr, so the seal cannot have
+            // happened yet — the referent is live.
             let job = unsafe { &*(ptr as *const Job) };
+            // SAFETY: `job.call` is the worker_entry function for the
+            // matching FoldState; `job.data` is a `*const FoldState<…>`
+            // cast erased at the Job boundary. The caller (dispatch)
+            // guarantees the FoldState is live for the duration of
+            // this call via the same `in_job` latch.
             unsafe { (job.call)(job.data, thread_idx); }
         }
         state.in_job.fetch_sub(1, Ordering::Release);

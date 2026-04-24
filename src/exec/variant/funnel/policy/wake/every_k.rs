@@ -9,6 +9,7 @@ pub struct EveryK<const K: u32>;
 
 #[derive(Clone, Copy, Default)]
 pub struct EveryKSpec;
+// SAFETY: unit spec with no interior mutability.
 unsafe impl Send for EveryKSpec {}
 unsafe impl Sync for EveryKSpec {}
 

@@ -72,10 +72,17 @@ pub(crate) fn fire_cont<N, H, R, F, G, P: FunnelPolicy>(
                 let fold = ctx.fold_ref();
                 fold.accumulate(&mut heap, &result);
                 result = fold.finalize(&heap);
+                // SAFETY: parent_idx came from cont_arena.alloc in
+                // walk_cps; Direct conts are consumed exactly once
+                // (the child's fire_cont path), so this take is the
+                // sole reader.
                 cont = unsafe { ctx.cont_arena().take(parent_idx) };
             }
             Cont::Slot { node: node_idx, slot } => {
                 let arena = ctx.chain_arena();
+                // SAFETY: node_idx came from chain_arena.alloc in
+                // walk_cps and outlives every Cont::Slot that holds it
+                // (arena is freed by run_fold after all workers join).
                 let node = unsafe { arena.get(node_idx) };
                 let fold = ctx.fold_ref();
                 let delivered = P::Accumulate::deliver(&node.chain, slot, result, fold);
@@ -127,11 +134,17 @@ pub(crate) fn walk_cps<N, H, R, F, G, P: FunnelPolicy>(
                 if child_count == 2 {
                     let cn = ChainNode::new(heap_opt.take().unwrap(), cont_opt.take().unwrap());
                     let idx = chain_arena.alloc(cn);
-                    let node_ref = unsafe { chain_arena.get(idx) };
+                    // SAFETY: idx was just returned by chain_arena.alloc
+                // (or a prior iteration within this visit closure) and
+                // the arena lives for the pool duration.
+                let node_ref = unsafe { chain_arena.get(idx) };
                     node_ref.chain.append_slot();
                     chain_idx = Some(idx);
                 }
                 let idx = chain_idx.unwrap();
+                // SAFETY: idx was just returned by chain_arena.alloc
+                // (or a prior iteration within this visit closure) and
+                // the arena lives for the pool duration.
                 let node_ref = unsafe { chain_arena.get(idx) };
                 let slot = node_ref.chain.append_slot();
                 wctx.push_task(FunnelTask::Walk {
@@ -159,6 +172,7 @@ pub(crate) fn walk_cps<N, H, R, F, G, P: FunnelPolicy>(
             }
             _ => {
                 let idx = chain_idx.unwrap();
+                // SAFETY: idx came from chain_arena.alloc above.
                 let cn = unsafe { chain_arena.get(idx) };
                 let fold = ctx.fold_ref();
                 let set_total_result = P::Accumulate::set_total(&cn.chain, fold);

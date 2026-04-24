@@ -15,6 +15,7 @@ pub struct Shared;
 #[derive(Clone, Copy, Default)]
 pub struct SharedSpec;
 
+// SAFETY: unit spec with no fields — trivially thread-safe.
 unsafe impl Send for SharedSpec {}
 unsafe impl Sync for SharedSpec {}
 
@@ -22,6 +23,9 @@ pub struct SharedStore<N, H, R> {
     queue: StealQueue<FunnelTask<N, H, R>>,
 }
 
+// SAFETY: StealQueue<FunnelTask<N,H,R>> is Send+Sync when the item is
+// Send; FunnelTask<N,H,R>: Send when N,R: Send (per its own unsafe impl
+// on FunnelTask).
 unsafe impl<N: Send, H, R: Send> Send for SharedStore<N, H, R> {}
 unsafe impl<N: Send, H, R: Send> Sync for SharedStore<N, H, R> {}
 

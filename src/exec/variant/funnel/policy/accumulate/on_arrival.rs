@@ -15,6 +15,7 @@ pub struct OnArrival;
 
 #[derive(Clone, Copy, Default)]
 pub struct OnArrivalSpec;
+// SAFETY: unit spec with no interior mutability.
 unsafe impl Send for OnArrivalSpec {}
 unsafe impl Sync for OnArrivalSpec {}
 

@@ -115,6 +115,9 @@ impl<H, R> FoldChain<H, R> {
     // ANCHOR: deliver_ticket
     pub fn deliver_and_sweep<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) -> Option<R> {
         let cell = self.slot_at(slot.0);
+        // SAFETY: each slot is delivered exactly once (slots come from
+        // append_slot + SlotRef, never cloned). The Release store on
+        // `filled` publishes the write to whoever sweeps via Acquire.
         unsafe { (*cell.result.get()).write(result); }
         cell.filled.store(true, Ordering::Release);
 
@@ -173,6 +176,8 @@ impl<H, R> FoldChain<H, R> {
     /// Deliver a result. If last event: bulk-sweep all, finalize, return Some.
     pub fn deliver_and_finalize<N>(&self, slot: SlotRef, result: R, fold: &impl FoldOps<N, H, R>) -> Option<R> {
         let cell = self.slot_at(slot.0);
+        // SAFETY: each slot is delivered exactly once; Release on
+        // `filled` pairs with Acquire in bulk_finalize / try_sweep.
         unsafe { (*cell.result.get()).write(result); }
         cell.filled.store(true, Ordering::Release);
 
@@ -197,6 +202,10 @@ impl<H, R> FoldChain<H, R> {
 
     fn bulk_finalize<N>(&self, fold: &impl FoldOps<N, H, R>) -> R {
         self.done.store(true, Ordering::Relaxed);
+        // SAFETY: bulk_finalize runs exactly once — chosen by the
+        // ticket system as the "last event" thread. No other code
+        // touches the heap concurrently (OnFinalize mode does not
+        // sweep incrementally).
         let heap = unsafe { &mut *self.heap.get() };
         let total = self.appended.load(Ordering::Relaxed);
         for pos in 0..total {
@@ -208,12 +217,16 @@ impl<H, R> FoldChain<H, R> {
                 }
                 std::hint::spin_loop();
             }
-            // Move result out of slot (destructive read). Slot becomes uninit.
-            // Each slot is read exactly once — the ticket system guarantees
-            // bulk_finalize runs only after all deliveries complete.
+            // SAFETY: each slot is filled exactly once (checked above
+            // via filled.load Acquire, pairing with the Release at the
+            // writer). Each slot is read exactly once — the ticket
+            // system guarantees bulk_finalize runs only after all
+            // deliveries complete, and this is the only reader.
             let result = unsafe { (*self.slot_at(pos).result.get()).assume_init_read() };
             fold.accumulate(heap, &result);
         }
+        // SAFETY: bulk_finalize holds exclusive access to the heap
+        // via the single-finalizer ticket guarantee.
         fold.finalize(unsafe { &*self.heap.get() })
     }
 
@@ -233,15 +246,20 @@ impl<H, R> FoldChain<H, R> {
             return None;
         }
 
+        // SAFETY: the SWEEPING gate was just CAS'd by this thread, so
+        // we hold exclusive access to the heap for the duration of
+        // this function. No other sweeper enters until we Release the
+        // gate via the final sweep.store.
         let heap = unsafe { &mut *self.heap.get() };
         let mut pos = s; // s is the cursor (SWEEPING bit was 0)
         let appended = self.appended.load(Ordering::Relaxed);
 
         while pos < appended {
             if !self.slot_at(pos).filled.load(Ordering::Acquire) { break; }
-            // Move result out of slot (destructive read). Slot becomes uninit.
-            // The sweep cursor is monotonic — each position is swept exactly
-            // once across all try_sweep invocations for this chain.
+            // SAFETY: filled=true (Acquire) pairs with the writer's
+            // Release, so the slot is fully initialized. The sweep
+            // cursor is monotonic — each position is consumed exactly
+            // once across all try_sweep invocations.
             let result = unsafe { (*self.slot_at(pos).result.get()).assume_init_read() };
             fold.accumulate(heap, &result);
             pos += 1;
@@ -251,6 +269,7 @@ impl<H, R> FoldChain<H, R> {
         let (_, total) = unpack(self.state.load(Ordering::Relaxed));
         if total > 0 && pos >= total {
             self.done.store(true, Ordering::Release);
+            // SAFETY: still holding the SWEEPING gate; exclusive heap access.
             let result = fold.finalize(unsafe { &*self.heap.get() });
             self.sweep.store(pos, Ordering::Release);
             return Some(result);
@@ -272,6 +291,10 @@ impl<H, R> FoldChain<H, R> {
         let mut ptr = self.first.next.load(Ordering::Acquire);
         loop {
             assert!(!ptr.is_null(), "slot_at: index {} beyond allocated buffers", index);
+            // SAFETY: overflow buffers, once installed, are never
+            // freed while this FoldChain is live — Drop walks them
+            // via &mut self. Acquire load pairs with the Release CAS
+            // in ensure_overflow.
             let buf = unsafe { &*ptr };
             if remaining < buf.capacity { return &buf.slots[remaining]; }
             remaining -= buf.capacity;
@@ -290,11 +313,16 @@ impl<H, R> FoldChain<H, R> {
                 match tail_next.compare_exchange(
                     std::ptr::null_mut(), new_buf, Ordering::AcqRel, Ordering::Acquire,
                 ) {
+                    // SAFETY: CAS Ok transfers ownership of new_buf to
+                    // `tail_next`; the box will be freed by Drop.
                     Ok(_) => {
                         covered += new_cap;
                         if idx < covered { return; }
                         tail_next = unsafe { &(*new_buf).next };
                     }
+                    // SAFETY (Err): we lost the race, so new_buf is
+                    // ours to free. `existing` was installed by the
+                    // winner and lives for &self's lifetime.
                     Err(existing) => {
                         unsafe { drop(Box::from_raw(new_buf)); }
                         let buf = unsafe { &*existing };
@@ -304,6 +332,8 @@ impl<H, R> FoldChain<H, R> {
                     }
                 }
             } else {
+                // SAFETY: non-null overflow pointers live for &self's
+                // lifetime (freed only in Drop via &mut self).
                 let buf = unsafe { &*ptr };
                 covered += buf.capacity;
                 if idx < covered { return; }
@@ -317,6 +347,9 @@ impl<H, R> Drop for FoldChain<H, R> {
     fn drop(&mut self) {
         let mut ptr = *self.first.next.get_mut();
         while !ptr.is_null() {
+            // SAFETY: overflow pointers all come from Box::into_raw
+            // in ensure_overflow. &mut self guarantees no concurrent
+            // access to the chain.
             let buf = unsafe { Box::from_raw(ptr) };
             ptr = buf.next.load(Ordering::Relaxed);
         }

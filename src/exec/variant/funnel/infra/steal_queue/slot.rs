@@ -39,6 +39,9 @@ impl<T> Slot<T> {
     /// # Safety
     /// Caller must own this position exclusively (via fetch_add on bottom).
     pub unsafe fn write(&self, value: T) {
+        // SAFETY: caller owns this position exclusively; the slot was
+        // EMPTY (the write() contract) so no prior value needs dropping.
+        // Release store on `state` publishes the write to observers.
         unsafe { (*self.value.get()).write(value); }
         self.state.store(AVAILABLE, Ordering::Release);
     }
@@ -65,6 +68,9 @@ impl<T> Slot<T> {
     /// # Safety
     /// Must only be called after a successful `try_steal()`.
     pub unsafe fn read(&self) -> T {
+        // SAFETY: caller must have won try_steal, giving them exclusive
+        // right to the value; the slot is in STOLEN state and no other
+        // read will occur.
         unsafe { (*self.value.get()).assume_init_read() }
     }
 
@@ -86,6 +92,8 @@ impl<T> Drop for Slot<T> {
         //   For generic T: if RECLAIMED, the value was written but
         //   never read — drop it.
         if s == AVAILABLE || s == RECLAIMED {
+            // SAFETY: &mut self from Drop; both states mean the slot
+            // contains an initialized value that was never moved out.
             unsafe { (*self.value.get()).assume_init_drop(); }
         }
     }
@@ -93,6 +101,9 @@ impl<T> Drop for Slot<T> {
 
 #[cfg(test)]
 mod tests {
+    // SAFETY (throughout this module): write() is called on an EMPTY
+    // slot by the test, and read() only after a successful try_steal
+    // — the Slot's documented protocol.
     use super::*;
     use std::sync::{Arc, Barrier};
 

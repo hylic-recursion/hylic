@@ -33,6 +33,8 @@ impl<T> StealQueue<T> {
     pub fn push(&self, item: T) -> u64 {
         let pos = self.bottom.0.fetch_add(1, Ordering::Relaxed);
         let s = self.segments.get_slot(pos);
+        // SAFETY: `pos` was just claimed via fetch_add on bottom, so
+        // we own this slot exclusively; it is still EMPTY.
         unsafe { s.write(item); }
         pos
     }
@@ -78,6 +80,8 @@ impl<T> StealQueue<T> {
                     }
                     // Position claimed. Now CAS the slot.
                     if s.try_steal() {
+                        // SAFETY: we won try_steal, giving us exclusive
+                        // read rights on this slot.
                         return Some(unsafe { s.read() });
                     }
                     // Publisher reclaimed between our state check and CAS.

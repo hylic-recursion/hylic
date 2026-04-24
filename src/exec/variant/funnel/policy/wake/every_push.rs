@@ -9,6 +9,7 @@ pub struct EveryPush;
 
 #[derive(Clone, Copy, Default)]
 pub struct EveryPushSpec;
+// SAFETY: unit spec with no interior mutability.
 unsafe impl Send for EveryPushSpec {}
 unsafe impl Sync for EveryPushSpec {}
 

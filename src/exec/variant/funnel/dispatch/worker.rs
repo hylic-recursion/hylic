@@ -73,6 +73,10 @@ where
     H: 'static,
     R: Send + 'static,
 {
+    // SAFETY: caller (pool_thread, via the Job trampoline) guarantees
+    // `data` is the erased pointer produced by run_fold for exactly this
+    // monomorphization, and that the FoldState remains live for the
+    // duration of this call (via dispatch's in_job latch).
     let state = unsafe { &*(data as *const FoldState<N, H, R, F, G, P>) };
     let view = state.ctx.view_ref();
     worker_loop::<N, H, R, F, G, P>(state.ctx, view, state.store, thread_idx);

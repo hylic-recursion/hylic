@@ -14,6 +14,7 @@ pub struct OnFinalize;
 
 #[derive(Clone, Copy, Default)]
 pub struct OnFinalizeSpec;
+// SAFETY: unit spec with no interior mutability.
 unsafe impl Send for OnFinalizeSpec {}
 unsafe impl Sync for OnFinalizeSpec {}
 

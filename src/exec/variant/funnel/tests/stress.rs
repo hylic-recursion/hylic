@@ -265,6 +265,8 @@ fn thread_participation_diagnostic() {
     let fold = dom::fold(
         move |_: &usize| -> u64 {
             let tid = std::thread::current().id();
+            // SAFETY: ThreadId is repr(transparent) over NonZeroU64;
+            // test-only reinterpretation to derive a per-thread bit.
             let tid_bits = unsafe { std::mem::transmute::<_, u64>(tid) };
             // Use low bits of tid as a hash into 64-bit mask
             let bit = (tid_bits % 64) as u32;

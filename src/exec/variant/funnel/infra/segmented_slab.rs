@@ -83,6 +83,9 @@ impl<T> SegmentedSlab<T> {
         let seg_idx = segment_of(idx);
         debug_assert!(seg_idx < MAX_SEGMENTS, "segmented slab exhausted: {} elements", idx);
         let segment = self.ensure_segment(seg_idx);
+        // SAFETY: idx was just claimed via fetch_add, so this slot
+        // is exclusively ours to initialize. No other writer sees it
+        // until we return idx.
         unsafe { (*segment.slot(offset_of(idx)).get()).write(value); }
         idx
     }
@@ -95,6 +98,9 @@ impl<T> SegmentedSlab<T> {
     pub unsafe fn get_ref(&self, idx: u32) -> &T {
         let ptr = self.segments[segment_of(idx)].load(Ordering::Acquire);
         debug_assert!(!ptr.is_null());
+        // SAFETY: caller asserts idx is allocated, so the segment pointer
+        // is non-null and the slot is initialized. Segment pointers never
+        // change once installed, so &*ptr outlives this borrow.
         unsafe { (*(*ptr).slot(offset_of(idx)).get()).assume_init_ref() }
     }
 
@@ -106,6 +112,9 @@ impl<T> SegmentedSlab<T> {
     pub unsafe fn take(&self, idx: u32) -> T {
         let ptr = self.segments[segment_of(idx)].load(Ordering::Acquire);
         debug_assert!(!ptr.is_null());
+        // SAFETY: caller asserts idx is allocated and take is called
+        // exactly once, so the slot is initialized and no aliasing read
+        // happens after this move.
         unsafe { (*(*ptr).slot(offset_of(idx)).get()).assume_init_read() }
     }
 
@@ -122,6 +131,9 @@ impl<T> SegmentedSlab<T> {
             let off = offset_of(i as u32);
             let ptr = *self.segments[seg_idx].get_mut();
             debug_assert!(!ptr.is_null());
+            // SAFETY: &mut self guarantees no concurrent access; every
+            // slot below `count` was written by a prior alloc and not
+            // taken (Arena exposes no take path).
             unsafe { (*(*ptr).slot(off).get()).assume_init_drop(); }
         }
     }
@@ -133,6 +145,9 @@ impl<T> SegmentedSlab<T> {
         for entry in self.segments.iter_mut() {
             let ptr = *entry.get_mut();
             if !ptr.is_null() {
+                // SAFETY: non-null segment pointers all came from
+                // Box::into_raw in ensure_segment_slow; &mut self
+                // guarantees no concurrent readers.
                 unsafe { drop(Box::from_raw(ptr)); }
             }
         }
@@ -145,6 +160,8 @@ impl<T> SegmentedSlab<T> {
     fn ensure_segment(&self, seg_idx: usize) -> &Segment<T> {
         let ptr = self.segments[seg_idx].load(Ordering::Acquire);
         if !ptr.is_null() {
+            // SAFETY: installed segments live for &self's lifetime —
+            // they are freed only in Drop via &mut self.
             return unsafe { &*ptr };
         }
         self.ensure_segment_slow(seg_idx)
@@ -159,6 +176,12 @@ impl<T> SegmentedSlab<T> {
             Ordering::AcqRel,
             Ordering::Acquire,
         ) {
+            // SAFETY: new_seg came from Box::into_raw above; the CAS
+            // transfers ownership of the allocation to `self.segments[seg_idx]`
+            // on Ok. On Err, we reclaim the unused box and return the
+            // winner — which, by the same argument in the Ok path from
+            // whichever thread won, now owns its allocation and will
+            // outlive this borrow.
             Ok(_) => unsafe { &*new_seg },
             Err(existing) => {
                 unsafe { drop(Box::from_raw(new_seg)); }
@@ -170,6 +193,9 @@ impl<T> SegmentedSlab<T> {
 
 #[cfg(test)]
 mod tests {
+    // SAFETY (throughout this module): every `get_ref` / `take` call
+    // reads an index returned by a prior `alloc` on the same slab, so
+    // the allocation precondition is locally obvious at each site.
     use super::*;
 
     #[test]

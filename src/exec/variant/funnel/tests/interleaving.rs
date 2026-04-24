@@ -25,6 +25,9 @@ struct TraceLog {
     len: AtomicU64,
 }
 
+// SAFETY: TraceLog coordinates writes via fetch_add on `len`, so each
+// index is exclusively owned by one thread. Test harness only, not
+// production code.
 unsafe impl Send for TraceLog {}
 unsafe impl Sync for TraceLog {}
 
@@ -43,7 +46,12 @@ impl TraceLog {
         let idx = self.len.fetch_add(1, Ordering::Relaxed) as usize;
         if idx < MAX_TRACE {
             let tid = std::thread::current().id();
+            // SAFETY (transmute): ThreadId is repr(transparent) over a
+            // NonZeroU64 on stable Rust; reinterpreting its bits is
+            // stable enough for test diagnostics.
             let tid_u64 = unsafe { std::mem::transmute::<_, u64>(tid) };
+            // SAFETY (write): `idx` came from fetch_add on `len`, so
+            // this slot is exclusively ours.
             unsafe {
                 (*self.entries[idx].get()).write(TraceEntry {
                     thread_id: tid_u64, op, node_val, subtree, seq: s,
@@ -54,6 +62,10 @@ impl TraceLog {
 
     fn as_slice(&self) -> &[TraceEntry] {
         let len = (self.len.load(Ordering::Acquire) as usize).min(MAX_TRACE);
+        // SAFETY: called after all writers joined. Every slot in
+        // 0..len was initialized via push(). UnsafeCell<MaybeUninit<T>>
+        // and T share layout, so reinterpreting the buffer head as
+        // *const T is valid for `len` contiguous elements.
         unsafe {
             std::slice::from_raw_parts(
                 self.entries[0].get() as *const TraceEntry,

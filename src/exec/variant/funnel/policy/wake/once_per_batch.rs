@@ -10,6 +10,7 @@ pub struct OncePerBatch;
 
 #[derive(Clone, Copy, Default)]
 pub struct OncePerBatchSpec;
+// SAFETY: unit spec with no interior mutability.
 unsafe impl Send for OncePerBatchSpec {}
 unsafe impl Sync for OncePerBatchSpec {}
 
