@@ -34,7 +34,7 @@ pub mod fallible;
 // ── Commonly-used helpers ───────────────────────────────────────
 
 pub use vec_fold::{vec_fold, VecFold, VecHeap};
-pub use explainer::{ExplainerHeap, ExplainerResult, ExplainerStep};
+pub use explainer::{ExplainerHeap, ExplainerResult, ExplainerStep, SeedExplainerResult};
 pub use explainer_format::{
     trace_fold_compact, trace_fold_full, trace_fold_brief, trace_fold_indented,
 };

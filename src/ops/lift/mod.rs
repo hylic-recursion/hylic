@@ -30,3 +30,25 @@ pub use bare::LiftBare;
 pub use shape::ShapeLift;
 pub use seed_lift::SeedLift;
 pub use lifted_node::LiftedNode;
+
+/// Library-internal access to LiftedNode's variants. `hylic-pipeline`
+/// imports this for the Node/Entry dispatch inside the
+/// `LiftedSeedPipeline` sugars; user code uses the `is_entry` /
+/// `as_node` / `map_node` accessors on `LiftedNode<N>` instead.
+#[doc(hidden)]
+pub mod lifted_node_internal {
+    pub use super::lifted_node::LiftedNodeInner;
+
+    /// Construct an Entry row. Crate-internal; hidden from docs.
+    pub fn entry<N>() -> super::LiftedNode<N> {
+        super::LiftedNode::entry()
+    }
+    /// Construct a Node row. Crate-internal.
+    pub fn node<N>(n: N) -> super::LiftedNode<N> {
+        super::LiftedNode::node(n)
+    }
+    /// Borrow the inner enum for dispatch. Crate-internal.
+    pub fn inner<N>(ln: &super::LiftedNode<N>) -> &LiftedNodeInner<N> {
+        &ln.inner
+    }
+}

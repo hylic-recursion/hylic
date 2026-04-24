@@ -16,3 +16,8 @@ pub use lift::{
     SeedLift,
     LiftedNode,
 };
+
+// Doc-hidden passthrough for `hylic-pipeline`'s internal Node/Entry
+// dispatch. Not part of the stable surface.
+#[doc(hidden)]
+pub use lift::lifted_node_internal;
