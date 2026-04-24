@@ -20,8 +20,10 @@ where D: ShapeCapable<N> + Domain<N2>,
       N:  Clone + 'static, H:  Clone + 'static, R:  Clone + 'static,
       N2: Clone + 'static, H2: Clone + 'static, R2: Clone + 'static,
 {
-    pub(crate) treeish_xform: D::TreeishXform<N2>,
-    pub(crate) fold_xform:    D::FoldXform<H, R, N2, H2, R2>,
+    pub(crate) treeish_xform:    D::TreeishXform<N2>,
+    pub(crate) fold_xform:       D::FoldXform<H, R, N2, H2, R2>,
+    pub(crate) entry_node_xform: D::EntryNodeXform<N2>,
+    pub(crate) entry_heap_xform: D::EntryHeapXform<H, H2>,
 }
 // ANCHOR_END: shape_lift_struct
 
@@ -32,8 +34,10 @@ where D: ShapeCapable<N> + Domain<N2>,
 {
     fn clone(&self) -> Self {
         ShapeLift {
-            treeish_xform: self.treeish_xform.clone(),
-            fold_xform:    self.fold_xform.clone(),
+            treeish_xform:    self.treeish_xform.clone(),
+            fold_xform:       self.fold_xform.clone(),
+            entry_node_xform: self.entry_node_xform.clone(),
+            entry_heap_xform: self.entry_heap_xform.clone(),
         }
     }
 }
@@ -47,10 +51,12 @@ where D: ShapeCapable<N> + Domain<N2>,
     /// users call one of the domain-level convenience constructors
     /// (e.g. `Shared::wrap_init_lift`) rather than this directly.
     pub fn new(
-        treeish_xform: D::TreeishXform<N2>,
-        fold_xform:    D::FoldXform<H, R, N2, H2, R2>,
+        treeish_xform:    D::TreeishXform<N2>,
+        fold_xform:       D::FoldXform<H, R, N2, H2, R2>,
+        entry_node_xform: D::EntryNodeXform<N2>,
+        entry_heap_xform: D::EntryHeapXform<H, H2>,
     ) -> Self {
-        ShapeLift { treeish_xform, fold_xform }
+        ShapeLift { treeish_xform, fold_xform, entry_node_xform, entry_heap_xform }
     }
 }
 
@@ -63,6 +69,13 @@ where D: ShapeCapable<N> + Domain<N2>,
     type N2   = N2;
     type MapH = H2;
     type MapR = R2;
+
+    fn project_entry_node(&self, n: N) -> N2 {
+        D::apply_entry_node_xform::<N2>(&self.entry_node_xform, n)
+    }
+    fn project_entry_heap(&self, h: H) -> H2 {
+        D::apply_entry_heap_xform::<H, H2>(&self.entry_heap_xform, h)
+    }
 
     fn apply<T>(
         &self,

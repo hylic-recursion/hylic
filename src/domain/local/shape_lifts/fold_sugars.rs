@@ -19,10 +19,11 @@ impl Local {
             let w = w.clone();
             Rc::new(move |n: &N| w(n, &*old))
         };
-        Local::phases_lift::<N, H, R, H, R, _, _, _>(
+        Local::phases_lift::<N, H, R, H, R, _, _, _, _>(
             mi,
             Local::identity_acc_mapper::<H, R>(),
             Local::identity_fin_mapper::<H, R>(),
+            |h: H| h,
         )
     }
 
@@ -36,10 +37,11 @@ impl Local {
             let w = w.clone();
             Rc::new(move |h: &mut H, r: &R| w(h, r, &*old))
         };
-        Local::phases_lift::<N, H, R, H, R, _, _, _>(
+        Local::phases_lift::<N, H, R, H, R, _, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             ma,
             Local::identity_fin_mapper::<H, R>(),
+            |h: H| h,
         )
     }
 
@@ -53,10 +55,11 @@ impl Local {
             let w = w.clone();
             Rc::new(move |h: &H| w(h, &*old))
         };
-        Local::phases_lift::<N, H, R, H, R, _, _, _>(
+        Local::phases_lift::<N, H, R, H, R, _, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             Local::identity_acc_mapper::<H, R>(),
             mf,
+            |h: H| h,
         )
     }
 
@@ -86,10 +89,11 @@ impl Local {
                 })
             })
         };
-        Local::phases_lift::<N, H, R, H, (R, Extra), _, _, _>(
+        Local::phases_lift::<N, H, R, H, (R, Extra), _, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
+            |h: H| h,
         )
     }
 
@@ -121,10 +125,11 @@ impl Local {
                 Rc::new(move |h: &H| fwd(&old(h)))
             })
         };
-        Local::phases_lift::<N, H, R, H, RNew, _, _, _>(
+        Local::phases_lift::<N, H, R, H, RNew, _, _, _, _>(
             Local::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
+            |h: H| h,
         )
     }
 }

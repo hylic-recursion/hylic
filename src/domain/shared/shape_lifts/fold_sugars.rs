@@ -22,10 +22,11 @@ impl Shared {
             let w = w.clone();
             Arc::new(move |n: &N| w(n, &*old))
         };
-        Shared::phases_lift::<N, H, R, H, R, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, R, _, _, _, _>(
             mi,
             Shared::identity_acc_mapper::<H, R>(),
             Shared::identity_fin_mapper::<H, R>(),
+            |h: H| h,
         )
     }
 
@@ -40,10 +41,11 @@ impl Shared {
             let w = w.clone();
             Arc::new(move |h: &mut H, r: &R| w(h, r, &*old))
         };
-        Shared::phases_lift::<N, H, R, H, R, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, R, _, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             ma,
             Shared::identity_fin_mapper::<H, R>(),
+            |h: H| h,
         )
     }
 
@@ -58,10 +60,11 @@ impl Shared {
             let w = w.clone();
             Arc::new(move |h: &H| w(h, &*old))
         };
-        Shared::phases_lift::<N, H, R, H, R, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, R, _, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             Shared::identity_acc_mapper::<H, R>(),
             mf,
+            |h: H| h,
         )
     }
 }
@@ -100,10 +103,11 @@ impl Shared {
                 })
             })
         };
-        Shared::phases_lift::<N, H, R, H, (R, Extra), _, _, _>(
+        Shared::phases_lift::<N, H, R, H, (R, Extra), _, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
+            |h: H| h,
         )
     }
 
@@ -135,10 +139,11 @@ impl Shared {
                 Arc::new(move |h: &H| fwd(&old(h)))
             })
         };
-        Shared::phases_lift::<N, H, R, H, RNew, _, _, _>(
+        Shared::phases_lift::<N, H, R, H, RNew, _, _, _, _>(
             Shared::identity_init_mapper::<N, H>(),
             move |old| (ma)(old),
             move |old| (mf)(old),
+            |h: H| h,
         )
     }
 }

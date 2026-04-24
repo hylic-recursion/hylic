@@ -15,10 +15,11 @@ impl Local {
         Co:     Fn(&N)  -> N2 + Clone + 'static,
         Contra: Fn(&N2) -> N  + Clone + 'static,
     {
-        let co_for_tree = co;
-        let ca_for_tree = contra.clone();
-        let ca_for_fold = contra;
-        Local::n_lift::<N, H, R, N2, _, _>(
+        let co_for_tree  = co.clone();
+        let co_for_entry = co;
+        let ca_for_tree  = contra.clone();
+        let ca_for_fold  = contra;
+        Local::n_lift::<N, H, R, N2, _, _, _>(
             move |base: &Edgy<N, N>| -> Edgy<N2, N2> {
                 let base = base.clone();
                 let co = co_for_tree.clone();
@@ -29,6 +30,7 @@ impl Local {
                 })
             },
             ca_for_fold,
+            move |n: N| co_for_entry(&n),
         )
     }
 }

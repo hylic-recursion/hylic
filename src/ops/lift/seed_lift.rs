@@ -109,6 +109,9 @@ where N: Clone + 'static, Seed: Clone + 'static,
     type MapH = H;
     type MapR = R;
 
+    fn project_entry_node(&self, n: N) -> LiftedNode<N> { LiftedNode::Node(n) }
+    fn project_entry_heap(&self, h: H) -> H { h }
+
     fn apply<T>(
         &self,
         treeish: <Shared as Domain<N>>::Graph<N>,

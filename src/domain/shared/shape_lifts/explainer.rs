@@ -66,9 +66,22 @@ impl Shared {
                 },
             )
         });
+        // SeedSource-path note: explainer's MapH carries N, which is
+        // not available at the synthetic Entry. The identity-style
+        // entry_heap_xform below panics if invoked on a SeedPath;
+        // users needing explainer on SeedPipelines should supply a
+        // seed-specific variant with an explicit Entry-N provider
+        // (follow-up; tracked in the project-entry-refactor plan).
+        let entry_heap_xform: <Shared as ShapeCapable<N>>::EntryHeapXform<H, ExplainerHeap<N, H, R>> =
+            Arc::new(|_h: H| panic!(
+                "explainer_describe_lift::project_entry_heap is not usable on SeedSource \
+                 (MapH = ExplainerHeap<N,H,R> requires an N at Entry). \
+                 Use a seed-specific constructor when needed."));
         ShapeLift::new(
             <Shared as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
+            <Shared as ShapeCapable<N>>::identity_entry_node_xform(),
+            entry_heap_xform,
         )
     }
 
@@ -109,9 +122,18 @@ impl Shared {
                 },
             )
         });
+        // See note on explainer_describe_lift: MapH carries N.
+        let entry_heap_xform: <Shared as ShapeCapable<N>>::EntryHeapXform<
+            H, ExplainerHeap<N, H, ExplainerResult<N, H, R>>,
+        > = Arc::new(|_h: H| panic!(
+            "explainer_lift::project_entry_heap is not usable on SeedSource \
+             (MapH = ExplainerHeap<...> requires an N at Entry). \
+             Use a seed-specific constructor when needed."));
         ShapeLift::new(
             <Shared as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
+            <Shared as ShapeCapable<N>>::identity_entry_node_xform(),
+            entry_heap_xform,
         )
     }
     // ANCHOR_END: explainer_lift_ctor

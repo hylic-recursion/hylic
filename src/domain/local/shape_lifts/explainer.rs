@@ -46,9 +46,20 @@ impl Local {
                 },
             )
         });
+        // See note in shared/explainer.rs: SeedSource compatibility
+        // requires an N at the Entry, which we don't have. Panic-
+        // forward; a seed-specific constructor is a planned follow-up.
+        let entry_heap_xform: <Local as ShapeCapable<N>>::EntryHeapXform<
+            H, ExplainerHeap<N, H, ExplainerResult<N, H, R>>,
+        > = Rc::new(|_h: H| panic!(
+            "Local::explainer_lift::project_entry_heap is not usable on SeedSource \
+             (MapH = ExplainerHeap<...> requires an N at Entry). \
+             Use a seed-specific constructor when needed."));
         ShapeLift::new(
             <Local as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
+            <Local as ShapeCapable<N>>::identity_entry_node_xform(),
+            entry_heap_xform,
         )
     }
 }

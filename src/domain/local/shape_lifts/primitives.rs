@@ -28,8 +28,9 @@ impl Local {
 }
 
 impl Local {
-    pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF>(
+    pub fn phases_lift<N, H, R, NewH, NewR, MI, MA, MF, EHF>(
         mi: MI, ma: MA, mf: MF,
+        entry_heap_forward: EHF,
     ) -> ShapeLift<Local, N, H, R, N, NewH, NewR>
     where
         N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -37,6 +38,7 @@ impl Local {
         MI: Fn(Rc<dyn Fn(&N) -> H>) -> Rc<dyn Fn(&N) -> NewH> + 'static,
         MA: Fn(Rc<dyn Fn(&mut H, &R)>) -> Rc<dyn Fn(&mut NewH, &NewR)> + 'static,
         MF: Fn(Rc<dyn Fn(&H) -> R>) -> Rc<dyn Fn(&NewH) -> NewR> + 'static,
+        EHF: Fn(H) -> NewH + 'static,
     {
         let mi = Rc::new(mi);
         let ma = Rc::new(ma);
@@ -54,9 +56,13 @@ impl Local {
                     move |fin|  (mf)(fin),
                 )
             });
+        let entry_heap_xform: <Local as ShapeCapable<N>>::EntryHeapXform<H, NewH> =
+            Rc::new(entry_heap_forward);
         ShapeLift::new(
             <Local as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
+            <Local as ShapeCapable<N>>::identity_entry_node_xform(),
+            entry_heap_xform,
         )
     }
 }
@@ -75,20 +81,24 @@ impl Local {
         ShapeLift::new(
             treeish_xform,
             <Local as ShapeCapable<N>>::identity_fold_xform::<H, R>(),
+            <Local as ShapeCapable<N>>::identity_entry_node_xform(),
+            <Local as ShapeCapable<N>>::identity_entry_heap_xform::<H>(),
         )
     }
 }
 
 impl Local {
-    pub fn n_lift<N, H, R, N2, BT, FC>(
+    pub fn n_lift<N, H, R, N2, BT, FC, EF>(
         build_treeish: BT,
         fold_contra:   FC,
+        entry_forward: EF,
     ) -> ShapeLift<Local, N, H, R, N2, H, R>
     where
         N:  Clone + 'static, H: Clone + 'static, R: Clone + 'static,
         N2: Clone + 'static,
         BT: Fn(&Edgy<N, N>) -> Edgy<N2, N2> + 'static,
         FC: Fn(&N2) -> N + 'static,
+        EF: Fn(N) -> N2 + 'static,
     {
         let treeish_xform: <Local as ShapeCapable<N>>::TreeishXform<N2> = Rc::new(build_treeish);
         let fold_xform:    <Local as ShapeCapable<N>>::FoldXform<H, R, N2, H, R> = {
@@ -98,6 +108,13 @@ impl Local {
                 f.contramap_n(move |n2: &N2| fc(n2))
             })
         };
-        ShapeLift::new(treeish_xform, fold_xform)
+        let entry_node_xform: <Local as ShapeCapable<N>>::EntryNodeXform<N2> =
+            Rc::new(entry_forward);
+        ShapeLift::new(
+            treeish_xform,
+            fold_xform,
+            entry_node_xform,
+            <Local as ShapeCapable<N>>::identity_entry_heap_xform::<H>(),
+        )
     }
 }

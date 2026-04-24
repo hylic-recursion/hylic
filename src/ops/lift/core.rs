@@ -39,6 +39,31 @@ where D: Domain<N> + Domain<Self::N2>,
     /// Output result type after the lift has been applied.
     type MapR: Clone + 'static;
 
+    /// Forward map at the entry / root position for N.
+    ///
+    /// Covariantly transports values of `N` to the lifted node type
+    /// `Self::N2`. Used to promote a base-N root for
+    /// `run_from_node` and, crucially, to transport a
+    /// `Grow<Seed, N>` closure to `Grow<Seed, Self::N2>` by
+    /// post-composition on the Seed pipeline path.
+    ///
+    /// For N-preserving lifts (`Self::N2 = N`) this is the
+    /// identity. For N-changing lifts this is the forward half of
+    /// the reshape witness the lift already carries internally.
+    fn project_entry_node(&self, n: N) -> Self::N2;
+
+    /// Forward map at the entry position for H.
+    ///
+    /// Covariantly transports a base-H value — the `entry_heap`
+    /// supplied to `run_from_slice` — through the lift chain's
+    /// heap-reshape to `Self::MapH`. Enables polymorphic
+    /// combinators over H-changing lifts (explainer, phases).
+    ///
+    /// For H-preserving lifts (`Self::MapH = H`) this is the
+    /// identity. For H-changing lifts this is the forward heap
+    /// reshape.
+    fn project_entry_heap(&self, h: H) -> Self::MapH;
+
     /// Apply the lift to `(treeish, fold)` and invoke `cont` with
     /// the transformed pair.
     fn apply<T>(

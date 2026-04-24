@@ -40,6 +40,13 @@ where
     type MapH = L2::MapH;
     type MapR = L2::MapR;
 
+    fn project_entry_node(&self, n: N) -> L2::N2 {
+        self.outer.project_entry_node(self.inner.project_entry_node(n))
+    }
+    fn project_entry_heap(&self, h: H) -> L2::MapH {
+        self.outer.project_entry_heap(self.inner.project_entry_heap(h))
+    }
+
     fn apply<T>(
         &self,
         treeish: <D as Domain<N>>::Graph<N>,

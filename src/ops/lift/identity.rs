@@ -22,6 +22,9 @@ where D: Domain<N>,
     type MapH = H;
     type MapR = R;
 
+    fn project_entry_node(&self, n: N) -> N { n }
+    fn project_entry_heap(&self, h: H) -> H { h }
+
     fn apply<T>(
         &self,
         treeish: <D as Domain<N>>::Graph<N>,
