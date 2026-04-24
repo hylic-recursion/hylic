@@ -67,7 +67,6 @@ impl Shared {
             )
         });
         ShapeLift::new(
-            <Shared as ShapeCapable<N>>::identity_grow_xform(),
             <Shared as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
         )
@@ -111,7 +110,6 @@ impl Shared {
             )
         });
         ShapeLift::new(
-            <Shared as ShapeCapable<N>>::identity_grow_xform(),
             <Shared as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
         )

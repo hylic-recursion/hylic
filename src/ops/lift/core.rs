@@ -13,8 +13,21 @@
 use crate::domain::Domain;
 
 // ANCHOR: lift_trait
-/// Domain-generic transformer over the `(grow, treeish, fold)`
-/// triple. See [Lifts in the user guide](https://hylic.balcony.codes/concepts/lifts.html).
+/// Domain-generic transformer over the `(treeish, fold)` pair.
+///
+/// A `Lift` rewrites the graph side and/or the fold side, possibly
+/// changing their carrier types, and hands the result to a
+/// continuation. The caller's continuation-return type `T` flows
+/// through, so the chain of output types stays inferred across
+/// composition (`ComposedLift<L1, L2>`).
+///
+/// Grow is deliberately absent from this signature. Only the Seed
+/// finishing lift ([`SeedLift`](super::SeedLift)) needs a grow
+/// input; it is composed internally by
+/// `hylic_pipeline::PipelineExecSeed::run` and does not travel as
+/// a 3-slot signature through the `Lift` trait.
+///
+/// See [Lifts](https://hylic.balcony.codes/concepts/lifts.html).
 pub trait Lift<D, N, H, R>
 where D: Domain<N> + Domain<Self::N2>,
       N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
@@ -26,20 +39,16 @@ where D: Domain<N> + Domain<Self::N2>,
     /// Output result type after the lift has been applied.
     type MapR: Clone + 'static;
 
-    /// Apply the lift to the input triple and call `cont` with the
-    /// transformed `(grow, treeish, fold)` triple. Continuation-passing
-    /// style keeps the output-type chain fully inferred.
-    fn apply<Seed, T>(
+    /// Apply the lift to `(treeish, fold)` and invoke `cont` with
+    /// the transformed pair.
+    fn apply<T>(
         &self,
-        grow:    <D as Domain<N>>::Grow<Seed, N>,
         treeish: <D as Domain<N>>::Graph<N>,
         fold:    <D as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <D as Domain<Self::N2>>::Grow<Seed, Self::N2>,
             <D as Domain<Self::N2>>::Graph<Self::N2>,
             <D as Domain<Self::N2>>::Fold<Self::MapH, Self::MapR>,
         ) -> T,
-    ) -> T
-    where Seed: Clone + 'static;
+    ) -> T;
 }
 // ANCHOR_END: lift_trait

@@ -22,19 +22,15 @@ where D: Domain<N>,
     type MapH = H;
     type MapR = R;
 
-    fn apply<Seed, T>(
+    fn apply<T>(
         &self,
-        grow:    <D as Domain<N>>::Grow<Seed, N>,
         treeish: <D as Domain<N>>::Graph<N>,
         fold:    <D as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <D as Domain<N>>::Grow<Seed, N>,
             <D as Domain<N>>::Graph<N>,
             <D as Domain<N>>::Fold<H, R>,
         ) -> T,
-    ) -> T
-    where Seed: Clone + 'static,
-    {
-        cont(grow, treeish, fold)
+    ) -> T {
+        cont(treeish, fold)
     }
 }

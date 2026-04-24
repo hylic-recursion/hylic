@@ -86,7 +86,6 @@ impl Shared {
                 )
             });
         ShapeLift::new(
-            <Shared as ShapeCapable<N>>::identity_grow_xform(),
             <Shared as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
         )
@@ -111,7 +110,6 @@ impl Shared {
             Arc::new(move |g: &Edgy<N, N>| (mt)(g.clone()))
         };
         ShapeLift::new(
-            <Shared as ShapeCapable<N>>::identity_grow_xform(),
             treeish_xform,
             <Shared as ShapeCapable<N>>::identity_fold_xform::<H, R>(),
         )
@@ -119,23 +117,27 @@ impl Shared {
     // ANCHOR_END: treeish_lift
 }
 
-// ── n_lift — N-change primitive (coordinated grow + treeish + fold) ─
+// ── n_lift — N-change primitive (coordinated treeish + fold) ────
 
 impl Shared {
     // ANCHOR: n_lift
-    pub fn n_lift<N, H, R, N2, LN, BT, FC>(
-        lift_node:     LN,
+    /// Coordinated N-change: rebuild the treeish into N2-space and
+    /// contramap the fold so its `init` accepts `&N2`.
+    ///
+    /// Users of this lift on a `SeedPipeline` must apply the N-change
+    /// at Stage 1 via `reshape` if the seed dispatch must survive;
+    /// at Stage 2 the grow axis is not threaded through `Lift::apply`,
+    /// so `.then_lift(n_lift(...)).run_from_slice(...)` will not type.
+    pub fn n_lift<N, H, R, N2, BT, FC>(
         build_treeish: BT,
         fold_contra:   FC,
     ) -> ShapeLift<Shared, N, H, R, N2, H, R>
     where
         N:  Clone + 'static, H: Clone + 'static, R: Clone + 'static,
         N2: Clone + 'static,
-        LN: Fn(&N) -> N2 + Send + Sync + 'static,
         BT: Fn(&Edgy<N, N>) -> Edgy<N2, N2> + Send + Sync + 'static,
         FC: Fn(&N2) -> N + Send + Sync + 'static,
     {
-        let grow_xform:    <Shared as ShapeCapable<N>>::GrowXform<N2>    = Arc::new(lift_node);
         let treeish_xform: <Shared as ShapeCapable<N>>::TreeishXform<N2> = Arc::new(build_treeish);
         let fold_xform:    <Shared as ShapeCapable<N>>::FoldXform<H, R, N2, H, R> = {
             let fc = Arc::new(fold_contra);
@@ -144,7 +146,7 @@ impl Shared {
                 f.contramap_n(move |n2: &N2| fc(n2))
             })
         };
-        ShapeLift::new(grow_xform, treeish_xform, fold_xform)
+        ShapeLift::new(treeish_xform, fold_xform)
     }
     // ANCHOR_END: n_lift
 }

@@ -40,21 +40,17 @@ where
     type MapH = L2::MapH;
     type MapR = L2::MapR;
 
-    fn apply<Seed, T>(
+    fn apply<T>(
         &self,
-        grow:    <D as Domain<N>>::Grow<Seed, N>,
         treeish: <D as Domain<N>>::Graph<N>,
         fold:    <D as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <D as Domain<L2::N2>>::Grow<Seed, L2::N2>,
             <D as Domain<L2::N2>>::Graph<L2::N2>,
             <D as Domain<L2::N2>>::Fold<L2::MapH, L2::MapR>,
         ) -> T,
-    ) -> T
-    where Seed: Clone + 'static,
-    {
-        self.inner.apply::<Seed, _>(grow, treeish, fold, |g1, t1, f1| {
-            self.outer.apply::<Seed, _>(g1, t1, f1, cont)
+    ) -> T {
+        self.inner.apply(treeish, fold, |t1, f1| {
+            self.outer.apply(t1, f1, cont)
         })
     }
 }

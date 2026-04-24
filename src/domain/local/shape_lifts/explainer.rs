@@ -47,7 +47,6 @@ impl Local {
             )
         });
         ShapeLift::new(
-            <Local as ShapeCapable<N>>::identity_grow_xform(),
             <Local as ShapeCapable<N>>::identity_treeish_xform(),
             fold_xform,
         )

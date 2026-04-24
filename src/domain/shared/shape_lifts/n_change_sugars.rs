@@ -15,12 +15,10 @@ impl Shared {
         Co:     Fn(&N)  -> N2 + Send + Sync + 'static + Clone,
         Contra: Fn(&N2) -> N  + Send + Sync + 'static + Clone,
     {
-        let co_for_grow   = co.clone();
-        let co_for_tree   = co.clone();
+        let co_for_tree   = co;
         let contra_for_tr = contra.clone();
         let contra_for_fd = contra;
-        Shared::n_lift::<N, H, R, N2, _, _, _>(
-            co_for_grow,
+        Shared::n_lift::<N, H, R, N2, _, _>(
             move |base: &Edgy<N, N>| -> Edgy<N2, N2> {
                 let base = base.clone();
                 let co = co_for_tree.clone();

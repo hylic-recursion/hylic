@@ -3,10 +3,6 @@
 //! Users who don't use pipelines can still construct library Lifts
 //! via `Shared::foo_lift(args)` / `Local::foo_lift(args)` and apply
 //! them directly to a treeish+fold, skipping the pipeline machinery.
-//!
-//! Internally synthesises a panic-grow to satisfy `Lift::apply`'s
-//! 3-slot signature; the panic closure is never invoked because no
-//! Lift impl calls grow at runtime.
 
 use crate::exec::Executor;
 use crate::domain::Domain;
@@ -34,11 +30,7 @@ where D: ShapeCapable<N> + Domain<Self::N2>,
     ) -> (<D as Domain<Self::N2>>::Graph<Self::N2>,
           <D as Domain<Self::N2>>::Fold<Self::MapH, Self::MapR>)
     {
-        let panic_grow = <D as Domain<N>>::make_grow::<(), N>(|_: &()| {
-            unreachable!("LiftBare::apply_bare synthesises a panic-grow; \
-                          no Lift impl invokes grow at runtime")
-        });
-        self.apply::<(), _>(panic_grow, treeish, fold, |_g, t, f| (t, f))
+        self.apply(treeish, fold, |t, f| (t, f))
     }
 
     /// Apply this lift and run the result under the given executor.

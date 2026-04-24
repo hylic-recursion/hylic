@@ -109,19 +109,15 @@ where N: Clone + 'static, Seed: Clone + 'static,
     type MapH = H;
     type MapR = R;
 
-    fn apply<Seed_, T>(
+    fn apply<T>(
         &self,
-        _grow_upstream: <Shared as Domain<N>>::Grow<Seed_, N>,
-        treeish:        <Shared as Domain<N>>::Graph<N>,
-        fold:           <Shared as Domain<N>>::Fold<H, R>,
+        treeish: <Shared as Domain<N>>::Graph<N>,
+        fold:    <Shared as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <Shared as Domain<LiftedNode<N>>>::Grow<Seed_, LiftedNode<N>>,
             <Shared as Domain<LiftedNode<N>>>::Graph<LiftedNode<N>>,
             <Shared as Domain<LiftedNode<N>>>::Fold<H, R>,
         ) -> T,
-    ) -> T
-    where Seed_: Clone + 'static,
-    {
+    ) -> T {
         // ── lifted treeish ─────────────────────────────────
         let sl_grow     = self.grow.clone();
         let entry_seeds = self.entry_seeds.clone();
@@ -148,12 +144,6 @@ where N: Clone + 'static, Seed: Clone + 'static,
             move |heap: &H| f3.finalize(heap),
         );
 
-        // ── unreachable upstream grow ──────────────────────
-        let unreachable_grow: Arc<dyn Fn(&Seed_) -> LiftedNode<N> + Send + Sync> =
-            Arc::new(|_: &Seed_| unreachable!(
-                "SeedLift is a finishing lift; its output grow is unreachable — \
-                 exec.run runs with &LiftedNode::Entry as root"));
-
-        cont(unreachable_grow, lifted_treeish, lifted_fold)
+        cont(lifted_treeish, lifted_fold)
     }
 }
