@@ -37,7 +37,7 @@ use hylic::prelude::*;
 brings: `Shared` + Fold/Edgy/Treeish constructors, `Exec` + `fused`
 / `funnel` module aliases, every Lift atom (`Lift`, `IdentityLift`,
 `ComposedLift`, `ShapeLift`, `SeedLift`, `LiftBare`, capability
-markers, `LiftedNode`), and common debug helpers (explainer,
+markers, `SeedNode`), and common debug helpers (explainer,
 pretty-printers, vec-fold).
 
 For pipeline typestates add:

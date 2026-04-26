@@ -5,6 +5,43 @@ All notable changes to `hylic` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Seed pipeline unification
+
+### Changed (breaking)
+
+- **`LiftedNode<N>` renamed to `SeedNode<N>`**, variant `Entry`
+  renamed to `EntryRoot`. The Seed-rooted chain's lifted-node sum
+  type is the new "first-class entry value" name. Backward-compatible
+  aliases (`LiftedNode`, `Entry`) are kept for one cycle with
+  `#[deprecated]`.
+- **`SeedLift` is now domain-parametric over `ShapeCapable`**, with
+  `entry_heap_fn: <D as ShapeCapable<N>>::EntryHeap<H>` (a per-domain
+  GAT for `Fn() -> H` storage — `Arc` on Shared, `Rc` on Local) and
+  `entry_seeds: <D as Domain<()>>::Graph<Seed>` (per-domain seed
+  graph). The `EntryHeapFn<D, H>` enum and its `unreachable!` arms
+  are gone. The Local-domain Send+Sync crack on `Seed` closes: a
+  Local seeded run no longer requires `Seed: Send + Sync`.
+- **`SeedExplainerResult::from_lifted` → `From` impl.** Project a
+  raw seed-closed explainer trace via `raw.into()` (or
+  `SeedExplainerResult::from(raw)`) — the standalone
+  `from_lifted` associated function is removed.
+- **`ConstructFold` trait removed** along with its unsafe
+  `make_fold_unchecked`. ParLazy and ParEager migrate to safe
+  `Domain::make_fold`; the closures' Send+Sync auto-derive from
+  the wrapped `Fold<N, H, R>`.
+
+### Added
+
+- **Stage-2 unification**: `Stage2Pipeline<Base, L>` is the single
+  Stage-2 pipeline type. Both treeish-rooted and seed-rooted chains
+  flow through it, distinguished only by their `Base`. The historical
+  `LiftedPipeline` and `LiftedSeedPipeline` are deprecated aliases.
+- **`Wrap` trait + `Stage2Base` trait** as the dispatch backbone for
+  Stage-2 sugars (the source-of-truth for "what does the sugar's
+  `&N` parameter type unify with on this Base?").
+- **`ShapeCapable::EntryHeap<H>` GAT** — domain-parametric storage for
+  the `Fn() -> H` thunk consumed by `SeedLift` at EntryRoot init.
+
 ## [1.0.0] — 2026-05 (pending release)
 
 The first stable release. This entry condenses the 0.x evolution
