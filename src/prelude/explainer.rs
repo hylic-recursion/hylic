@@ -73,7 +73,8 @@ where N: Clone + Send + Sync + 'static,
 // `ExplainerResult<SeedNode<N>, H, R>`: the top row's
 // `heap.node` is `SeedNode::Entry` (synthetic), and every nested
 // trace carries `SeedNode::Node(n)`. Users who want an N-typed
-// view call `SeedExplainerResult::from_lifted`, which splits the
+// view convert via `SeedExplainerResult::from(raw)` (or `raw.into()`),
+// which splits the
 // entry row out as its own fields and recursively projects each
 // subtree to `ExplainerResult<N, H, R>`.
 
@@ -83,7 +84,9 @@ where N: Clone + Send + Sync + 'static,
 /// each root subtree becomes an `ExplainerResult<N, H, R>` —
 /// `SeedNode<N>` no longer appears in the user-visible shape.
 ///
-/// Obtain via [`Self::from_lifted`].
+/// Obtain via the [`From<ExplainerResult<SeedNode<N>, H, R>>`] impl
+/// (`raw.into()` on the chain-tip shape returned by a seeded run
+/// after `.explain()`).
 #[derive(Clone)]
 pub struct SeedExplainerResult<N, H, R>
 where N: Clone, H: Clone, R: Clone,
@@ -100,21 +103,19 @@ where N: Clone, H: Clone, R: Clone,
     pub roots:              Vec<ExplainerResult<N, H, R>>,
 }
 
-impl<N, H, R> SeedExplainerResult<N, H, R>
+impl<N, H, R> From<ExplainerResult<SeedNode<N>, H, R>> for SeedExplainerResult<N, H, R>
 where N: Clone, H: Clone, R: Clone,
 {
     /// Project a raw `ExplainerResult<SeedNode<N>, H, R>` (the
-    /// chain-tip shape returned by `LiftedSeedPipeline::…run()` after
-    /// `.explain()`) into the N-typed form.
+    /// chain-tip shape returned by a seeded run after `.explain()`)
+    /// into the N-typed form.
     ///
     /// Below the Entry row, every `SeedNode<N>` is known to be a
     /// resolved Node: `SeedNode::Entry` is unique to the root.
     /// This projection walks the trace tree once, unwrapping each
     /// `heap.node` via `SeedNode::as_node`; under the no-Entry-below-root
     /// invariant the `expect` is unreachable.
-    pub fn from_lifted(
-        raw: ExplainerResult<SeedNode<N>, H, R>,
-    ) -> Self {
+    fn from(raw: ExplainerResult<SeedNode<N>, H, R>) -> Self {
         // Root's heap.node is SeedNode::Entry. Its transitions are
         // one per root seed; each transition's incoming_result is an
         // ExplainerResult<SeedNode<N>, H, R> whose heap.node is
