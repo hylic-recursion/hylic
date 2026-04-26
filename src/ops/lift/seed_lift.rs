@@ -1,7 +1,7 @@
 //! SeedLift — the finishing Lift that retires the Seed axis.
 //!
 //! `SeedLift<D, N, Seed, H>` is a `Lift<D, N, H, R>` with
-//! `N2 = LiftedNode<N>`, `MapH = H`, `MapR = R`. It carries
+//! `N2 = SeedNode<N>`, `MapH = H`, `MapR = R`. It carries
 //! Entry-dispatch state as struct fields:
 //!
 //!   - `grow`: the pipeline's Seed→N resolver (D-stored).
@@ -10,10 +10,10 @@
 //!   - `entry_heap_fn`: produces the root heap at Entry (D-stored).
 //!
 //! Traversal:
-//!   - `LiftedNode::Entry.visit` → fans out to
-//!     `LiftedNode::Node(grow(seed))` for each entry seed.
-//!   - `LiftedNode::Node(n).visit` → delegates to the base treeish;
-//!     emits children wrapped as `LiftedNode::Node(child)`.
+//!   - `SeedNode::Entry.visit` → fans out to
+//!     `SeedNode::Node(grow(seed))` for each entry seed.
+//!   - `SeedNode::Node(n).visit` → delegates to the base treeish;
+//!     emits children wrapped as `SeedNode::Node(child)`.
 //!
 //! The fold is wrapped identically for both variants — Node uses
 //! the base fold's init/accumulate/finalize; Entry uses
@@ -31,13 +31,13 @@ use std::sync::Arc;
 
 use crate::domain::{Domain, Shared, Local};
 use crate::graph::{self, Edgy, Treeish};
-use super::lifted_node::{LiftedNode, LiftedNodeInner};
+use super::seed_node::{SeedNode, SeedNodeInner};
 use super::core::Lift;
 
 // ANCHOR: seed_lift_struct
 /// The finishing lift that closes a `SeedPipeline`'s grow axis.
 /// Composes entry-seed dispatch on top of a `(grow, seeds, fold)`
-/// triple and produces a treeish over `LiftedNode<N>`. Not
+/// triple and produces a treeish over `SeedNode<N>`. Not
 /// user-constructed; assembled internally by
 /// `LiftedSeedPipeline::run` at call time.
 ///
@@ -190,7 +190,7 @@ impl<N, Seed, H, R> Lift<Shared, N, H, R> for SeedLift<Shared, N, Seed, H>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
 {
-    type N2   = LiftedNode<N>;
+    type N2   = SeedNode<N>;
     type MapH = H;
     type MapR = R;
 
@@ -199,8 +199,8 @@ where N: Clone + 'static, Seed: Clone + 'static,
         treeish: <Shared as Domain<N>>::Graph<N>,
         fold:    <Shared as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <Shared as Domain<LiftedNode<N>>>::Graph<LiftedNode<N>>,
-            <Shared as Domain<LiftedNode<N>>>::Fold<H, R>,
+            <Shared as Domain<SeedNode<N>>>::Graph<SeedNode<N>>,
+            <Shared as Domain<SeedNode<N>>>::Fold<H, R>,
         ) -> T,
     ) -> T {
         use crate::domain::shared::fold::{self as sfold, Fold};
@@ -209,13 +209,13 @@ where N: Clone + 'static, Seed: Clone + 'static,
         let sl_grow     = self.grow.clone();
         let entry_seeds = self.entry_seeds.clone();
         let base        = treeish;
-        let lifted_treeish: Treeish<LiftedNode<N>> = graph::treeish_visit(
-            move |n: &LiftedNode<N>, cb: &mut dyn FnMut(&LiftedNode<N>)| match &n.inner {
-                LiftedNodeInner::Node(node) => {
-                    base.visit(node, &mut |c: &N| cb(&LiftedNode::node(c.clone())));
+        let lifted_treeish: Treeish<SeedNode<N>> = graph::treeish_visit(
+            move |n: &SeedNode<N>, cb: &mut dyn FnMut(&SeedNode<N>)| match &n.inner {
+                SeedNodeInner::Node(node) => {
+                    base.visit(node, &mut |c: &N| cb(&SeedNode::node(c.clone())));
                 }
-                LiftedNodeInner::Entry => entry_seeds.visit(&(),
-                    &mut |s: &Seed| cb(&LiftedNode::node(sl_grow(s)))),
+                SeedNodeInner::EntryRoot => entry_seeds.visit(&(),
+                    &mut |s: &Seed| cb(&SeedNode::node(sl_grow(s)))),
             },
         );
 
@@ -226,10 +226,10 @@ where N: Clone + 'static, Seed: Clone + 'static,
             EntryHeapFn::_Phantom(_, x) => match *x {},
         };
         let f1 = fold.clone(); let f2 = fold.clone(); let f3 = fold;
-        let lifted_fold: Fold<LiftedNode<N>, H, R> = sfold::fold(
-            move |n: &LiftedNode<N>| match &n.inner {
-                LiftedNodeInner::Node(node) => f1.init(node),
-                LiftedNodeInner::Entry      => heap_fn(),
+        let lifted_fold: Fold<SeedNode<N>, H, R> = sfold::fold(
+            move |n: &SeedNode<N>| match &n.inner {
+                SeedNodeInner::Node(node) => f1.init(node),
+                SeedNodeInner::EntryRoot      => heap_fn(),
             },
             move |heap: &mut H, result: &R| f2.accumulate(heap, result),
             move |heap: &H| f3.finalize(heap),
@@ -245,7 +245,7 @@ impl<N, Seed, H, R> Lift<Local, N, H, R> for SeedLift<Local, N, Seed, H>
 where N: Clone + 'static, Seed: Clone + 'static,
       H: Clone + 'static, R: Clone + 'static,
 {
-    type N2   = LiftedNode<N>;
+    type N2   = SeedNode<N>;
     type MapH = H;
     type MapR = R;
 
@@ -254,8 +254,8 @@ where N: Clone + 'static, Seed: Clone + 'static,
         treeish: <Local as Domain<N>>::Graph<N>,
         fold:    <Local as Domain<N>>::Fold<H, R>,
         cont: impl FnOnce(
-            <Local as Domain<LiftedNode<N>>>::Graph<LiftedNode<N>>,
-            <Local as Domain<LiftedNode<N>>>::Fold<H, R>,
+            <Local as Domain<SeedNode<N>>>::Graph<SeedNode<N>>,
+            <Local as Domain<SeedNode<N>>>::Fold<H, R>,
         ) -> T,
     ) -> T {
         use crate::domain::local::{self, edgy as local_edgy};
@@ -264,14 +264,14 @@ where N: Clone + 'static, Seed: Clone + 'static,
         let sl_grow     = self.grow.clone();
         let entry_seeds = self.entry_seeds.clone();
         let base        = treeish;
-        let lifted_treeish: local_edgy::Treeish<LiftedNode<N>> =
+        let lifted_treeish: local_edgy::Treeish<SeedNode<N>> =
             local_edgy::treeish_visit(
-                move |n: &LiftedNode<N>, cb: &mut dyn FnMut(&LiftedNode<N>)| match &n.inner {
-                    LiftedNodeInner::Node(node) => {
-                        base.visit(node, &mut |c: &N| cb(&LiftedNode::node(c.clone())));
+                move |n: &SeedNode<N>, cb: &mut dyn FnMut(&SeedNode<N>)| match &n.inner {
+                    SeedNodeInner::Node(node) => {
+                        base.visit(node, &mut |c: &N| cb(&SeedNode::node(c.clone())));
                     }
-                    LiftedNodeInner::Entry => entry_seeds.visit(&(),
-                        &mut |s: &Seed| cb(&LiftedNode::node(sl_grow(s)))),
+                    SeedNodeInner::EntryRoot => entry_seeds.visit(&(),
+                        &mut |s: &Seed| cb(&SeedNode::node(sl_grow(s)))),
                 },
             );
 
@@ -282,10 +282,10 @@ where N: Clone + 'static, Seed: Clone + 'static,
             EntryHeapFn::_Phantom(_, x) => match *x {},
         };
         let f1 = fold.clone(); let f2 = fold.clone(); let f3 = fold;
-        let lifted_fold: local::Fold<LiftedNode<N>, H, R> = local::fold(
-            move |n: &LiftedNode<N>| match &n.inner {
-                LiftedNodeInner::Node(node) => f1.init(node),
-                LiftedNodeInner::Entry      => heap_fn(),
+        let lifted_fold: local::Fold<SeedNode<N>, H, R> = local::fold(
+            move |n: &SeedNode<N>| match &n.inner {
+                SeedNodeInner::Node(node) => f1.init(node),
+                SeedNodeInner::EntryRoot      => heap_fn(),
             },
             move |heap: &mut H, result: &R| f2.accumulate(heap, result),
             move |heap: &H| f3.finalize(heap),

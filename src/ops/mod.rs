@@ -14,10 +14,18 @@ pub use lift::{
     ShareableLift,
     LiftBare,
     SeedLift,
-    LiftedNode,
+    SeedNode,
 };
 
-// Doc-hidden passthrough for `hylic-pipeline`'s internal Node/Entry
+// Deprecated alias kept for one cycle.
+#[allow(deprecated)]
+pub use lift::LiftedNode;
+
+// Doc-hidden passthrough for `hylic-pipeline`'s internal Node/EntryRoot
 // dispatch. Not part of the stable surface.
 #[doc(hidden)]
+pub use lift::seed_node_internal;
+
+#[doc(hidden)]
+#[allow(deprecated)]
 pub use lift::lifted_node_internal;

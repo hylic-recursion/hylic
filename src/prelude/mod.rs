@@ -7,7 +7,7 @@
 //! covers: the three domain markers (Shared / Local / Owned),
 //! Shared-default Fold/Edgy/Treeish constructors, executor helpers,
 //! every lift atom (Lift, IdentityLift, ComposedLift, ShapeLift,
-//! SeedLift, LiftBare, capability markers, LiftedNode), and common
+//! SeedLift, LiftBare, capability markers, SeedNode), and common
 //! debug helpers (explainer, formatters).
 //!
 //! For Local or Owned construction, import the per-domain module
@@ -67,9 +67,9 @@ pub use crate::graph::{
 
 pub use crate::exec::{fused, funnel};
 
-// ── Lift atoms (including SeedLift, LiftBare, LiftedNode) ───────
+// ── Lift atoms (including SeedLift, LiftBare, SeedNode) ───────
 
 pub use crate::ops::{
-    Lift, IdentityLift, ComposedLift, ShapeLift, SeedLift, LiftedNode,
+    Lift, IdentityLift, ComposedLift, ShapeLift, SeedLift, SeedNode,
     ShapeCapable, PureLift, ShareableLift, LiftBare,
 };

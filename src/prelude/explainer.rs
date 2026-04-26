@@ -13,7 +13,7 @@
 #![allow(missing_docs)] // module-level: public items are per-domain/per-policy mirrors of documented primitives
 
 use crate::graph::{treeish, Treeish};
-use crate::ops::LiftedNode;
+use crate::ops::SeedNode;
 
 #[derive(Clone)]
 pub struct ExplainerStep<H, ChildR>
@@ -70,9 +70,9 @@ where N: Clone + Send + Sync + 'static,
 // ── Seed-closed projection ───────────────────────────────────
 //
 // On the SeedPipeline path, a chain's tip R after `.explain()` is
-// `ExplainerResult<LiftedNode<N>, H, R>`: the top row's
-// `heap.node` is `LiftedNode::Entry` (synthetic), and every nested
-// trace carries `LiftedNode::Node(n)`. Users who want an N-typed
+// `ExplainerResult<SeedNode<N>, H, R>`: the top row's
+// `heap.node` is `SeedNode::Entry` (synthetic), and every nested
+// trace carries `SeedNode::Node(n)`. Users who want an N-typed
 // view call `SeedExplainerResult::from_lifted`, which splits the
 // entry row out as its own fields and recursively projects each
 // subtree to `ExplainerResult<N, H, R>`.
@@ -81,7 +81,7 @@ where N: Clone + Send + Sync + 'static,
 /// row is promoted out of the tree as three fields
 /// (`entry_initial_heap`, `entry_working_heap`, `orig_result`) and
 /// each root subtree becomes an `ExplainerResult<N, H, R>` —
-/// `LiftedNode<N>` no longer appears in the user-visible shape.
+/// `SeedNode<N>` no longer appears in the user-visible shape.
 ///
 /// Obtain via [`Self::from_lifted`].
 #[derive(Clone)]
@@ -103,22 +103,22 @@ where N: Clone, H: Clone, R: Clone,
 impl<N, H, R> SeedExplainerResult<N, H, R>
 where N: Clone, H: Clone, R: Clone,
 {
-    /// Project a raw `ExplainerResult<LiftedNode<N>, H, R>` (the
+    /// Project a raw `ExplainerResult<SeedNode<N>, H, R>` (the
     /// chain-tip shape returned by `LiftedSeedPipeline::…run()` after
     /// `.explain()`) into the N-typed form.
     ///
-    /// Below the Entry row, every `LiftedNode<N>` is known to be a
-    /// resolved Node: `LiftedNode::Entry` is unique to the root.
+    /// Below the Entry row, every `SeedNode<N>` is known to be a
+    /// resolved Node: `SeedNode::Entry` is unique to the root.
     /// This projection walks the trace tree once, unwrapping each
-    /// `heap.node` via `LiftedNode::as_node`; under the no-Entry-below-root
+    /// `heap.node` via `SeedNode::as_node`; under the no-Entry-below-root
     /// invariant the `expect` is unreachable.
     pub fn from_lifted(
-        raw: ExplainerResult<LiftedNode<N>, H, R>,
+        raw: ExplainerResult<SeedNode<N>, H, R>,
     ) -> Self {
-        // Root's heap.node is LiftedNode::Entry. Its transitions are
+        // Root's heap.node is SeedNode::Entry. Its transitions are
         // one per root seed; each transition's incoming_result is an
-        // ExplainerResult<LiftedNode<N>, H, R> whose heap.node is
-        // LiftedNode::Node(n) — we unwrap recursively.
+        // ExplainerResult<SeedNode<N>, H, R> whose heap.node is
+        // SeedNode::Node(n) — we unwrap recursively.
         let roots: Vec<ExplainerResult<N, H, R>> = raw.heap.transitions
             .into_iter()
             .map(|step| unwrap_lifted_below_root(step.incoming_result))
@@ -132,17 +132,17 @@ where N: Clone, H: Clone, R: Clone,
     }
 }
 
-/// Recursive unwrap: below Entry, every `LiftedNode<N>` must be a
+/// Recursive unwrap: below Entry, every `SeedNode<N>` must be a
 /// `Node(n)`. Panics if the invariant is violated (meaning a lift
 /// below `SeedLift` fabricated an Entry row — library bug).
 fn unwrap_lifted_below_root<N, H, R>(
-    x: ExplainerResult<LiftedNode<N>, H, R>,
+    x: ExplainerResult<SeedNode<N>, H, R>,
 ) -> ExplainerResult<N, H, R>
 where N: Clone, H: Clone, R: Clone,
 {
     let node_lifted = x.heap.node;
     let n: N = node_lifted.into_node()
-        .expect("SeedExplainerResult invariant: LiftedNode::Entry only at trace root");
+        .expect("SeedExplainerResult invariant: SeedNode::Entry only at trace root");
     let transitions: Vec<ExplainerStep<H, ExplainerResult<N, H, R>>> = x.heap.transitions
         .into_iter()
         .map(|step| ExplainerStep {
