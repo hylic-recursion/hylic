@@ -104,4 +104,6 @@ impl<N: 'static> ShapeCapable<N> for Shared {
         let fused: Edgy<N, N> = seeds.map(move |s: &Seed| grow(s));
         shared_graph::<N>(fused)
     }
+
+    type EntryHeap<H: 'static> = Arc<dyn Fn() -> H + Send + Sync>;
 }

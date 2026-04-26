@@ -103,4 +103,6 @@ impl<N: 'static> ShapeCapable<N> for Local {
         let fused: Edgy<N, N> = seeds.map(move |s: &Seed| grow(s));
         local_graph::<N>(fused)
     }
+
+    type EntryHeap<H: 'static> = Rc<dyn Fn() -> H>;
 }

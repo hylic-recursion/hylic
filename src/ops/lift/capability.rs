@@ -64,6 +64,12 @@ pub trait ShapeCapable<N: 'static>: Domain<N> {
         seeds: <Self as Domain<N>>::Graph<Seed>,
     ) -> <Self as Domain<N>>::Graph<N>
     where Seed: Clone;
+
+    /// Storage type for `SeedLift`'s entry-heap thunk: a
+    /// `Fn() -> H` whose backing pointer matches the domain's
+    /// closure-storage discipline (Arc on Shared, Rc on Local).
+    /// Used in place of a hand-rolled domain discriminator enum.
+    type EntryHeap<H: 'static>: Clone + 'static;
 }
 
 // ANCHOR_END: shape_capable
