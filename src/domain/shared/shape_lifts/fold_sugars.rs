@@ -11,12 +11,14 @@ use crate::ops::lift::shape::ShapeLift;
 // ── wrap_init / wrap_accumulate / wrap_finalize — compose-with-old ─────
 
 impl Shared {
+    // ANCHOR: shared_wrap_init_lift_body
     pub fn wrap_init_lift<N, H, R, W>(wrapper: W) -> ShapeLift<Shared, N, H, R, N, H, R>
     where
         N: Clone + 'static, H: Clone + 'static, R: Clone + 'static,
         W: Fn(&N, &dyn Fn(&N) -> H) -> H + Send + Sync + 'static,
     {
         let w = Arc::new(wrapper);
+        // init_mapper: (N → H) → (N → H). Curries the user's W with the prior init.
         let mi = move |old: Arc<dyn Fn(&N) -> H + Send + Sync>|
                    -> Arc<dyn Fn(&N) -> H + Send + Sync> {
             let w = w.clone();
@@ -28,6 +30,7 @@ impl Shared {
             Shared::identity_fin_mapper::<H, R>(),
         )
     }
+    // ANCHOR_END: shared_wrap_init_lift_body
 
     pub fn wrap_accumulate_lift<N, H, R, W>(wrapper: W) -> ShapeLift<Shared, N, H, R, N, H, R>
     where
