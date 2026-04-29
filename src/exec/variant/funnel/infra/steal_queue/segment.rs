@@ -1,6 +1,6 @@
-//! Segment<T> + SegmentTable<T>: lazily-allocated fixed-size blocks.
+//! `Segment<T>` + `SegmentTable<T>`: lazily-allocated fixed-size blocks.
 //!
-//! A SegmentTable maps monotonically-increasing positions to Slot<T>
+//! A `SegmentTable` maps monotonically-increasing positions to `Slot<T>`
 //! entries across a chain of fixed-size Segments. Segments are allocated
 //! lazily on first access and never freed until the table drops.
 //!

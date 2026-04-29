@@ -1,14 +1,14 @@
 //! Boxing domains — how closures inside Fold/Treeish are stored.
 //!
-//! Each domain is a marker type implementing [`Domain`], providing
-//! concrete Fold, Graph, and Grow types via GATs. Three built-in
-//! domains:
+//! Each domain is a marker type implementing the `Domain` trait,
+//! providing concrete Fold, Graph, and Grow types via GATs. Three
+//! built-in domains:
 //!
-//! | Domain | Storage | Clone | Send+Sync |
-//! |--------|---------|-------|-----------|
-//! | [`Shared`] | `Arc<dyn Fn + Send + Sync>` | yes | yes |
-//! | [`Local`] | `Rc<dyn Fn>` | yes | no |
-//! | [`Owned`] | `Box<dyn Fn>` | no | no |
+//! | Domain   | Storage                       | Clone | Send+Sync |
+//! |----------|-------------------------------|-------|-----------|
+//! | `Shared` | `Arc<dyn Fn + Send + Sync>`   | yes   | yes       |
+//! | `Local`  | `Rc<dyn Fn>`                  | yes   | no        |
+//! | `Owned`  | `Box<dyn Fn>`                 | no    | no        |
 
 #![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement
 

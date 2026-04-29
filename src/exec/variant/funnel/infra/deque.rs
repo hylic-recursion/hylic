@@ -1,4 +1,4 @@
-//! WorkerDeque<T>: typed Chase-Lev work-stealing deque.
+//! `WorkerDeque<T>`: typed Chase-Lev work-stealing deque.
 //!
 //! Owner: push to bottom (LIFO), pop from bottom (LIFO). Single-thread, no atomics.
 //! Stealers: steal from top (FIFO). CAS on top for contention resolution.
@@ -9,7 +9,7 @@
 //! Push/pop only touch the owner's line; steal only touches the stealer's
 //! line. No false sharing under concurrent push+steal.
 //!
-//! Buffer uses ManuallyDrop<T> to prevent double-free on speculative reads:
+//! Buffer uses `ManuallyDrop<T>` to prevent double-free on speculative reads:
 //! steal() and pop() read before the ownership CAS. On CAS failure, the
 //! ManuallyDrop wrapper ensures the speculative copy is NOT dropped — the
 //! winning thread takes ownership and drops it.

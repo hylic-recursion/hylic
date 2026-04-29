@@ -1,8 +1,8 @@
-//! ContArena<T>: growable bump-allocated slab for parent continuations.
+//! `ContArena<T>`: growable bump-allocated slab for parent continuations.
 //!
 //! Backed by SegmentedSlab: lazily-allocated 64-slot segments.
-//! Cont::Direct stores its parent continuation by ContIdx instead of Box.
-//! Eliminates the Box<Cont> allocation on every single-child node.
+//! `Cont::Direct` stores its parent continuation by ContIdx instead of Box.
+//! Eliminates the `Box<Cont>` allocation on every single-child node.
 //!
 //! Unlike Arena, ContArena uses `take()` (move-out) instead of `get()`
 //! (shared reference). Every alloc'd slot is take()n exactly once during

@@ -3,7 +3,7 @@
 //! bound on user-supplied closures, unlike the Arc-based shared
 //! Edgy).
 //!
-//! Treeish<N> = Edgy<N, N> implements TreeOps<N>, so executors
+//! `Treeish<N>` = `Edgy<N, N>` implements `TreeOps<N>`, so executors
 //! accept it (under Fused; not Funnel since Rc isn't Send+Sync).
 
 #![allow(missing_docs)] // implementation surface; items documented at the trait/type they implement

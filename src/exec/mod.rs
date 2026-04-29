@@ -22,8 +22,8 @@
 //! });
 //! ```
 
-/// Executor variants: [`variant::fused::Fused`] (sequential) and
-/// [`variant::funnel::Funnel`] (parallel).
+/// Executor variants: [`fused::Spec`] (sequential) and
+/// [`funnel::Spec`] (parallel).
 pub mod variant;
 
 pub use variant::fused;

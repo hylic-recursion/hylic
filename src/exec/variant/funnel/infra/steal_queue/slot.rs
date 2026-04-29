@@ -1,4 +1,4 @@
-//! Slot<T>: a single storage position in the StealQueue.
+//! `Slot<T>`: a single storage position in the StealQueue.
 //!
 //! Four states (AtomicU8):
 //!   EMPTY (0)     → not yet written (initial)

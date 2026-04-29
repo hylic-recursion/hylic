@@ -1,4 +1,4 @@
-//! Arena<T>: growable bump-allocated slab for ChainNodes.
+//! `Arena<T>`: growable bump-allocated slab for ChainNodes.
 //!
 //! Backed by SegmentedSlab: lazily-allocated 64-slot segments.
 //! `alloc(value)` writes to the next slot and returns an `ArenaIdx`

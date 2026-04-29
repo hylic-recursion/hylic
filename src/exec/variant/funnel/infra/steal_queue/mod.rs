@@ -1,4 +1,4 @@
-//! StealQueue<T>: segmented monotonic push+steal queue.
+//! `StealQueue<T>`: segmented monotonic push+steal queue.
 //!
 //! Safe API over unsafe_core. No pop. No resize. Monotonic indices.
 //!

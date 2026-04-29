@@ -1,4 +1,4 @@
-//! SegmentedSlab<T>: generic growable bump allocator with stable references.
+//! `SegmentedSlab<T>`: generic growable bump allocator with stable references.
 //!
 //! Lazily-allocated fixed-size segments. Segments are heap-allocated on
 //! first access via AtomicPtr CAS — one thread installs, losers free
@@ -8,8 +8,8 @@
 //! walk_cps recursion pattern where alloc() and get_ref() interleave
 //! with live references.
 //!
-//! Zero-cost wrapper target: Arena<T> and ContArena<T> are thin
-//! newtypes over SegmentedSlab<T> differing only in which operations
+//! Zero-cost wrapper target: `Arena<T>` and `ContArena<T>` are thin
+//! newtypes over `SegmentedSlab<T>` differing only in which operations
 //! they expose and their Drop behavior.
 
 use std::cell::UnsafeCell;
