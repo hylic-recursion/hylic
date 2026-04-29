@@ -102,8 +102,7 @@ where
 // ── ShareableLift — parallel executor capability ─────────
 
 /// Blanket marker for lifts that additionally satisfy the
-/// `Send + Sync` bounds required by parallel executors (`Funnel`,
-/// `ParLazy`, `ParEager`).
+/// `Send + Sync` bounds required by the parallel `Funnel` executor.
 pub trait ShareableLift<D, N, H, R>:
     PureLift<D, N, H, R> + Send + Sync
 where

@@ -26,9 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SeedExplainerResult::from(raw)`) — the standalone
   `from_lifted` associated function is removed.
 - **`ConstructFold` trait removed** along with its unsafe
-  `make_fold_unchecked`. ParLazy and ParEager migrate to safe
-  `Domain::make_fold`; the closures' Send+Sync auto-derive from
-  the wrapped `Fold<N, H, R>`.
+  `make_fold_unchecked`. Domain-generic fold construction now
+  goes through safe `Domain::make_fold`; closures' Send+Sync
+  auto-derive from the wrapped `Fold<N, H, R>`.
 
 ### Added
 

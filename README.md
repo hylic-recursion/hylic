@@ -23,9 +23,9 @@ usage reference; this README intentionally stays terse.
 Quick shortcuts (from the workspace root):
 
 ```
-make test              # every workspace crate's lib tests (306)
+make test              # every workspace crate's lib tests
 make docs-serve        # build and serve the docs book locally
-make bench-integration # opt-in ParLazy / ParEager benchmark matrix
+make bench-quick-light # quick parallel-executor comparison
 ```
 
 ## Prelude
