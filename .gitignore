@@ -1,7 +1,25 @@
-_bench-experiment/
-_bench-experiment/runs/
-Makefile-scripting/bench_report/__pycache__/
+# Build output
 target/
+
+# Library crate: do not track Cargo.lock
+Cargo.lock
+
+# Knowledge base, planning, scratch — never tracked in OSS publication
+KB/
+.plans/
+.scratch-notes/
+__Scratch__/
+__fixtures/
+_bench-experiment/
+doc/
+Makefile-scripting/
+notes.txt
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local repro tests (not for publication)
 tests/shared_after_pw_repro.rs
 tests/shared_diag.rs
 tests/shared_noop_repro.rs
