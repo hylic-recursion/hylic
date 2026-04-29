@@ -1,48 +1,40 @@
 # hylic
 
-Decomposed recursive tree computation. Separates what to compute
-(**Fold**) from the tree structure (**Treeish**) and how to execute
-(**Exec**). Each piece is independently definable, transformable,
-and composable.
-
-Three boxing domains — `Shared` (Arc, parallel-friendly), `Local`
-(Rc, single-threaded, non-`Send` captures), `Owned` (Box, one-shot)
-— select how closures are stored. A `Lift<D, N, H, R>` is the
-universal CPS transformer over `(Grow, Treeish, Fold)`.
-
-Pipeline typestates and their chainable sugars live in the sibling
-crate [`hylic-pipeline`](../hylic-pipeline/). `hylic` alone gives
-you the lift primitives + bare execution (`LiftBare::run_on`).
-
-## Documentation
-
-See the `hylic-docs` book (the `docs-build` / `docs-serve` targets
-in the workspace root `Makefile`). That book is the authoritative
-usage reference; this README intentionally stays terse.
-
-Quick shortcuts (from the workspace root):
-
-```
-make test              # every workspace crate's lib tests
-make docs-serve        # build and serve the docs book locally
-make bench-quick-light # quick parallel-executor comparison
-```
-
-## Prelude
+A Rust library for tree-shaped recursive computation. The
+recursion is split into three values: a `Fold` (what to compute
+at each node), a `Treeish` (how a node yields its children),
+and an `Executor` (how the recursion runs). You build them
+separately and hand them to the executor.
 
 ```rust
 use hylic::prelude::*;
+
+#[derive(Clone)]
+struct Dir { size: u64, children: Vec<Dir> }
+
+let fold  = fold(|d: &Dir| d.size,
+                 |heap: &mut u64, child: &u64| *heap += child,
+                 |h: &u64| *h);
+let graph = treeish(|d: &Dir| d.children.clone());
+
+let total = FUSED.run(&fold, &graph, &dir);                          // sequential
+let total = exec(funnel::Spec::default(4)).run(&fold, &graph, &dir); // parallel, same fold + graph
 ```
 
-brings: `Shared` + Fold/Edgy/Treeish constructors, `Exec` + `fused`
-/ `funnel` module aliases, every Lift atom (`Lift`, `IdentityLift`,
-`ComposedLift`, `ShapeLift`, `SeedLift`, `LiftBare`, capability
-markers, `SeedNode`), and common debug helpers (explainer,
-pretty-printers, vec-fold).
+Folds and graphs are independently transformable. The same
+fold runs unchanged over a flat adjacency list; only the graph
+changes.
 
-For pipeline typestates add:
+Documentation, an executor design deep-dive, an interactive
+benchmark viewer, and a worked-example cookbook:
+<https://hylic-recursion.github.io/hylic-docs/>.
 
-```rust
-use hylic_pipeline::prelude::*;   // re-exports hylic::prelude::*
-                                  // plus SeedPipeline, Stage2SugarsShared, etc.
-```
+A sibling crate,
+[`hylic-pipeline`](https://github.com/hylic-recursion/hylic-pipeline),
+adds a chainable typestate builder. Use it when you want
+`.wrap_init(...).zipmap(...)` ergonomics; depend on `hylic`
+alone otherwise.
+
+## License
+
+Licensed under the [MIT License](./LICENSE).
