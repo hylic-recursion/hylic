@@ -29,6 +29,19 @@ over a struct tree or a flat adjacency list by swapping the
 treeish; it composes with transforms (`map`, `contramap`,
 `filter`, `memoize`) without rewriting the closures.
 
+The parallel path is a bundled work-stealing engine called
+`Funnel`. Three compile-time policy axes (queue topology,
+accumulation strategy, wake policy) all monomorphise, so there
+is no runtime dispatch on strategy choice. On the published
+14-workload [Matrix benchmark](https://hylic-recursion.github.io/hylic-docs/cookbook/benchmarks.html#matrix),
+a `Funnel` variant wins 10 rows outright against handrolled
+Rayon and a scoped pool, and lands within a few percent of the
+winner on the rest. Funnel ships in the `hylic` crate itself —
+no extra dependency. The
+[`hylic-benchmark`](https://github.com/hylic-recursion/hylic-benchmark)
+sibling crate is the harness; results are published with the
+[docs site](https://hylic-recursion.github.io/hylic-docs/cookbook/benchmarks.html).
+
 ## Reading order for newcomers
 
 The book is the long-form orientation:
