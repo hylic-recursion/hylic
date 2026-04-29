@@ -44,5 +44,5 @@ For pipeline typestates add:
 
 ```rust
 use hylic_pipeline::prelude::*;   // re-exports hylic::prelude::*
-                                  // plus SeedPipeline, LiftedSugarsShared, etc.
+                                  // plus SeedPipeline, Stage2SugarsShared, etc.
 ```

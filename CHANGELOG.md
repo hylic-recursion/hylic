@@ -97,7 +97,7 @@ mirror files, `hylic-pipeline/src/sugars/{*_shared, *_local}.rs`
 mirror files, the triplet `Fold` struct across
 `domain/{shared,local,owned}`) were reviewed and explicitly
 accepted as documented debt in
-`hylic/KB/.plans/finishing-up/post-split-review/ACCEPTED-DEBT.md`
+`KB/hylic/legacy-plans/finishing-up/post-split-review/ACCEPTED-DEBT.md` (in the workspace root KB)
 (`e30675e`, `f20783e`). Unification would require
 `macro_rules!`, which the codebase declines; a trait-based
 approach cannot express the domain-conditional closure bounds
