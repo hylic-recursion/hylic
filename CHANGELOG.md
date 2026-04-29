@@ -42,10 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ShapeCapable::EntryHeap<H>` GAT** — domain-parametric storage for
   the `Fn() -> H` thunk consumed by `SeedLift` at EntryRoot init.
 
-## [1.0.0] — 2026-05 (pending release)
+## [0.8.0] — 2026-05 (pending release)
 
-The first stable release. This entry condenses the 0.x evolution
-into the ten load-bearing changes that shaped the 1.0 surface.
+The first tagged release. This entry condenses the early development
+into the ten load-bearing changes that shaped the v0.8 surface.
 
 ### Added
 
