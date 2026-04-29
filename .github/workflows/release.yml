@@ -1,0 +1,38 @@
+name: release
+
+# Tag-driven crates.io publish.
+#
+# To release a new version:
+#   1. bump `version =` in Cargo.toml
+#   2. update CHANGELOG.md
+#   3. commit + push to master
+#   4. tag with the matching version: `git tag v0.8.1 && git push --tags`
+# This workflow then verifies the tag matches Cargo.toml, runs a
+# packaging dry-run, and publishes to crates.io.
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  publish:
+    name: cargo publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: verify tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          cargo_version=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "tag v$tag does not match Cargo.toml version $cargo_version" >&2
+            exit 1
+          fi
+      - run: cargo publish --dry-run
+      - run: cargo publish
