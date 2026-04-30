@@ -1,12 +1,12 @@
 # hylic
 
-A Rust library for tree-shaped recursive computation. Where you'd otherwise reach for `fn rec(node) -> R { … }` — hand-write the recursion now, write a parallel version of it later, and write another variant when the node type changes shape — hylic asks for the three pieces generically and runs the recursion for you. The same logic, defined once, runs sequentially or in parallel by switching the executor; over a struct tree or a flat adjacency list by switching the graph; with derived result types, edge filters, or pruned subtrees by composing transforms — without rewriting the closures.
+A Rust library that decomposes tree-shaped recursive computation into three independent parts:
 
-The three pieces:
+- A **graph** that says how a node yields its children. Type: `Treeish<N>`, morally `N -> &[N]`.
+- A **fold** that says what to compute at each node. Type: `Fold<N, H, R>`. Three closures: `init: &N -> H` builds a per-node heap, `accumulate: &mut H, &R` folds each child's result into the heap, `finalize: &H -> R` produces the node's result.
+- An **executor** that drives the recursion. `FUSED` for sequential, `Funnel` for parallel work-stealing.
 
-- A **graph** says how a node yields its children — `Treeish<N>`, morally `&N → [N]`. Tree shape lives in the graph function, not the data: a struct tree, a flat adjacency list, or an external lookup all build the same `Treeish<N>`. Trees and DAGs both work; cycles need to be broken in the node type.
-- A **fold** says what to compute at each node — `Fold<N, H, R>`, three closures: `init: &N → H` builds a per-node heap, `accumulate: &mut H, &R` folds each child's result into the heap, `finalize: &H → R` produces the node's result.
-- An **executor** drives the recursion — `FUSED` for direct sequential calls, or `Funnel` for parallel work-stealing.
+Instead of writing a recursive function by hand, you build these three values and hand them to the executor. The fold doesn't know the graph. The graph doesn't know the fold. The executor connects them.
 
 ```rust
 use hylic::prelude::*;
@@ -20,20 +20,24 @@ let fold  = fold(|d: &Dir| d.size,
 let graph = treeish(|d: &Dir| d.children.clone());
 
 let total = FUSED.run(&fold, &graph, &dir);                          // sequential
-let total = exec(funnel::Spec::default(4)).run(&fold, &graph, &dir); // parallel — same fold, same graph
+let total = exec(funnel::Spec::default(4)).run(&fold, &graph, &dir); // parallel, same fold + graph
 ```
 
-The fold doesn't know what the graph looks like; the graph doesn't know what the fold computes; the executor connects them. That separation is the whole point. Switching to a flat adjacency list is a different `Treeish<usize>`. Switching to parallel is a different `Executor`. Deriving a new result type, dropping edges that don't matter, or caching shared subtrees is one of `map`, `contramap`, `filter`, `memoize` over the existing fold or graph — the original closures pass through unchanged.
+Express the logic once. The same fold runs sequentially or in parallel; only the executor swaps. It runs over a struct tree or a flat adjacency list; only the graph swaps. Need a different result type, edges filtered, subtrees pruned, shared subtrees memoized? Compose `map`, `contramap`, `filter`, `memoize` over the existing values. The original closures pass through unchanged.
 
-Parallelism comes in the same package. `Funnel` is a work-stealing engine with three compile-time policy axes — queue topology, accumulation strategy, wake — that all monomorphise; there is no runtime dispatch on strategy choice. On the published 14-workload [Matrix benchmark](https://hylic-recursion.github.io/hylic-docs/cookbook/benchmarks.html#matrix), a `Funnel` variant wins ten rows outright against handrolled Rayon and a scoped pool, and lands within a few percent of the winner on the rest. `Funnel` ships in this crate; no extra dependency.
+Tree shape lives in the graph function, not the data. A struct tree, a flat adjacency list, or an external lookup all build the same `Treeish<N>`. Trees and DAGs both work. Cycles need to be broken in the node type.
+
+## Parallel execution
+
+`Funnel` is a work-stealing engine bundled in this crate; no extra dependency. Three compile-time policy axes (queue topology, accumulation strategy, wake) all monomorphise, so there is no runtime dispatch on strategy choice. On the published 14-workload [Matrix benchmark](https://hylic-recursion.github.io/hylic-docs/cookbook/benchmarks.html#matrix), a `Funnel` variant wins ten rows outright against handrolled Rayon and a scoped pool, and lands within a few percent of the winner on the rest.
 
 ## Where to start
 
-The book at <https://hylic-recursion.github.io/hylic-docs> is the long-form orientation: a [quick start](https://hylic-recursion.github.io/hylic-docs/quickstart.html), the underlying decomposition explained in [the recursive pattern](https://hylic-recursion.github.io/hylic-docs/concepts/separation.html), the [Funnel deep-dive](https://hylic-recursion.github.io/hylic-docs/funnel/overview.html) with chapters on [queue topology](https://hylic-recursion.github.io/hylic-docs/funnel/queue_strategies.html), [accumulation](https://hylic-recursion.github.io/hylic-docs/funnel/accumulation.html), and [wake](https://hylic-recursion.github.io/hylic-docs/funnel/pool_dispatch.html), the [interactive benchmark viewer](https://hylic-recursion.github.io/hylic-docs/cookbook/benchmarks.html), and a [cookbook](https://hylic-recursion.github.io/hylic-docs/cookbook/fibonacci.html) of worked examples (filesystem summary, expression evaluation, module resolution, configuration inheritance, cycle detection, parallel execution).
+The book at <https://hylic-recursion.github.io/hylic-docs> is the long-form orientation. The [quick start](https://hylic-recursion.github.io/hylic-docs/quickstart.html) is a complete fold in three closures. [The recursive pattern](https://hylic-recursion.github.io/hylic-docs/concepts/separation.html) explains what fold, graph, and executor each contribute, and why they stay separate. The [Funnel deep-dive](https://hylic-recursion.github.io/hylic-docs/funnel/overview.html) covers the parallel engine, with chapters on [queue topology](https://hylic-recursion.github.io/hylic-docs/funnel/queue_strategies.html), [accumulation](https://hylic-recursion.github.io/hylic-docs/funnel/accumulation.html), and [wake](https://hylic-recursion.github.io/hylic-docs/funnel/pool_dispatch.html). The [interactive benchmark viewer](https://hylic-recursion.github.io/hylic-docs/cookbook/benchmarks.html) walks the 16-policy matrix; the [cookbook](https://hylic-recursion.github.io/hylic-docs/cookbook/fibonacci.html) collects worked examples (filesystem summary, expression evaluation, module resolution, configuration inheritance, cycle detection, parallel execution).
 
 ## Related crates
 
-[`hylic-pipeline`](https://github.com/hylic-recursion/hylic-pipeline) layers a chainable typestate builder on top of these primitives — `.wrap_init(...).zipmap(...).run(...)` instead of values composed by hand. Optional; `hylic` alone is the core. [`hylic-benchmark`](https://github.com/hylic-recursion/hylic-benchmark) is the Criterion harness behind the published numbers; [`hylic-docs`](https://github.com/hylic-recursion/hylic-docs) is the mdBook source for the documentation site. Neither is on crates.io.
+[`hylic-pipeline`](https://github.com/hylic-recursion/hylic-pipeline) layers a chainable typestate builder on top of these primitives, so you can write `.wrap_init(...).zipmap(...).run(...)` instead of composing values by hand. Optional; `hylic` alone is the core. [`hylic-benchmark`](https://github.com/hylic-recursion/hylic-benchmark) is the Criterion harness behind the published numbers. [`hylic-docs`](https://github.com/hylic-recursion/hylic-docs) is the mdBook source for the documentation site. Neither is on crates.io.
 
 ## License
 
