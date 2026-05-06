@@ -1,8 +1,7 @@
 .PHONY: hylic-check hylic-test hylic-test-parallel hylic-test-all \
        hylic-test-hylo hylic-test-hylo-correctness hylic-test-hylo-stress \
        hylic-test-hylo-interleaving hylic-test-hylo-lifts hylic-test-hylo-foldchain \
-       hylic-test-funnel hylic-test-funnel-correctness hylic-test-funnel-stress \
-       hylic-docs-build hylic-docs-serve
+       hylic-test-funnel hylic-test-funnel-correctness hylic-test-funnel-stress
 
 # ── Quick checks ────────────────────────────────────────────
 hylic-check:
@@ -45,11 +44,3 @@ hylic-test-funnel-correctness:
 
 hylic-test-funnel-stress:
 	@cargo test --lib -- --test-threads=1 --nocapture hylo_funnel::tests::stress
-
-# ── Docs ────────────────────────────────────────────────────
-hylic-docs-build:
-	@bash ../hylic-docs/Makefile-scripting/build-book.sh
-
-hylic-docs-serve:
-	@fuser -k 8321/tcp 2>/dev/null || true
-	@cd ../hylic-docs/book && mdbook serve -p 8321
